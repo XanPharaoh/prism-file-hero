@@ -1,0 +1,351 @@
+# Prism File Hero — Complete Architectural Refactor Directive
+
+You are an Elite Principal Software Engineer specializing in React 18, TypeScript (strict mode), Python FastAPI, Cloudflare Workers (D1 + KV), Supabase, and Tauri v2. You are performing a comprehensive architectural refactor of "Prism File Hero", a production PDF processing SPA that also runs as a Tauri v2 desktop application.
+
+## Current State (Problems to Fix)
+
+The codebase has critical flaws:
+1. **God Component**: `App.tsx` is 850+ lines with 18 `useState` hooks, a 150-line `switch(selectedTool)` statement, and scattered `isTauriDesktop` checks — violating SRP and OCP
+2. **Main Thread Blocking**: `preprocessCanvas` loops over millions of pixels synchronously, freezing the UI 200-500ms per page
+3. **Sequential AI Batching**: `processWithAI` awaits each batch before starting the next — 10 sequential round-trips for a 30-page document
+4. **Broken Encryption**: `protectPdf` uses RC4 128-bit (cryptographically broken since 2001)
+5. **XSS-Vulnerable BYOK**: API keys stored in `localStorage` are exposed to any XSS vulnerability
+6. **Fragile FNB Extraction**: Balance-progression heuristic flips all subsequent transaction signs if a single row has an unrecorded fee
+7. **LLM Arithmetic**: Prompts ask LLMs to do math verification — LLMs are notoriously bad at arithmetic
+8. **Race Conditions**: Usage tracking in the Worker does read-then-write on D1, allowing free-tier limit bypass
+9. **Memory Leaks**: `URL.createObjectURL` calls without cleanup in multiple components
+10. **Hostile UX**: Ledger Guard uses a full-screen blur overlay blocking users from their own data
+11. **Loose Typing**: Pervasive use of `any` throughout service layer
+
+## Target Architecture
+
+prism-file-hero/
+├── App.tsx                           # <250 lines, clean
+├── types.ts
+├── src/
+│   ├── registry/toolRegistry.ts      # Tool registry pattern (Strategy Pattern)
+│   ├── store/appStore.ts             # Zustand store (all 18 state slices)
+│   ├── providers/                    # File system abstraction
+│   │   ├── FileSystemProvider.ts
+│   │   ├── TauriFileSystemProvider.ts
+│   │   └── WebFileSystemProvider.ts
+│   ├── components/
+│   │   ├── ExtractionReview.tsx      # Non-blocking Ledger Guard banner
+│   │   ├── HistoryDashboard.tsx
+│   │   └── ...
+│   ├── hooks/
+│   │   └── useExtractionVerification.ts
+│   └── utils/
+│       └── useManagedObjectUrls.ts   # Memory leak prevention
+├── services/
+│   ├── pdfService.ts                 # Web Worker integration, AES-256 delegation
+│   ├── geminiService.ts              # p-limit concurrency, BYOK proxy (no localStorage)
+│   ├── fnbExtractService.ts          # Deterministic, no balance-progression
+│   ├── hy3VerifyService.ts           # TypeScript client for Python proxy
+│   ├── reconciliationService.ts      # Strict types
+│   ├── documentService.ts            # Strict types
+│   └── excelService.ts               # Strict types
+├── workers/
+│   └── preprocess.worker.ts          # Canvas preprocessing off-main-thread
+├── worker/                           # Cloudflare Worker
+│   ├── src/
+│   │   ├── index.ts                  # /api/encrypt, /api/proxy-ai, /api/byok/save, atomic D1
+│   │   ├── db.ts                     # INSERT ON CONFLICT DO UPDATE
+│   │   ├── encryption.ts             # AES-256-GCM for BYOK keys
+│   │   └── utils.ts                  # Base64/hex helpers
+│   └── migrations/
+│       └── 004_unique_usage_index.sql
+├── hy3-verifier/                     # Python FastAPI microservice
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── README.md
+│   └── tests/
+├── migrations/
+│   └── rls_document_history.sql
+└── tests/                            # Vitest test suite
+
+
+## Global Rules — Apply to ALL Code You Write
+
+1. **Strict TypeScript**: `noImplicitAny: true`, `strictNullChecks: true`, `noUncheckedIndexedAccess: true`, `exactOptionalPropertyTypes: true`. Ban `any` except at the absolute boundary of external libraries (e.g., `pdfjs-dist` internals).
+2. **Complete Implementations**: No `// ... rest of code`, no `// TODO`, no `// implement logic here`. Every function must be fully implemented.
+3. **Error Handling**: Every async function must have try/catch with meaningful error messages. Every fetch must check `response.ok`.
+4. **Cleanup**: Every `useEffect` creating resources (object URLs, workers, subscriptions) must return a cleanup function.
+5. **Tests**: For each refactored module, provide a corresponding `.test.ts` file using Vitest.
+6. **Tauri v2 APIs**: Use `@tauri-apps/plugin-dialog` (`open`, `save`) and `@tauri-apps/plugin-fs` (`readFile`, `writeFile`). Do NOT use legacy `@tauri-apps/api` invoke patterns.
+7. **Production-Ready**: Dockerfiles must use multi-stage builds with non-root users. FastAPI must have CORS middleware.
+8. **Code Splitting**: Tool handlers in the registry must use dynamic `import()` to enable Vite code splitting.
+
+## Environment Variables
+
+### Frontend (.env)
+
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+VITE_WORKER_URL=https://your-worker.workers.dev
+VITE_HY3_VERIFIER_URL=https://your-hy3-verifier.fly.dev
+
+
+### Cloudflare Worker (wrangler.toml)
+
+SUPABASE_JWT_SECRET=...
+SUPABASE_JWK_PUBLIC_KEY=...
+BYOK_ENCRYPTION_SECRET=...   # 32-byte hex for AES-256-GCM
+HY3_VERIFIER_URL=...
+GROQ_API_KEY=...
+
+
+### Python Microservice (.env)
+
+HF_TOKEN=...
+ALLOWED_ORIGIN=https://your-worker.workers.dev
+
+
+## Required Package Installations
+
+```bash
+# Frontend
+npm install zustand p-limit
+npm install -D @types/web-worker
+
+# Cloudflare Worker
+npm install @supabase/supabase-js
+
+# Python
+pip install fastapi uvicorn gradio_client pydantic python-multipart httpx
+
+SECTION 1: Architectural Refactoring — Slaying the God Component
+Context
+App.tsx is 850+ lines with 18 useState hooks, platform branching (isTauriDesktop), and a 150-line switch(selectedTool) statement. This violates SRP and OCP.
+Deliverables
+1.1 src/registry/toolRegistry.ts — Tool Registry Pattern
+
+import type { ToolID, ToolCategory } from '../types';
+
+export interface ToolExecutionPayload {
+  files: File[];
+  options: Record<string, any>;
+  signal?: AbortSignal;
+  onProgress?: (percent: number) => void;
+}
+
+export interface ToolResult {
+  blob?: Blob;
+  filename?: string;
+  data?: any;
+  metadata?: Record<string, any>;
+}
+
+export interface ToolHandler {
+  id: ToolID;
+  category: ToolCategory;
+  name: string;
+  description: string;
+  icon: string;
+  color: string;
+  requiresAuth: boolean;
+  requiresApiKey: boolean;
+  allowedFileTypes: string[];
+  maxFiles: number; // 0 = unlimited
+  supportsBatchProcessing: boolean;
+  handler: (payload: ToolExecutionPayload) => Promise<ToolResult>;
+}
+
+export const TOOL_REGISTRY: ToolHandler[] = [
+  {
+    id: 'merge',
+    category: 'Organize',
+    name: 'Merge PDF',
+    description: 'Combine multiple PDFs into one document.',
+    icon: 'Merge',
+    color: 'bg-blue-500',
+    requiresAuth: false,
+    requiresApiKey: false,
+    allowedFileTypes: ['application/pdf'],
+    maxFiles: 0,
+    supportsBatchProcessing: true,
+    handler: async ({ files, options, signal }) => {
+      const { mergePdfs } = await import('../services/pdfService');
+      const blob = await mergePdfs(files, options?.mergePages);
+      return { blob, filename: `Merged_${Date.now()}.pdf` };
+    },
+  },
+  // ... implement ALL 15 tools: merge, split, compress, pdf-to-word, pdf-to-excel,
+  // pdf-to-jpg, jpg-to-pdf, protect, redact, watermark, ocr, compare, rotate,
+  // ocr-to-pdf, ocr-to-md, grammar-check
+  // Each handler must dynamically import its service to enable code splitting
+];
+
+export function getToolById(id: ToolID): ToolHandler | undefined {
+  return TOOL_REGISTRY.find(t => t.id === id);
+}
+
+export function getToolsByCategory(category: ToolCategory): ToolHandler[] {
+  return TOOL_REGISTRY.filter(t => t.category === category);
+}
+
+1.2 src/store/appStore.ts — Zustand Store
+Implement a Zustand store containing ALL 18 state slices currently in App.tsx:
+
+import { create } from 'zustand';
+import type { User } from '@supabase/supabase-js';
+import type { ToolID, ToolCategory, BatchItem, ProcessStatus } from '../types';
+
+export interface Toast {
+  id: number;
+  type: 'success' | 'error' | 'warning' | 'info';
+  message: string;
+  duration?: number;
+}
+
+interface AppStore {
+  // Tool state
+  selectedTool: ToolID | null;
+  activeCategory: ToolCategory;
+  searchQuery: string;
+  setSelectedTool: (tool: ToolID | null) => void;
+  setActiveCategory: (cat: ToolCategory) => void;
+  setSearchQuery: (query: string) => void;
+
+  // Batch queue
+  batch: BatchItem[];
+  addFiles: (files: File[]) => void;
+  removeItem: (id: string) => void;
+  clearBatch: () => void;
+  updateItemStatus: (id: string, status: ProcessStatus, error?: string | null, resultBlob?: Blob | null) => void;
+
+  // Processing
+  isProcessing: boolean;
+  setIsProcessing: (v: boolean) => void;
+
+  // Auth
+  user: User | null;
+  setUser: (u: User | null) => void;
+  hasApiKey: boolean;
+  setHasApiKey: (v: boolean) => void;
+  isPremium: boolean;
+  setIsPremium: (v: boolean) => void;
+
+  // UI
+  showAuthModal: boolean;
+  setShowAuthModal: (v: boolean) => void;
+  showUpgradeCTA: boolean;
+  setShowUpgradeCTA: (v: boolean) => void;
+  showHistory: boolean;
+  setShowHistory: (v: boolean) => void;
+  isDragging: boolean;
+  setIsDragging: (v: boolean) => void;
+  isMobileMenuOpen: boolean;
+  setIsMobileMenuOpen: (v: boolean) => void;
+
+  // Extraction review
+  extractedTransactions: any[];
+  currentPdfUrl: string | null;
+  setExtractedTransactions: (txs: any[], pdfUrl?: string) => void;
+
+  // Toasts
+  toasts: Toast[];
+  addToast: (toast: Omit<Toast, 'id'>) => void;
+  removeToast: (id: number) => void;
+}
+
+export const useAppStore = create<AppStore>((set, get) => ({
+  // ... implement all state and actions
+  // addToast should auto-remove after duration (default 4000ms)
+  // clearBatch should revoke any object URLs in batch items
+}));
+
+1.3 src/providers/FileSystemProvider.ts — Abstract Provider
+
+import type { ToolID } from '../types';
+
+export interface FileSystemProvider {
+  pickFiles(toolId: ToolID, allowedTypes: string[], maxFiles: number): Promise<File[]>;
+  saveBlob(blob: Blob, filename: string): Promise<void>;
+  readFileAsArrayBuffer(file: File): Promise<ArrayBuffer>;
+}
+
+export function isTauriEnvironment(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+1.4 src/providers/TauriFileSystemProvider.ts
+Use Tauri v2 APIs (@tauri-apps/plugin-dialog, @tauri-apps/plugin-fs):
+
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { readFile, writeFile } from '@tauri-apps/plugin-fs';
+
+export class TauriFileSystemProvider implements FileSystemProvider {
+  async pickFiles(toolId: ToolID, allowedTypes: string[], maxFiles: number): Promise<File[]> {
+    const extensions = allowedTypes.map(t => t.split('/')[1]);
+    const selected = await open({
+      multiple: maxFiles === 0 || maxFiles > 1,
+      filters: [{ name: 'Files', extensions }],
+    });
+    if (!selected) return [];
+    const paths = Array.isArray(selected) ? selected : [selected];
+    // Convert paths to File objects by reading bytes
+    // ...
+  }
+
+  async saveBlob(blob: Blob, filename: string): Promise<void> {
+    const path = await save({ defaultPath: filename });
+    if (!path) return;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    await writeFile(path, bytes);
+  }
+}
+
+1.5 src/providers/WebFileSystemProvider.ts
+
+
+export class WebFileSystemProvider implements FileSystemProvider {
+  async pickFiles(toolId: ToolID, allowedTypes: string[], maxFiles: number): Promise<File[]> {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = allowedTypes.join(',');
+      input.multiple = maxFiles === 0 || maxFiles > 1;
+      input.onchange = () => {
+        const files = Array.from(input.files || []);
+        resolve(maxFiles > 0 ? files.slice(0, maxFiles) : files);
+      };
+      input.click();
+    });
+  }
+
+  async saveBlob(blob: Blob, filename: string): Promise<void> {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    requestAnimationFrame(() => {
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  }
+}
+
+1.6 App.tsx — Complete Rewrite (<250 lines)
+
+The new App.tsx must:
+
+    Import TOOL_REGISTRY and useAppStore
+    Use the FileSystemProvider context for all file I/O
+    Map over TOOL_REGISTRY for the tool grid (no hardcoded TOOLS array)
+    Delegate execution to the registry: const tool = getToolById(selectedTool); await tool.handler(payload);
+    Remove ALL 18 useState declarations (they're in the store)
+    Remove ALL inline switch statements
+    Remove ALL platform branching (it's in the provider)
+    Keep only: layout, routing between views (main/review/history), and provider initialization
+
+1.7 Tests
+
+    tests/toolRegistry.test.ts — Verify all 15 tools are registered with valid handlers
+    tests/appStore.test.ts — Verify state mutations, toast auto-removal, batch operations
+    tests/fileSystemProvider.test.ts — Verify provider selection logic
+
+
+
+

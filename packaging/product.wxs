@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package
+      Name="DocSuiteKit"
+      Version="1.0.0"
+      Manufacturer="DocSuiteKit Project"
+      UpgradeCode="{637B8B1A-8E61-4545-9333-72C9F8E9A7B1}"
+      Language="1033"
+      Codepage="1252"
+      Compressed="yes">
+
+    <MajorUpgrade
+        DowngradeErrorMessage="A newer version of DocSuiteKit is already installed."
+        AllowSameVersionUpgrades="no"
+        Schedule="afterInstallInitialize" />
+
+    <MediaTemplate EmbedCab="yes" MaximumUncompressedMediaSize="500" />
+
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <WixVariable Id="WixUILicenseRtf"    Value="packaging\License.rtf" />
+    <WixVariable Id="WixUIBannerBmp"     Value="packaging\Banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp"     Value="packaging\Dialog.bmp" />
+
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="DocSuiteKit" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuFolder" Name="DocSuiteKit" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Component Id="StartMenuShortcut" Directory="AppMenuFolder" Guid="*">
+      <Shortcut
+          Id="StartMenuShortcutEntry"
+          Name="DocSuiteKit"
+          Description="Zero-cost offline document processing suite"
+          Target="[INSTALLFOLDER]DocSuiteKit.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon" />
+      <Shortcut
+          Id="ModelDownloaderShortcut"
+          Name="DocSuiteKit — Download AI Models"
+          Description="Download local AI models for document verification"
+          Target="[INSTALLFOLDER]DocSuiteKit.exe"
+          Arguments="models"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon" />
+      <RemoveFolder Id="CleanAppMenuFolder" Directory="AppMenuFolder" On="uninstall" />
+      <RegistryValue
+          Root="HKCU"
+          Key="Software\DocSuiteKit"
+          Name="StartMenuInstalled"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+    </Component>
+
+    <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="*">
+      <Shortcut
+          Id="DesktopShortcutEntry"
+          Name="DocSuiteKit"
+          Description="Zero-cost offline document processing suite"
+          Target="[INSTALLFOLDER]DocSuiteKit.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon" />
+      <RemoveFolder Id="CleanDesktopFolder" Directory="DesktopFolder" On="uninstall" />
+      <RegistryValue
+          Root="HKCU"
+          Key="Software\DocSuiteKit"
+          Name="DesktopInstalled"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+    </Component>
+
+    <Component Id="RegistryMetadata" Directory="INSTALLFOLDER" Guid="*">
+      <RegistryKey
+          Root="HKLM"
+          Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\DocSuiteKit">
+        <RegistryValue Name="DisplayName"     Type="string"  Value="DocSuiteKit" />
+        <RegistryValue Name="Publisher"       Type="string"  Value="DocSuiteKit Project" />
+        <RegistryValue Name="DisplayVersion"  Type="string"  Value="1.0.0" />
+        <RegistryValue Name="URLInfoAbout"    Type="string"  Value="https://github.com/DocSuiteKit/docsuitekit" />
+        <RegistryValue Name="InstallLocation" Type="string"  Value="[INSTALLFOLDER]" />
+        <RegistryValue Name="NoModify"        Type="integer" Value="1" />
+        <RegistryValue Name="Installed"       Type="integer" Value="1" KeyPath="yes" />
+      </RegistryKey>
+    </Component>
+
+    <Icon Id="AppIcon" SourceFile="assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <Feature Id="MainFeature" Title="DocSuiteKit Core" Level="1"
+             Description="Core document processing application and all engines.">
+      <ComponentGroupRef Id="MainPayload" />
+      <ComponentRef Id="RegistryMetadata" />
+    </Feature>
+
+    <Feature Id="ShortcutFeature" Title="Shortcuts" Level="1"
+             Description="Start Menu and Desktop shortcuts.">
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+
+  </Package>
+</Wix>

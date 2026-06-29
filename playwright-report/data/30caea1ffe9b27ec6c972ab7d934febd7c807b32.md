@@ -1,0 +1,79 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - navigation [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e8]
+        - generic [ref=e12]:
+          - generic [ref=e13]: Prism Hero
+          - generic [ref=e14]: PDF Engine
+      - generic [ref=e15]:
+        - paragraph [ref=e16]: Categories
+        - button "All" [ref=e17]:
+          - generic [ref=e18]:
+            - img [ref=e19]
+            - text: All
+        - button "Organize" [ref=e21]:
+          - generic [ref=e22]:
+            - img [ref=e23]
+            - text: Organize
+        - button "Optimize" [ref=e29]:
+          - generic [ref=e30]:
+            - img [ref=e31]
+            - text: Optimize
+        - button "Convert" [ref=e33]:
+          - generic [ref=e34]:
+            - img [ref=e35]
+            - text: Convert
+        - button "Security" [ref=e39]:
+          - generic [ref=e40]:
+            - img [ref=e41]
+            - text: Security
+        - button "AI Labs" [ref=e44]:
+          - generic [ref=e45]:
+            - img [ref=e46]
+            - text: AI Labs
+      - generic [ref=e49]:
+        - img [ref=e51]
+        - generic [ref=e54]:
+          - paragraph [ref=e55]: PDF to Excel
+          - paragraph [ref=e56]: Active Agent
+      - generic [ref=e58]:
+        - img [ref=e60]
+        - generic [ref=e63]: Secure Protocol
+  - main [ref=e64]:
+    - generic [ref=e65]:
+      - generic [ref=e66]:
+        - img [ref=e67]
+        - textbox "Search PDF toolkit..." [ref=e70]
+      - button "Connection Required - Click to Authenticate" [ref=e73] [cursor=pointer]:
+        - img [ref=e74]
+    - generic [ref=e80]:
+      - generic [ref=e81]:
+        - button "Back" [ref=e82]:
+          - img [ref=e83]
+          - text: Back
+        - generic [ref=e85]:
+          - img [ref=e86]
+          - text: Convert Workflow
+      - generic [ref=e89]:
+        - img [ref=e91]
+        - heading "PDF to Excel" [level=1] [ref=e94]
+        - paragraph [ref=e95]: Intelligent table extraction to XLSX from scans or digital files.
+      - generic [ref=e96]:
+        - img [ref=e98]
+        - heading "Cloud Authentication Required" [level=3] [ref=e102]
+        - paragraph [ref=e103]: To use advanced AI modules, you must select a processing project. This ensures your documents are handled in a secure, localized instance.
+        - button "Verify Access Key" [ref=e104]
+        - link "Billing Documentation" [ref=e105] [cursor=pointer]:
+          - /url: https://ai.google.dev/gemini-api/docs/billing
+      - generic [ref=e108] [cursor=pointer]:
+        - img [ref=e110]
+        - heading "Deployment Sector" [level=3] [ref=e111]
+        - paragraph [ref=e112]: Supports digital & scanned PDF assets
+        - generic [ref=e113]:
+          - img [ref=e114]
+          - text: Select Files
+```

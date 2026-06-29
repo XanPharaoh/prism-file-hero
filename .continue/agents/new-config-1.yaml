@@ -1,0 +1,7 @@
+{
+  "title": "Kaggle Qwen Coder",
+  "provider": "openai",
+  "model": "qwen2.5-coder-32b-instruct",
+  "apiBase": "https://cylindromatous-deloris-overgrossly.ngrok-free.dev/v1",
+  "apiKey": "not-needed"
+}

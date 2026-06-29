@@ -1,0 +1,16 @@
+{
+    "name": "zenith",
+    "version": "1.0.0",
+    "description": "Zero-Error Nexus for atomic build-verify tasks.",
+    "roles": [
+        "Atomic Task Decomposer",
+        "Isolated Build-Verify Execution",
+        "Live Code Reviewer"
+    ],
+    "capabilities": [
+        "atomic_execution",
+        "verification_loops",
+        "real_time_review"
+    ],
+    "entry": "agent.ts"
+}

@@ -1,0 +1,55 @@
+# Core PDF manipulation
+PyMuPDF>=1.24.0
+pypdf>=4.0.0
+
+# Security and signatures
+pyhanko>=0.21.0
+pyhanko-certvalidator>=0.26.0
+
+# Repair and compression (external binaries: qpdf, Ghostscript)
+# No pip packages needed — invoked via subprocess
+
+# Redaction
+pdf-redactor>=0.1.0
+pdfrw>=0.4
+
+# Comparison
+scikit-image>=0.22.0          # SSIM via skimage.metrics (NOT OpenCV)
+Pillow>=10.0.0
+
+# Office conversion (external binary: LibreOffice portable)
+# No pip packages needed for LibreOffice
+
+# HTML to PDF
+xhtml2pdf>=0.2.16
+WeasyPrint>=62.0               # Fallback for complex CSS
+
+# PDF to Word
+docling>=2.0.0
+pdf2docx>=0.5.8                # Fallback for pdf_to_word
+
+# PDF to Excel
+pdfplumber>=0.11.0
+camelot-py[cv]>=0.11.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+
+# PDF to PPTX
+python-pptx>=0.6.23
+pdf2pptx>=0.1.0
+
+# OCR
+ocrmypdf>=16.0.0               # Requires Tesseract binary in PATH/env
+
+# Scanner
+pywin32>=306                   # win32com.client for WIA
+
+# Translation
+pdf2zh>=1.0.0                  # PDFMathTranslate CLI wrapper
+
+# Verification
+ollama>=0.2.0
+numpy>=1.26.0
+
+# Packaging
+pyinstaller>=6.0.0

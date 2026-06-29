@@ -1,0 +1,28 @@
+{
+    "mcpServers": {
+        "prism-agents": {
+            "type": "local",
+            "registryPath": ".agent/agents-registry.json",
+            "agentsPath": ".agent/agents",
+            "skillsPath": ".agent/skills",
+            "workflowsPath": ".agent/workflows"
+        },
+        "context7": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@upstash/context7-mcp",
+                "--api-key",
+                "YOUR_API_KEY"
+            ]
+        },
+        "shadcn": {
+            "command": "npx",
+            "args": [
+                "shadcn@latest",
+                "mcp"
+            ]
+        }
+    }
+}
+

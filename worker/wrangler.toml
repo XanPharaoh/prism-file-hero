@@ -1,0 +1,14 @@
+name = "prism-worker"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ALLOWED_ORIGIN = "https://prismfilehero.com"
+SUPABASE_URL = "https://vejdrvnymmowvjxleefm.supabase.co"
+
+# SECURITY: Secrets must NOT be in this file — use: cd worker && npx wrangler secret put <KEY_NAME>
+# Required secrets:
+#   wrangler secret put NVIDIA_API_KEY
+#   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+
