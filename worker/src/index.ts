@@ -59,9 +59,28 @@ function securityHeaders(): Record<string, string> {
   };
 }
 
+function isOriginAllowed(origin: string | null): boolean {
+  if (!origin) return false;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  
+  // Allow localhost with any port
+  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return true;
+  if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return true;
+  
+  // Allow local network IP addresses (192.168.x.x, 10.x.x.x, 172.16-31.x.x) with any port
+  if (/^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin)) return true;
+  if (/^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin)) return true;
+  if (/^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin)) return true;
+  
+  // Allow Cloudflare Pages preview deployments
+  if (/^https:\/\/([a-zA-Z0-9-]+\.)?prism-file-hero\.pages\.dev$/.test(origin)) return true;
+  
+  return false;
+}
+
 /** Strict CORS: only return ACAO header for known origins, block unknown origins for non-OPTIONS */
 function corsHeaders(origin: string | null): { cors: HeadersInit; isAllowed: boolean } {
-  const isAllowed = origin !== null && ALLOWED_ORIGINS.includes(origin);
+  const isAllowed = origin !== null && isOriginAllowed(origin);
   const headers: Record<string, string> = {
     ...securityHeaders(),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -372,6 +391,66 @@ export default {
           status: 200,
           headers: { ...cors as Record<string, string>, 'Content-Type': 'application/json' },
         });
+      }
+
+      // --- POST /api/usage/report ---
+      if (url.pathname === '/api/usage/report' && request.method === 'POST') {
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors });
+        }
+        if (!body.toolId || !body.status) {
+          return Response.json({ error: 'toolId and status required' }, { status: 400, headers: cors });
+        }
+        let userId: string | null = null;
+        const authHeader = request.headers.get('Authorization');
+        if (authHeader?.startsWith('Bearer ')) {
+          const payload = await verifyJWT(authHeader.slice(7), env.SUPABASE_JWT_SECRET);
+          userId = payload?.sub ?? null;
+        }
+        const clientIp = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || 'unknown';
+        try {
+          const { reportAndSummarize } = await import('./usageTracker');
+          const summary = await reportAndSummarize(env as any, userId, clientIp, {
+            toolId: body.toolId,
+            pagesProcessed: body.pagesProcessed ?? 1,
+            fileSizeBytes: body.fileSizeBytes ?? 0,
+            fileName: body.fileName ?? 'unknown',
+            status: body.status,
+            error: body.error,
+          });
+          return Response.json(summary, {
+            status: 200,
+            headers: { ...(cors as Record<string, string>), 'Content-Type': 'application/json' },
+          });
+        } catch (err: any) {
+          console.error('[usage/report] error:', err);
+          return Response.json({ error: 'Failed to record usage' }, { status: 500, headers: cors });
+        }
+      }
+
+      // --- GET /api/usage/summary ---
+      if (url.pathname === '/api/usage/summary' && request.method === 'GET') {
+        let userId: string | null = null;
+        const authHeader = request.headers.get('Authorization');
+        if (authHeader?.startsWith('Bearer ')) {
+          const payload = await verifyJWT(authHeader.slice(7), env.SUPABASE_JWT_SECRET);
+          userId = payload?.sub ?? null;
+        }
+        const clientIp = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || 'unknown';
+        try {
+          const { getUsageSummary } = await import('./usageTracker');
+          const summary = await getUsageSummary(env as any, userId, clientIp);
+          return Response.json(summary, {
+            status: 200,
+            headers: { ...(cors as Record<string, string>), 'Content-Type': 'application/json' },
+          });
+        } catch (err: any) {
+          console.error('[usage/summary] error:', err);
+          return Response.json({ error: 'Failed to fetch summary' }, { status: 500, headers: cors });
+        }
       }
 
       return Response.json({ error: 'Not found' }, { status: 404, headers: cors });
