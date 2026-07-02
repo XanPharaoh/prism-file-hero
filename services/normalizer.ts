@@ -107,6 +107,8 @@ export function normalizeRow(
   const debitStr = getFieldValue(row, 'debit', context.columnMapping);
   const creditStr = getFieldValue(row, 'credit', context.columnMapping);
   const balanceStr = getFieldValue(row, 'balance', context.columnMapping);
+  const debitKey = context.columnMapping['debit'] !== undefined;
+  const creditKey = context.columnMapping['credit'] !== undefined;
 
   // Parse date
   const parsed = parseDate(dateStr);
@@ -139,8 +141,12 @@ export function normalizeRow(
   return {
     date: dateISO,
     description: normalizedDesc,
-    debit: debit !== null && debit < 0 ? Math.abs(debit) : debit,
-    credit: credit !== null && credit > 0 ? credit : null,
+    // Debit: positive value representing money OUT.
+    // If parsed signed value is negative it's a debit; if column header says debit, use absolute value.
+    debit: debit !== null ? (debit < 0 ? Math.abs(debit) : (debitKey ? Math.abs(debit) : null)) : null,
+    // Credit: positive value representing money IN.
+    // Only populate when we have positive signed value or an explicit credit column header.
+    credit: credit !== null ? (credit > 0 ? credit : (creditKey ? Math.abs(credit) : null)) : null,
     balance,
     amount: debit !== null ? Math.abs(debit) : credit,
     currency: context.bankPattern.currencySymbol,

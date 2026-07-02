@@ -6,7 +6,12 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Provided by the environment, never committed: a provider credential is not test data.
+const GROQ_API_KEY = process.env.GROQ_API_KEY ?? '';
+
 test.describe('Passive Training UX Flow', () => {
+
+    test.skip(!GROQ_API_KEY, 'GROQ_API_KEY is not set — the cloud-auth entry flow cannot be exercised');
 
     test('Simulate complete A/B user flow from upload to column mapping to automated learning', async ({ page }) => {
         // 1. Setup - Open app and set API key
@@ -15,7 +20,7 @@ test.describe('Passive Training UX Flow', () => {
         // Check if API key is requested
         const apiKeyOverlay = page.locator('text=Cloud Authentication Required');
         if (await apiKeyOverlay.isVisible()) {
-            await page.fill('input[placeholder="gsk_..."]', process.env.VITE_GROQ_API_KEY || 'gsk_placeholder');
+            await page.fill('input[placeholder="gsk_..."]', GROQ_API_KEY);
             await page.click('button:has-text("Connect to Security Cloud")');
         }
 
