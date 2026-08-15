@@ -174,6 +174,9 @@ const BANK_PATTERNS: Record<string, BankPattern> = {
       /Capitec/i,
       /Transaction History/i,
       /Global One/i,
+      /Business Account Statement/i,
+      /Capitec Business Account/i,
+      /Capitec Bank Limited/i,
     ],
     footerPatterns: [
       /Capitec Bank is an authorised/i,
@@ -181,10 +184,11 @@ const BANK_PATTERNS: Record<string, BankPattern> = {
       /Page \d+ of \d+/i,
       /Total Debits/i,
       /Total Credits/i,
+      /Total fees/i,
     ],
-    columnHints: ['Date', 'Transaction', 'Debit', 'Credit', 'Balance'],
+    columnHints: ['Date', 'Description', 'Reference', 'Money in', 'Money out', 'Fees', 'Balance', 'Post Date', 'Trans. Date', 'Amount'],
     balanceIndicators: ['Balance', 'Bal'],
-    dateFormat: 'DD MMM YYYY',
+    dateFormat: 'DD/MM/YYYY',
     currencySymbol: 'R',
     decimalSeparator: '.',
     thousandsSeparator: ',',
@@ -297,45 +301,74 @@ const BANK_PATTERNS: Record<string, BankPattern> = {
  * @returns DetectionResult with bank info and confidence
  */
 export function detectBank(text: string): DetectionResult {
+  const brandKeywords: Array<{ code: string; name: string; pattern: RegExp }> = [
+    { code: 'CAPITEC_SA', name: 'Capitec Bank South Africa', pattern: /\bCapitec\b/i },
+    { code: 'FNB_SA', name: 'FNB South Africa', pattern: /First\s+National\s+Bank|\bFNB\b/i },
+    { code: 'NEDBANK_SA', name: 'Nedbank South Africa', pattern: /\bNedbank\b/i },
+    { code: 'ABSA_SA', name: 'ABSA South Africa', pattern: /\bABSA\b/i },
+    { code: 'STANDARD_BANK_SA', name: 'Standard Bank South Africa', pattern: /Standard\s+Bank|\bSBSA\b/i },
+    { code: 'TYMEBANK_SA', name: 'TymeBank South Africa', pattern: /Tyme\s*Bank|TymeBank|\b678910\b/i },
+    { code: 'INVESTEC_SA', name: 'Investec South Africa', pattern: /\bInvestec\b/i },
+    { code: 'DISCOVERY_BANK_SA', name: 'Discovery Bank South Africa', pattern: /Discovery\s+Bank/i },
+    { code: 'AFRICAN_BANK_SA', name: 'African Bank South Africa', pattern: /African\s+Bank/i },
+    { code: 'ICICI_IN', name: 'ICICI Bank India', pattern: /\bICICI\b/i },
+  ];
+
+  // Restrict brand search to the header portion (first 4KB) and prefer the earliest hit
+  const headerSlice = text.slice(0, 4096);
+  const brandMatches = brandKeywords
+    .map(b => ({ brand: b, index: headerSlice.search(b.pattern) }))
+    .filter(m => m.index >= 0)
+    .sort((a, b) => a.index - b.index);
+
+  if (brandMatches.length > 0) {
+    const top = brandMatches[0].brand;
+    return {
+      bankCode: top.code,
+      bankName: top.name,
+      confidence: 98,
+      matchedPatterns: [`brand: ${top.pattern.source}`],
+    };
+  }
+
   const normalizedText = text.toUpperCase();
   let bestMatch: DetectionResult | null = null;
-  let highestConfidence = 0;
+  let highestScore = 0;
 
-  for (const [key, pattern] of Object.entries(BANK_PATTERNS)) {
-    let matchCount = 0;
+  for (const [, pattern] of Object.entries(BANK_PATTERNS)) {
+    let score = 0;
     const matchedPatterns: string[] = [];
 
     // Check header patterns
     for (const headerPattern of pattern.headerPatterns) {
       if (headerPattern.test(normalizedText)) {
-        matchCount += 2;
+        score += 2;
         matchedPatterns.push(`header: ${headerPattern.source.substring(0, 20)}`);
       }
     }
 
-    // Check footer patterns (lower weight than header)
+    // Check footer patterns
     for (const footerPattern of pattern.footerPatterns) {
       if (footerPattern.test(normalizedText)) {
-        matchCount += 1;
+        score += 1;
         matchedPatterns.push(`footer: ${footerPattern.source.substring(0, 20)}`);
       }
     }
 
-    // Calculate confidence (max 100)
-    const confidence = Math.min(100, (matchCount / 4) * 100);
+    const confidence = Math.min(100, (score / 4) * 100);
 
-    if (confidence > highestConfidence) {
-      highestConfidence = confidence;
+    if (score > highestScore) {
+      highestScore = score;
       bestMatch = {
         bankCode: pattern.code,
         bankName: pattern.name,
-        confidence: confidence,
+        confidence,
         matchedPatterns,
       };
     }
   }
 
-  if (!bestMatch) {
+  if (!bestMatch || highestScore < 2) {
     return {
       bankCode: 'UNKNOWN',
       bankName: 'Unknown Bank',

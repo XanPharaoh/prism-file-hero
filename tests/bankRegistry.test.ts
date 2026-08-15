@@ -23,6 +23,13 @@ describe('Bank Registry', () => {
       testAssertions.assertValidBankDetection(result);
     });
 
+    it('prioritizes the statement header over bank names in transaction text', () => {
+      const text = 'FNB Gold Business Account Statement\n20 Jan FNB App Transfer\n21 Jan Capitec payment';
+      const result = detectBank(text);
+
+      expect(result.bankCode).toBe('FNB_SA');
+    });
+
     it('should detect ABSA from statement text', () => {
       const text = 'ABSA Bank Limited Account Statement';
       const result = detectBank(text);

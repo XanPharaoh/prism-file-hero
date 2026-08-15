@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { CanonicalTransaction, TransactionEdit } from '../types';
 import { verifyStatementMath, computeLocalMathOnly, type VerificationResult } from '../../services/hy3VerifyService';
 
@@ -38,6 +38,7 @@ export function useExtractionVerification(): UseExtractionVerificationReturn {
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationError, setVerificationError] = useState<string | null>(null);
+  const sequenceCounter = useRef(0);
 
   const toggleRowSelection = useCallback((index: number) => {
     setSelectedRows((prev) => {
@@ -73,6 +74,7 @@ export function useExtractionVerification(): UseExtractionVerificationReturn {
         oldValue,
         newValue,
         timestamp: Date.now(),
+        seq: ++sequenceCounter.current,
       };
       setEditHistory((prev) => [...prev, edit]);
 

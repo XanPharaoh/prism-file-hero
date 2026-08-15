@@ -1,6 +1,19 @@
 import { vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 
+// Polyfill Promise.withResolvers for older Node / environments (required by pdfjs-dist)
+if (typeof (Promise as any).withResolvers !== 'function') {
+  (Promise as any).withResolvers = function withResolvers<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+
 // Polyfill File.arrayBuffer for jsdom (not natively supported in older jsdom)
 if (!File.prototype.arrayBuffer) {
     File.prototype.arrayBuffer = function (): Promise<ArrayBuffer> {

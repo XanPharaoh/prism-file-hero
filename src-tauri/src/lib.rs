@@ -25,6 +25,122 @@ struct AppQueueState {
     hot_folder: Mutex<HotFolderConfig>,
 }
 
+/// Tracks whether close requests can safely hide the primary window.
+#[derive(Default)]
+struct TrayAvailability {
+    available: Mutex<bool>,
+}
+
+/// Initializes the optional system tray where the platform backend is safe to invoke.
+///
+/// On Linux, appindicator can abort across a non-unwinding FFI boundary when its runtime
+/// library is absent. Do not invoke the backend there; the tray is optional.
+fn try_initialize_system_tray<E: std::fmt::Display>(
+    initializer: impl FnOnce() -> Result<bool, E>,
+) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = initializer;
+        log::info!("System tray disabled on Linux to avoid appindicator startup crashes");
+        false
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(initializer)) {
+            Ok(Ok(available)) => available,
+            Ok(Err(error)) => {
+                log::error!("System tray is unavailable; continuing without it: {error}");
+                false
+            }
+            Err(_) => {
+                log::error!("System tray initialization panicked; continuing without it");
+                false
+            }
+        }
+    }
+}
+
+fn initialize_system_tray<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<bool, tauri::Error> {
+    let Some(icon) = app.default_window_icon().cloned() else {
+        log::warn!("System tray is unavailable because the default window icon is missing");
+        return Ok(false);
+    };
+
+    let open_i = tauri::menu::MenuItem::with_id(app, "open", "Open Dashboard", true, None::<&str>)?;
+    let sep = tauri::menu::PredefinedMenuItem::separator(app)?;
+    let quit_i = tauri::menu::MenuItem::with_id(app, "quit", "Quit Engine", true, None::<&str>)?;
+    let tray_menu = tauri::menu::Menu::with_items(app, &[&open_i, &sep, &quit_i])?;
+
+    let _tray = tauri::tray::TrayIconBuilder::new()
+        .icon(icon)
+        .tooltip("Prism File Hero")
+        .menu(&tray_menu)
+        .on_menu_event(|app, event| {
+            match event.id().as_ref() {
+                "open" => {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(|tray, event| {
+            if matches!(event, tauri::tray::TrayIconEvent::DoubleClick { .. }) {
+                let app = tray.app_handle();
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(true)
+}
+
+#[cfg(test)]
+mod tray_tests {
+    use super::try_initialize_system_tray;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_never_invokes_the_tray_initializer() {
+        let mut initializer_called = false;
+
+        assert!(!try_initialize_system_tray(|| {
+            initializer_called = true;
+            Ok::<bool, &str>(true)
+        }));
+        assert!(!initializer_called);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn tray_initialization_error_keeps_application_running() {
+        assert!(!try_initialize_system_tray(|| Err::<bool, _>("unavailable")));
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn tray_initialization_panic_keeps_application_running() {
+        assert!(!try_initialize_system_tray(|| -> Result<bool, &str> {
+            panic!("missing appindicator library");
+        }));
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn available_tray_is_reported() {
+        assert!(try_initialize_system_tray(|| Ok::<bool, &str>(true)));
+    }
+}
+
 /// Configuration for the hot folder watcher.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1649,8 +1765,16 @@ fn save_file_dialog(app: tauri::AppHandle, data: Vec<u8>, default_name: String) 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
     tauri::Builder::default()
         .manage(AppQueueState::default())
+        .manage(TrayAvailability::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -1686,41 +1810,17 @@ pub fn run() {
             restored_hf.enabled = false; // Don't auto-watch on startup until user confirms
             *lock_or_recover(&app_state.hot_folder) = restored_hf;
 
+            // Set the window icon explicitly for Wayland/title bar support
+            if let Some(window) = app.get_webview_window("main") {
+                let icon_bytes = include_bytes!("../icons/icon.png");
+                if let Ok(img) = tauri::image::Image::from_bytes(icon_bytes) {
+                    let _ = window.set_icon(img);
+                }
+            }
+
             // --- System Tray ---
-            let open_i = tauri::menu::MenuItem::with_id(app, "open", "Open Dashboard", true, None::<&str>)?;
-            let sep = tauri::menu::PredefinedMenuItem::separator(app)?;
-            let quit_i = tauri::menu::MenuItem::with_id(app, "quit", "Quit Engine", true, None::<&str>)?;
-
-            let tray_menu = tauri::menu::Menu::with_items(app, &[&open_i, &sep, &quit_i])?;
-
-            let _tray = tauri::tray::TrayIconBuilder::new()
-                .icon(app.default_window_icon().cloned().unwrap())
-                .tooltip("Prism File Hero")
-                .menu(&tray_menu)
-                .on_menu_event(|app, event| {
-                    match event.id().as_ref() {
-                        "open" => {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.show();
-                                let _ = w.set_focus();
-                            }
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
-                    }
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if matches!(event, tauri::tray::TrayIconEvent::DoubleClick { .. }) {
-                        let app = tray.app_handle();
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
-                })
-                .build(app)?;
+            let tray_available = try_initialize_system_tray(|| initialize_system_tray(app));
+            *lock_or_recover(&app.state::<TrayAvailability>().available) = tray_available;
 
             // Start hot folder background watcher
             start_hot_folder_watcher(app.handle().clone());
@@ -1730,9 +1830,12 @@ pub fn run() {
         // --- Close-to-tray ---
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Prevent the window from closing; hide it instead
-                api.prevent_close();
-                let _ = window.hide();
+                let tray = window.app_handle().state::<TrayAvailability>();
+                if *lock_or_recover(&tray.available) {
+                    // A working tray can restore the hidden primary window.
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![

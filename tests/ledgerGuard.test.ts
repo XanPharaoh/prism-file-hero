@@ -11,11 +11,11 @@ describe("Nedbank VAT rows are INFO and inert", () => {
             { Date: "27/12/2025", Description: "SERVICE FEE", Debits: "", Credits: "", Fees: "15.60*", Balance: "342.54" },
         ];
 
-        const rec = reconcileRows(rows, opening);
-        expect(rec[1].Amount).toBe(0);
-        expect(rec[1]._math_reconciled).toBe(true);
+        const rec = reconcileRows(rows, opening, 'bank-statement');
+        expect(rec.rows[1].Amount).toBe(0);
+        expect(rec.rows[1]._math_reconciled).toBe(true);
 
-        const health = ledgerGuard(rec, opening);
+        const health = ledgerGuard(rec.rows, opening);
         expect(health.status).toBe("OK");
     });
 });

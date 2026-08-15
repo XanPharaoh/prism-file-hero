@@ -1,4 +1,6 @@
 import { supabase } from './authService';
+import { getClerkUserId } from './authService';
+import { isInternalDesktopDistribution } from '../src/config/distribution';
 
 export interface ExtractionHistoryRecord {
   id: string;
@@ -27,17 +29,21 @@ export async function saveExtractionHistory(record: {
   confidence?: number;
   bankCode?: string;
 }): Promise<ExtractionHistoryRecord | null> {
+  if (isInternalDesktopDistribution) return null;
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
+    const userId = getClerkUserId();
+    if (!userId) return null;
 
+    // Alignment diagnostics can contain every PDF text item and exceed browser JSON limits.
+    const { alignment: _alignment, ...metadata } = record.extractedData.metadata;
+    const rows = record.extractedData.rows.map(({ metadata: _metadata, alignment: _rowAlignment, ...row }) => row);
     const { data, error } = await supabase
       .from('document_history')
       .insert({
-        user_id: user.id,
+        user_id: userId,
         filename: record.filename,
         tool_id: record.toolId,
-        extracted_data: record.extractedData,
+        extracted_data: { rows, metadata },
         page_count: record.pageCount ?? 1,
         confidence: record.confidence ?? 0,
         bank_code: record.bankCode ?? null,
@@ -66,14 +72,15 @@ export async function fetchExtractionHistory(
   limit: number = 50,
   offset: number = 0
 ): Promise<ExtractionHistoryRecord[]> {
+  if (isInternalDesktopDistribution) return [];
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
+    const userId = getClerkUserId();
+    if (!userId) return [];
 
     const { data, error } = await supabase
       .from('document_history')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -95,6 +102,7 @@ export async function fetchExtractionHistory(
 export async function fetchExtractionRecord(
   id: string
 ): Promise<ExtractionHistoryRecord | null> {
+  if (isInternalDesktopDistribution) return null;
   try {
     const { data, error } = await supabase
       .from('document_history')
@@ -118,6 +126,7 @@ export async function fetchExtractionRecord(
  * Delete an extraction record by ID.
  */
 export async function deleteExtractionRecord(id: string): Promise<boolean> {
+  if (isInternalDesktopDistribution) return false;
   try {
     const { error } = await supabase
       .from('document_history')
@@ -140,6 +149,7 @@ export async function deleteExtractionRecord(id: string): Promise<boolean> {
  * Get total count of extractions for the current user.
  */
 export async function getExtractionCount(): Promise<number> {
+  if (isInternalDesktopDistribution) return 0;
   try {
     const { count, error } = await supabase
       .from('document_history')

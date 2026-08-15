@@ -1,4 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Force the public-distribution code path so the tests always exercise
+// getAuthToken → fetch regardless of the VITE_DISTRIBUTION env var.
+vi.mock('../src/config/distribution', () => ({
+  distribution: 'public',
+  isInternalDesktopDistribution: false,
+  isPublicDistribution: true,
+}));
+
+vi.mock('../services/authService', () => ({
+  getAuthToken: vi.fn().mockResolvedValue('test-token'),
+}));
+
 import { processWithAI } from '../services/geminiService';
 
 global.fetch = vi.fn();
@@ -61,8 +74,8 @@ describe('geminiService (concurrent batch processing)', () => {
 
     await processWithAI('pdf-to-excel', images);
 
-    // 10 images / 3 per batch = 4 batches
-    expect(global.fetch).toHaveBeenCalledTimes(4);
+    // 10 images / 2 metered images per batch = 5 batches
+    expect(global.fetch).toHaveBeenCalledTimes(5);
   });
 
   it('should limit concurrency with p-limit', async () => {
@@ -89,8 +102,8 @@ describe('geminiService (concurrent batch processing)', () => {
 
     await processWithAI('pdf-to-excel', images);
 
-    // MAX_CONCURRENCY is 2; we should never exceed 2 concurrent requests
-    expect(maxConcurrent).toBeLessThanOrEqual(2);
+    // Metered requests are intentionally serialized.
+    expect(maxConcurrent).toBeLessThanOrEqual(1);
   });
 
   it('should send correct request structure to worker', async () => {
@@ -104,7 +117,7 @@ describe('geminiService (concurrent batch processing)', () => {
     await processWithAI('ocr', [{ base64: 'abc123', pageNumber: 1 }]);
 
     const callUrl = (global.fetch as any).mock.calls[0][0];
-    expect(callUrl).toContain('/api/proxy-ai');
+    expect(callUrl).toContain('/api/ai');
 
     const body = JSON.parse((global.fetch as any).mock.calls[0][1].body);
     expect(body.toolId).toBe('ocr');

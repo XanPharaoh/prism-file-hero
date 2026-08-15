@@ -1,30 +1,57 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Session, User } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+// Supabase client kept for DB access (historyService etc.) — auth is now via Clerk
+const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || process.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || process.env.VITE_SUPABASE_ANON_KEY || '';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null as any;
 
-export async function signUp(email: string, password: string) {
-  return supabase.auth.signUp({ email, password });
+// ── Clerk token bridge ─────────────────────────────────────────
+// Clerk hooks can only be called inside React components.
+// Services outside React need access to the current auth token.
+// Instead of caching a static token (which expires after ~60 min),
+// we store a reference to the Clerk instance and fetch a fresh
+// token from the active session on every call.
+
+let _clerkInstance: any = null;
+let _clerkUserId: string | null = null;
+
+/**
+ * Store a reference to the Clerk instance so non-React code can
+ * request fresh session tokens.  Called from App.tsx via useClerk().
+ */
+export function setClerkInstance(clerk: any) {
+  _clerkInstance = clerk;
 }
 
-export async function signIn(email: string, password: string) {
-  return supabase.auth.signInWithPassword({ email, password });
+/**
+ * Keep the user-id in sync.  Called from App.tsx whenever auth state changes.
+ */
+export function setClerkUserId(userId: string | null) {
+  _clerkUserId = userId;
 }
 
-export async function signOut() {
-  return supabase.auth.signOut();
+/**
+ * Retrieve a **fresh** session token from the Clerk instance.
+ * Clerk caches the token internally and only refreshes when needed,
+ * so calling this on every request is safe and efficient.
+ * Returns null when there is no active session.
+ */
+export async function getAuthToken(): Promise<string | null> {
+  try {
+    if (_clerkInstance?.session) {
+      const token = await _clerkInstance.session.getToken();
+      return token ?? null;
+    }
+  } catch {
+    // Session may have been removed between the check and the call — ignore.
+  }
+  return null;
 }
 
-export async function getSession(): Promise<Session | null> {
-  const { data } = await supabase.auth.getSession();
-  return data.session;
-}
-
-export function onAuthChange(callback: (user: User | null) => void) {
-  return supabase.auth.onAuthStateChange((_event, session) => {
-    callback(session?.user ?? null);
-  });
+/**
+ * Return the current Clerk user ID, or null if not signed in.
+ */
+export function getClerkUserId(): string | null {
+  return _clerkUserId;
 }

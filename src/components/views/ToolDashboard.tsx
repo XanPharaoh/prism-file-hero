@@ -1,9 +1,12 @@
 import React from 'react';
 import BentoCard from '../ui/BentoCard';
-import { Icon } from '../ui/Icon';
+import { Icon, Cpu, Zap } from '../ui/Icon';
 import { useAppStore } from '../../store/appStore';
 import { getToolsByCategory } from '../../registry/toolRegistry';
+import { isAiTool, getFeatureType, LOCAL_PER_TOOL_LIMIT, AI_PER_TOOL_LIMIT } from '../../../services/usageConfig';
+import { getToolButtonLabel } from '../../../services/usageTrackingService';
 import type { ToolHandler } from '../../types';
+import { isInternalDesktopDistribution } from '../../config/distribution';
 
 interface ToolDashboardProps {
   onSelectTool: (toolId: string) => void;
@@ -12,7 +15,7 @@ interface ToolDashboardProps {
 /* Map tools to strategic bento placements:
    - Hero (col-span-2 row-span-2): pdf-to-excel, compare
    - Wide (col-span-2 row-span-1): ocr, redact, pdf-to-word
-   - Square (col-span-1 row-span-1): merge, split, compress, rotate, watermark, protect, jpg-to-pdf, pdf-to-jpg, ocr-to-pdf, ocr-to-md, grammar-check
+   - Square (col-span-1 row-span-1): merge, split, compress, rotate, watermark, protect, jpg-to-pdf, pdf-to-jpg, ocr-to-md, grammar-check
 */
 const HERO_TOOLS = new Set(['pdf-to-excel', 'compare']);
 const WIDE_TOOLS = new Set(['ocr', 'redact', 'pdf-to-word']);
@@ -62,6 +65,10 @@ export default function ToolDashboard({ onSelectTool }: ToolDashboardProps) {
           const isHero = HERO_TOOLS.has(tool.id);
           const isWide = WIDE_TOOLS.has(tool.id);
           const gradient = getToolGradient(tool.id);
+          const isAi = isAiTool(tool.id);
+          const featureType = getFeatureType(tool.id);
+          const buttonLabel = getToolButtonLabel(tool.id);
+          const dailyLimit = featureType === 'local' ? LOCAL_PER_TOOL_LIMIT : AI_PER_TOOL_LIMIT;
 
           return (
             <BentoCard
@@ -77,6 +84,16 @@ export default function ToolDashboard({ onSelectTool }: ToolDashboardProps) {
               {/* Hero cards get a background gradient */}
               {isHero && gradient && (
                 <div className={`absolute inset-0 rounded-[32px] ${gradient} opacity-[0.04] group-hover:opacity-[0.07] transition-opacity duration-500 pointer-events-none`} />
+              )}
+
+              {/* Premium feature badge for premium tools */}
+              {!isInternalDesktopDistribution && isAi && (
+                <div className="absolute top-3 right-3 z-10">
+                  <div className="flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-[8px] font-black uppercase tracking-widest rounded-lg shadow-lg">
+                    <Cpu className="w-2.5 h-2.5" />
+                    <span>Premium</span>
+                  </div>
+                </div>
               )}
 
               {/* Icon */}
@@ -99,15 +116,15 @@ export default function ToolDashboard({ onSelectTool }: ToolDashboardProps) {
               {/* Feature tags for hero cards */}
               {isHero && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {tool.id === 'pdf-to-excel' && (
+                  {!isInternalDesktopDistribution && tool.id === 'pdf-to-excel' && (
                     <>
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200/50">AI Extractor</span>
+                       <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200/50">Premium Extractor</span>
                       <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200/50">Batch</span>
                     </>
                   )}
-                  {tool.id === 'compare' && (
+                  {!isInternalDesktopDistribution && tool.id === 'compare' && (
                     <>
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-pink-50 text-pink-600 border border-pink-200/50">AI Forensics</span>
+                       <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-pink-50 text-pink-600 border border-pink-200/50">Premium Forensics</span>
                       <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-200/50">Side-by-Side</span>
                     </>
                   )}
@@ -117,6 +134,37 @@ export default function ToolDashboard({ onSelectTool }: ToolDashboardProps) {
               {/* Description for wide cards */}
               {isWide && !isHero && (
                 <p className="text-xs text-slate-400 mt-1.5 line-clamp-1">{tool.description}</p>
+              )}
+
+              {/* Quota/Try button for non-hero, non-wide cards */}
+              {!isInternalDesktopDistribution && !isHero && !isWide && (
+                <div className="mt-auto pt-3">
+                  <div className={`inline-flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-full ${
+                    isAi
+                      ? 'bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-600 border border-indigo-200/50'
+                      : 'bg-emerald-50 text-emerald-600 border border-emerald-200/50'
+                  }`}>
+                    {isAi ? (
+                      <Cpu className="w-2.5 h-2.5" />
+                    ) : (
+                      <Zap className="w-2.5 h-2.5" />
+                    )}
+                    <span>{buttonLabel}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Quota info for hero and wide cards */}
+              {!isInternalDesktopDistribution && (isHero || isWide) && (
+                <div className="mt-3 flex items-center gap-1.5">
+                  <div className={`text-[8px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${
+                    isAi
+                      ? 'bg-indigo-50 text-indigo-500'
+                      : 'bg-emerald-50 text-emerald-500'
+                  }`}>
+                    {buttonLabel}
+                  </div>
+                </div>
               )}
             </BentoCard>
           );

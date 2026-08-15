@@ -3,16 +3,22 @@ import { Workbook } from 'exceljs';
 function detectNumberFormatSample(tokens: string[]): { decimal: string, grouping: string } {
   let commaDecimal = 0;
   let dotDecimal = 0;
+  let spaceGrouping = 0;
 
   for (const t of tokens) {
     const s = t.trim();
-    // 1.234,56
+    // 1.234,56 — European format
     if (/^\d{1,3}(\.\d{3})*,\d{2}$/.test(s)) commaDecimal++;
-    // 1,234.56
+    // 1,234.56 — US format
     if (/^\d{1,3}(,\d{3})*\.\d{2}$/.test(s)) dotDecimal++;
+    // 1 234.56 — South African / international format (space as thousands)
+    if (/^\d{1,3}(\s\d{3})*\.\d{2}$/.test(s)) spaceGrouping++;
+    // R 1 234.56 — Rand-prefixed SA format
+    if (/^R\s?\d{1,3}(\s\d{3})*\.\d{2}$/.test(s)) spaceGrouping++;
   }
 
-  if (commaDecimal > dotDecimal) return { decimal: ',', grouping: '.' };
+  if (commaDecimal > dotDecimal && commaDecimal > spaceGrouping) return { decimal: ',', grouping: '.' };
+  if (spaceGrouping > 0) return { decimal: '.', grouping: ' ' };
   return { decimal: '.', grouping: ',' };
 }
 
@@ -80,9 +86,9 @@ export async function getExcelBlob(rows: any[], metadata?: any): Promise<Blob> {
 
       const str = String(val).trim();
 
-      // If it looks like a date or description, don't parse as number
+      // If it looks like a date, description, or reference, don't parse as number
       if (key.toLowerCase().includes('date') ||
-        /description|narrative|particular|details/i.test(key) ||
+        /description|narrative|particular|details|reference|ref|memo/i.test(key) ||
         /^\d{2}[\s-\/]\d{2}[\s-\/]\d{4}/.test(str)) {
         clean[key] = str;
         continue;

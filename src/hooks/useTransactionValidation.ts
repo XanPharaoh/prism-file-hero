@@ -1,4 +1,4 @@
-import { CanonicalTransaction } from '../../types';
+import { CanonicalTransaction } from '../types';
 
 export function validateChronological(prevDateIso: string | undefined, dateIso: string): boolean {
   if (!prevDateIso) return true;
@@ -20,7 +20,6 @@ export function validateBalance(prevBalance: number | undefined, amount: number,
 export function validateAmountFormat(amount: any): boolean {
   return typeof amount === 'number' && Number.isFinite(amount);
 }
-import { CanonicalTransaction } from '../../types';
 
 export interface ValidationResult {
   isValid: boolean;

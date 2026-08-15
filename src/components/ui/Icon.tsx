@@ -56,6 +56,22 @@ export const AlertCircle: React.FC<IconProps> = ({ className = '', size = 24, on
   </svg>
 );
 
+export const XCircle: React.FC<IconProps> = ({ className = '', size = 24, onClick }) => (
+  <svg {...baseProps} width={size} height={size} className={`icon-x-circle ${className}`} onClick={onClick}>
+    <circle cx="12" cy="12" r="10" />
+    <line x1="15" y1="9" x2="9" y2="15" />
+    <line x1="9" y1="9" x2="15" y2="15" />
+  </svg>
+);
+
+export const Info: React.FC<IconProps> = ({ className = '', size = 24, onClick }) => (
+  <svg {...baseProps} width={size} height={size} className={`icon-info ${className}`} onClick={onClick}>
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="16" x2="12" y2="12" />
+    <line x1="12" y1="8" x2="12.01" y2="8" />
+  </svg>
+);
+
 export const History: React.FC<IconProps> = ({ className = '', size = 24, onClick }) => (
   <svg {...baseProps} width={size} height={size} className={`icon-history ${className}`} onClick={onClick}>
     <polyline points="1 4 1 10 7 10" />
@@ -320,6 +336,29 @@ export const Search: React.FC<IconProps> = ({ className = '', size = 24, onClick
   </svg>
 );
 
+export const Cpu: React.FC<IconProps> = ({ className = '', size = 24, onClick }) => (
+  <svg {...baseProps} width={size} height={size} className={`icon-pulse ${className}`} onClick={onClick}>
+    <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
+    <rect x="9" y="9" width="6" height="6" />
+    <line x1="9" y1="1" x2="9" y2="4" />
+    <line x1="15" y1="1" x2="15" y2="4" />
+    <line x1="9" y1="20" x2="9" y2="23" />
+    <line x1="15" y1="20" x2="15" y2="23" />
+    <line x1="20" y1="9" x2="23" y2="9" />
+    <line x1="20" y1="14" x2="23" y2="14" />
+    <line x1="1" y1="9" x2="4" y2="9" />
+    <line x1="1" y1="14" x2="4" y2="14" />
+  </svg>
+);
+
+export const Sparkles: React.FC<IconProps> = ({ className = '', size = 24, onClick }) => (
+  <svg {...baseProps} width={size} height={size} className={`icon-sparkle ${className}`} onClick={onClick}>
+    <path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5z" />
+    <path d="M18 14l1 2.5L22 18l-2.5 1L18 22l-1-2.5L14 18l2.5-1z" />
+    <path d="M6 6l1 2.5L10 9l-2.5 1L6 13l-1-2.5L2 9l2.5-1z" />
+  </svg>
+);
+
 // Registry for dynamic mapping
 export const ICON_REGISTRY: Record<string, React.FC<IconProps>> = {
   Zap, Layers, Scissors, CheckCircle, AlertCircle, History,
@@ -327,7 +366,8 @@ export const ICON_REGISTRY: Record<string, React.FC<IconProps>> = {
   Upload, Download, Merge, RotateCw, Eraser, AlertTriangle,
   ArrowLeft, BarChart3, CheckCircle2, ChevronLeft, ChevronRight,
   Clock, Eye, FileArchive, FileImage, FileType, FileUp, Layout,
-  Lock, PenTool, Plus, Trash2, TrendingUp, UploadCloud, X, Menu, Search
+  Lock, PenTool, Plus, Trash2, TrendingUp, UploadCloud, X, Menu, Search,
+  Cpu, Sparkles,
 };
 
 // Dynamic Icon Component

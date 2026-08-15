@@ -159,6 +159,9 @@ export async function extractNedbankStatement(file: File): Promise<{
         const sortedY = Array.from(lineMap.keys()).sort((a, b) => b - a);
         let foundDataZone = false;
 
+        // Header-derived column boundaries (replaces hardcoded X thresholds)
+        let colBounds: { date: number; desc: number; fee: number; debit: number; credit: number; balance: number } | null = null;
+
         for (const y of sortedY) {
             const lineItems = lineMap.get(y)!.sort((a, b) => a.x - b.x);
             const lineText = lineItems.map(it => it.str).join(' ').trim();
@@ -175,14 +178,47 @@ export async function extractNedbankStatement(file: File): Promise<{
                     (lower.includes('description') || lower.includes('beskrywing')) &&
                     (lower.includes('balance') || lower.includes('saldo'))) {
                     foundDataZone = true;
+
+                    // Discover column boundaries from header keyword X positions
+                    const headerCols: { name: string; x: number }[] = [];
+                    for (const item of lineItems) {
+                        const t = item.str.trim().toLowerCase();
+                        if (/^tran|^tran-lys/.test(t)) headerCols.push({ name: 'tranList', x: item.x });
+                        if (/^date$|^datum$/.test(t)) headerCols.push({ name: 'date', x: item.x });
+                        if (/description|beskrywing|narrative/.test(t)) headerCols.push({ name: 'desc', x: item.x });
+                        if (/^fees?/.test(t) || /^geld/.test(t)) headerCols.push({ name: 'fee', x: item.x });
+                        if (/debits?|debiete/.test(t)) headerCols.push({ name: 'debit', x: item.x });
+                        if (/credits?|krediete/.test(t)) headerCols.push({ name: 'credit', x: item.x });
+                        if (/balance|saldo/.test(t)) headerCols.push({ name: 'balance', x: item.x });
+                    }
+                    headerCols.sort((a, b) => a.x - b.x);
+
+                    if (headerCols.length >= 4) {
+                        const headerStarts = Object.fromEntries(headerCols.map(({ name, x }) => [name, x]));
+                        colBounds = {
+                            date: headerStarts.date ?? 90,
+                            desc: headerStarts.desc ?? 140,
+                            fee: headerStarts.fee ?? 360,
+                            debit: headerStarts.debit ?? 400,
+                            credit: headerStarts.credit ?? 430,
+                            balance: headerStarts.balance ?? 520,
+                        };
+                    }
+
                     continue;
                 }
                 continue;
             }
 
-            // Separate items into zones based on x-position
-            // Tran list no (x<90), Date (90-140), Description (140-360),
-            // Debit/Fees (360-430), Credits (430-520), Balance (520+)
+            // Separate items into zones using header-derived boundaries
+            // Fallback defaults for when header discovery didn't produce enough columns.
+            const tBound = colBounds?.date ?? 90;
+            const dBound = colBounds?.desc ?? 140;
+            const descBound = colBounds?.fee ?? 360;
+            const debitBound = colBounds?.debit ?? 400;
+            const creditBound = colBounds?.credit ?? 430;
+            const balanceBound = colBounds?.balance ?? 520;
+
             let date = '';
             let description = '';
             let debitAmount = '';
@@ -193,7 +229,7 @@ export async function extractNedbankStatement(file: File): Promise<{
 
             for (const item of lineItems) {
                 const str = item.str;
-                if (item.x < 90) {
+                if (item.x < tBound) {
                     // Tran list no or opening/closing balance text starting at left
                     if (/^\d{6}$/.test(str)) {
                         isTranListNo = true;
@@ -201,19 +237,23 @@ export async function extractNedbankStatement(file: File): Promise<{
                     } else if (/opening balance|beginsaldo|closing balance|eindsaldo/i.test(str)) {
                         description = str;
                     }
-                } else if (item.x < 140) {
+                } else if (item.x < dBound) {
                     // Date column
                     if (DATE_RE.test(str)) {
                         date = str;
                     }
-                } else if (item.x < 360) {
+                } else if (item.x < descBound) {
                     // Description column
                     description = description ? description + ' ' + str : str;
-                } else if (item.x < 430) {
+                } else if (item.x < debitBound) {
                     // Debit/Fees column
                     debitAmount = str.replace(/\s*\*\s*$/, '').trim();
                     if (str.includes('*')) hasFeeMarker = true;
-                } else if (item.x < 520) {
+                } else if (item.x < creditBound) {
+                    // Debit column
+                    debitAmount = str.replace(/\s*\*\s*$/, '').trim();
+                    if (str.includes('*')) hasFeeMarker = true;
+                } else if (item.x < balanceBound) {
                     // Credits column
                     creditAmount = str.trim();
                 } else {

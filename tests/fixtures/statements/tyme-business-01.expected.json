@@ -1,0 +1,12 @@
+{
+  "bankCode": "TYMEBANK_SA",
+  "expectedRowCount": 3,
+  "openingBalance": 35.13,
+  "closingBalance": -37.14,
+  "sampleRows": [
+    { "date": "2025-11-01", "descriptionContains": "PayShap", "moneyIn": 227.73 },
+    { "date": "2025-11-01", "descriptionContains": "AFRIHOST", "moneyOut": 297.0 },
+    { "date": "2025-11-15", "descriptionContains": "Fee", "fees": 3.0 }
+  ],
+  "fixtureText": "TymeBank Business Account Statement\nAccount Num. 51045311717\nBranch Code 678910\nPeriod 01 Nov 2025 - 30 Nov 2025\nOpening Balance 35.13\nDate Description Fees Money Out Money In Balance\n01 Nov 2025 PayShap - domain money 227.73 262.86\n01 Nov 2025 Debit Order - AFRIHOST 297.00 -34.14\n15 Nov 2025 Fee: Unsuccessful Purchase 3.00 3.00 -37.14\nClosing Balance -37.14\n"
+}

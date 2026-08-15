@@ -1,31 +1,67 @@
 import posthog from 'posthog-js';
-import type { User } from '@supabase/supabase-js';
+import type { AppUser } from '../store/appStore';
 import type { ToolID } from '../types';
+import { isInternalDesktopDistribution } from '../config/distribution';
 
-// Initialize PostHog (Using placeholder keys to be replaced via .env)
-posthog.init(import.meta.env.VITE_POSTHOG_KEY || 'MISSING_KEY', {
-  api_host: import.meta.env.VITE_POSTHOG_HOST || 'https://app.posthog.com',
-  autocapture: false, // We will manually capture high-value events
-  capture_pageview: true,
-});
+// Only enable PostHog when a real, valid key is configured
+const rawKey = import.meta.env.VITE_POSTHOG_KEY as string | undefined;
+const BLOCKED_KEYS = ['REDACTED-POSTHOG-KEY'];
+const isEnabled = !isInternalDesktopDistribution && Boolean(rawKey) && rawKey !== 'MISSING_KEY' && !BLOCKED_KEYS.includes(rawKey);
+
+if (isEnabled) {
+  try {
+    posthog.init(rawKey!, {
+      api_host: import.meta.env.VITE_POSTHOG_HOST || 'https://app.posthog.com',
+      autocapture: false, // We will manually capture high-value events
+      capture_pageview: true,
+    });
+  } catch (err) {
+    console.warn('[Analytics] PostHog init failed, disabling tracking:', err);
+    // PostHog failed to initialize — force disable so no internal calls fire
+    (window as any).__POSTHOG_DISABLED__ = true;
+  }
+}
+
+/** Safe wrapper — checks isEnabled and wraps in try/catch so tracking never throws */
+function safeCapture(event: string, properties?: Record<string, unknown>): void {
+  if (!isEnabled || (window as any).__POSTHOG_DISABLED__) return;
+  try {
+    posthog.capture(event, properties);
+  } catch {
+    // Silently ignore — analytics must never break app functionality
+  }
+}
 
 export const analytics = {
-  identifyUser: (user: User, plan: string) => {
-    posthog.identify(user.id, {
-      email: user.email,
-      plan: plan,
-    });
+  identifyUser: (user: AppUser, plan: string) => {
+    if (!isEnabled || (window as any).__POSTHOG_DISABLED__) return;
+    try {
+      posthog.identify(user.id, {
+        email: user.email,
+        plan: plan,
+      });
+    } catch {
+      // Silently ignore
+    }
   },
-  resetUser: () => posthog.reset(),
-  trackToolSelected: (toolId: ToolID) => posthog.capture('tool_selected', { tool_id: toolId }),
+  resetUser: () => {
+    if (!isEnabled || (window as any).__POSTHOG_DISABLED__) return;
+    try {
+      posthog.reset();
+    } catch {
+      // Silently ignore
+    }
+  },
+  trackToolSelected: (toolId: ToolID) =>
+    safeCapture('tool_selected', { tool_id: toolId }),
   trackFilesAdded: (toolId: ToolID, fileCount: number, totalSize: number) =>
-    posthog.capture('files_added', { tool_id: toolId, file_count: fileCount, total_size_bytes: totalSize }),
+    safeCapture('files_added', { tool_id: toolId, file_count: fileCount, total_size_bytes: totalSize }),
   trackExecutionStarted: (toolId: ToolID, isPremium: boolean) =>
-    posthog.capture('execution_started', { tool_id: toolId, is_premium: isPremium }),
+    safeCapture('execution_started', { tool_id: toolId, is_premium: isPremium }),
   trackExecutionCompleted: (toolId: ToolID, success: boolean, errorMessage?: string) =>
-    posthog.capture('execution_completed', { tool_id: toolId, success, error_message: errorMessage }),
+    safeCapture('execution_completed', { tool_id: toolId, success, error_message: errorMessage }),
   trackPaywallHit: (toolId: ToolID, reason: string) =>
-    posthog.capture('paywall_hit', { tool_id: toolId, reason }),
+    safeCapture('paywall_hit', { tool_id: toolId, reason }),
   trackUpgradeClicked: (location: 'header' | 'ledger_guard' | 'usage_limit') =>
-    posthog.capture('upgrade_clicked', { location }),
+    safeCapture('upgrade_clicked', { location }),
 };

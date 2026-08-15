@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useAppStore } from '../src/store/appStore';
-import { ProcessStatus } from '../types';
+import { ProcessStatus } from '../src/types';
 
 // Reset store between tests
 beforeEach(() => {

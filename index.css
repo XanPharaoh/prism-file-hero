@@ -151,3 +151,12 @@ svg[class^="icon-"]:hover {
 @media (prefers-reduced-motion: reduce) {
   svg[class^="icon-"] { animation: none !important; }
 }
+
+/* Toast enter/exit transitions */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(100%) scale(0.95); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+.animate-toast-in {
+  animation: toast-in 0.25s ease-out forwards;
+}

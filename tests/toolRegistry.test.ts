@@ -1,10 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { TOOL_REGISTRY, getToolById, getToolsByCategory } from '../src/registry/toolRegistry';
-import type { ToolID, ToolCategory } from '../types';
+import type { ToolID, ToolCategory } from '../src/types';
+import { TOOL_COSTS } from '../services/usageConfig';
 
 describe('Tool Registry', () => {
-  it('should have all 16 tools registered', () => {
-    expect(TOOL_REGISTRY.length).toBe(16);
+  it('should have all 15 tools registered', () => {
+    expect(TOOL_REGISTRY.length).toBe(15);
+  });
+
+  it('keeps usage configuration limited to registered UI tools', () => {
+    expect(Object.keys(TOOL_COSTS).sort()).toEqual(
+      TOOL_REGISTRY.map((tool) => tool.id).sort(),
+    );
   });
 
   it('should have unique tool IDs', () => {
@@ -97,7 +104,7 @@ describe('Tool Registry', () => {
 
   it('allowedFileTypes should be consistent with tool purpose', () => {
     const pdfTools = ['merge', 'split', 'compress', 'pdf-to-word', 'pdf-to-excel', 'pdf-to-jpg',
-      'protect', 'redact', 'watermark', 'ocr', 'compare', 'rotate', 'ocr-to-pdf', 'ocr-to-md', 'grammar-check'];
+      'protect', 'redact', 'watermark', 'ocr', 'compare', 'rotate', 'ocr-to-md', 'grammar-check'];
     const imageTool = 'jpg-to-pdf';
 
     for (const toolId of pdfTools) {

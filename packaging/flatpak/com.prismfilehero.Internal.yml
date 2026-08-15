@@ -1,0 +1,19 @@
+app-id: com.prismfilehero.desktop
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: prism-file-hero
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+modules:
+  # Replace the source URL and checksum for a release before publication.
+  - name: prism-file-hero
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 prism-file-hero /app/bin/prism-file-hero
+    sources:
+      - type: file
+        path: prism-file-hero

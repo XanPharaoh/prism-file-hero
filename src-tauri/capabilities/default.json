@@ -1,10 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "enables the default permissions",
-  "windows": [
-    "main"
-  ],
+  "description": "Full filesystem access for internal desktop build",
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:default",
@@ -12,16 +10,16 @@
     "dialog:allow-save",
     "dialog:allow-message",
     "dialog:allow-ask",
-    "fs:default",
     "fs:allow-read-text-file",
     "fs:allow-write-text-file",
+    "fs:allow-applocaldata-read-recursive",
+    "fs:allow-applocaldata-write-recursive",
     {
       "identifier": "fs:scope",
       "allow": [
-        "$DOCUMENT/**",
-        "$DOWNLOAD/**",
-        "$DESKTOP/**",
-        "$HOME/**"
+        "$APPLOCALDATA",
+        "$APPLOCALDATA/**",
+        "/**"
       ]
     }
   ]

@@ -1,12 +1,15 @@
 import pLimit from 'p-limit';
-import type { ToolID } from '../types';
+import type { ToolID } from '../src/types';
+import { getAuthToken } from './authService';
+import { isInternalDesktopDistribution } from '../src/config/distribution';
+import { getInternalAiHeaders } from './internalDeviceAuth';
 
 const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787';
 
 const TOOL_PROMPTS: Record<string, string> = {
-  'pdf-to-excel': `Extract ALL data from these images into a clean spreadsheet structure. 
-  Ensure verbatim accuracy, language agnostic extraction, and strict column fidelity. 
-  Return a valid JSON object with 'document_metadata' and 'rows' array. 
+  'pdf-to-excel': `Extract ALL data from these images into a clean spreadsheet structure.
+  Ensure verbatim accuracy, language agnostic extraction, and strict column fidelity.
+  Return a valid JSON object with 'document_metadata' and 'rows' array.
   DO NOT attempt to calculate, verify, or reconcile mathematical balances. Focus solely on accurate text and number transcription.`,
   'pdf-to-word': `Perform high-fidelity document reconstruction as structured Markdown. Preserve headings, lists, and tables.`,
   'ocr': `Provide a COMPLETE, exhaustive, word-for-word transcript of the text in these images. Do not summarize.`,
@@ -15,9 +18,27 @@ const TOOL_PROMPTS: Record<string, string> = {
   'grammar-check': `Perform a comprehensive grammar, spelling, and style check. Return corrected text with explanations.`,
 };
 
-const MAX_IMAGES_PER_REQUEST = 3;
-const MAX_CONCURRENCY = 2;
+// The server enforces a two-page per-tool daily allocation. Keep a request
+// within that allocation so page metering and UI behavior stay consistent.
+const MAX_IMAGES_PER_REQUEST = 2;
+const MAX_CONCURRENCY = 1;
 const limit = pLimit(MAX_CONCURRENCY);
+
+async function getAiHeaders(): Promise<Record<string, string>> {
+  if (isInternalDesktopDistribution) {
+    return getInternalAiHeaders();
+  }
+
+  const token = await getAuthToken();
+  if (!token) {
+    throw new Error('Sign in required for premium AI extraction.');
+  }
+
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  };
+}
 
 interface ImageInput {
   base64: string;
@@ -27,8 +48,8 @@ interface ImageInput {
 
 /**
  * Process images through AI with concurrent batch processing.
- * Uses p-limit to control concurrency (max 2 concurrent requests).
- * Batches images into groups of MAX_IMAGES_PER_REQUEST (3) per API call.
+ * Uses p-limit to serialize metered batches.
+ * Batches images into groups of MAX_IMAGES_PER_REQUEST (2) per API call.
  * Gracefully handles partial batch failures by merging successful results.
  */
 export async function processWithAI(
@@ -55,6 +76,25 @@ export async function processWithAI(
   }
 
   if (succeeded.length === 0) {
+    const firstReason = failed[0]?.reason;
+    const msg =
+      (firstReason instanceof Error ? firstReason.message : String(firstReason || '')) ||
+      '';
+    console.error('[AI] Batch processing failed:', firstReason);
+
+    // Bubble up specific compression/blank/502/service errors instead of a misleading generic
+    if (
+      msg.includes('compression') ||
+      msg.includes('blank') ||
+      msg.includes('502') ||
+      msg.includes('temporarily unavailable') ||
+      msg.includes('too large') ||
+      msg.includes('rate limit') ||
+      msg.includes('Sign in required')
+    ) {
+      throw new Error(msg);
+    }
+
     throw new Error('All AI batches failed. Check network and API keys.');
   }
 
@@ -76,9 +116,9 @@ async function callGroqAPI(
     }));
     content.push({ type: 'text', text: 'Process the images according to the system prompt.' });
 
-    const response = await fetch(`${WORKER_BASE_URL}/api/proxy-ai`, {
+    const response = await fetch(`${WORKER_BASE_URL}/api/ai`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await getAiHeaders(),
       body: JSON.stringify({
         toolId,
         messages: [
@@ -91,7 +131,23 @@ async function callGroqAPI(
 
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
-      throw new Error((errData as Record<string, unknown>).error as string || `API request failed with status ${response.status}`);
+      console.error('[Gemini/AI] Worker returned error:', errData);
+
+      if (response.status === 502) {
+        throw new Error(
+          'AI service temporarily unavailable. The PDF may have unsupported compression or the AI service is down. Please try again later or try a different PDF file.'
+        );
+      } else if (response.status === 413) {
+        throw new Error(
+          'PDF file is too large for AI processing. Please try a smaller file or split it into smaller parts.'
+        );
+      } else if (response.status === 429) {
+        throw new Error(
+          'AI service rate limit exceeded. Please wait a moment and try again.'
+        );
+      }
+
+      throw new Error((errData as any).error || `AI request failed: ${response.status}`);
     }
 
     const data = await response.json();

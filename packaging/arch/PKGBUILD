@@ -1,0 +1,47 @@
+pkgname=prism-file-hero-internal
+pkgver=0.1.0
+pkgrel=4
+pkgdesc='Prism File Hero unrestricted internal Tauri desktop build'
+arch=('x86_64')
+url='https://example.invalid/prism-file-hero'
+license=('LicenseRef-Proprietary')
+depends=('webkit2gtk-4.1' 'gtk3')
+source=('prism-file-hero-internal.AppImage')
+sha256sums=('SKIP')
+package() {
+  install -Dm755 "$srcdir/prism-file-hero-internal.AppImage" "$pkgdir/opt/prism-file-hero/prism-file-hero"
+  install -d "$pkgdir/usr/bin"
+  ln -s /opt/prism-file-hero/prism-file-hero "$pkgdir/usr/bin/prism-file-hero"
+
+  cd "$srcdir"
+  "$srcdir/prism-file-hero-internal.AppImage" --appimage-extract > /dev/null 2>&1 || true
+  local appdir="$srcdir/squashfs-root"
+
+  # Install .desktop file
+  if [ -f "$appdir/usr/share/applications/prism-file-hero.desktop" ]; then
+    install -Dm644 "$appdir/usr/share/applications/prism-file-hero.desktop" "$pkgdir/usr/share/applications/prism-file-hero.desktop"
+  elif [ -f "$appdir/prism-file-hero.desktop" ]; then
+    install -Dm644 "$appdir/prism-file-hero.desktop" "$pkgdir/usr/share/applications/prism-file-hero.desktop"
+  else
+    cat > "$pkgdir/usr/share/applications/prism-file-hero.desktop" << 'DTDEOF'
+[Desktop Entry]
+Name=Prism File Hero
+Comment=PDF tools and AI bank statement extractor
+Exec=prism-file-hero %U
+Icon=prism-file-hero
+Terminal=false
+Type=Application
+Categories=Utility;
+StartupWMClass=prism-file-hero
+DTDEOF
+  fi
+
+  # Install icons into the hicolor icon theme
+  local icon_src="$appdir/usr/share/icons/hicolor"
+  if [ -d "$icon_src" ]; then
+    while IFS= read -r -d '' iconfile; do
+      local relpath="${iconfile#"$icon_src"/}"
+      install -Dm644 "$iconfile" "$pkgdir/usr/share/icons/hicolor/$relpath"
+    done < <(find "$icon_src" -name 'prism-file-hero.png' -o -name 'app.png' -type f -print0)
+  fi
+}

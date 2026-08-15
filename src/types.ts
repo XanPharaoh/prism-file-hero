@@ -5,7 +5,30 @@ export type ToolID =
   | 'pdf-to-word' | 'pdf-to-excel' | 'pdf-to-jpg' | 'jpg-to-pdf'
   | 'protect' | 'redact' | 'watermark'
   | 'ocr' | 'compare' | 'rotate'
-  | 'ocr-to-pdf' | 'ocr-to-md' | 'grammar-check';
+  | 'ocr-to-md' | 'grammar-check';
+
+export interface PDFTool {
+  id: ToolID;
+  name: string;
+  description: string;
+  category: ToolCategory;
+  icon: string;
+  color: string;
+}
+
+export interface ToolUsage {
+  toolId: ToolID;
+  pages: number;
+  timestamp: string;
+}
+
+export interface AccountUsage {
+  freeToolsUsed: number;
+  aiToolsUsed: number;
+  aiPagesUsed: number;
+  aiPagesLimit: number;
+  byTool: Record<ToolID, number>;
+}
 
 export interface ExtractedData {
   headers: string[];
@@ -52,6 +75,7 @@ export interface TransactionEdit {
   oldValue: unknown;
   newValue: unknown;
   timestamp: number;
+  seq: number;
 }
 
 export interface ExtractionReviewState {

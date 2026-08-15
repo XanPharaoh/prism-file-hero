@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ProcessStatus } from '../types';
+import { ProcessStatus } from '../src/types';
 
 describe('types', () => {
     describe('ProcessStatus enum', () => {

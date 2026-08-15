@@ -42,7 +42,7 @@ export default function BentoCard({
         bg-white/60 backdrop-blur-xl border border-white/40
         shadow-xl shadow-slate-200/50 rounded-[32px] p-6 lg:p-8
         transition-all duration-300 ease-out
-        hover:-translate-y-1 hover:shadow-2xl hover:shadow-slate-300/60
+        hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:shadow-slate-300/60
         hover:border-white/60 hover:bg-white/70
         relative overflow-hidden group
         ${onClick ? 'cursor-pointer' : ''}

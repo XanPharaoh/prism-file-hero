@@ -27,6 +27,9 @@ export function parseMoney(str: any): number {
     clean = '-' + clean.substring(1, clean.length - 1);
   }
   let isNegative = false;
+  // In South African bank-statement convention:
+  //   Dr (Debit) = money OUT → negative impact on balance
+  //   Cr (Credit) = money IN → positive impact on balance
   const lower = clean.toLowerCase();
   if (lower.endsWith('dr')) { isNegative = true; clean = clean.slice(0, -2); }
   else if (lower.endsWith('cr')) { isNegative = false; clean = clean.slice(0, -2); }

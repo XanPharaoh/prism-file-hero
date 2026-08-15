@@ -79,7 +79,6 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     supportsBatchProcessing: false,
     handler: async ({ files, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
       // convertPdfToImages statically imported
-      const { processWithAI } = await import(svc('geminiService'));
       const images = await convertPdfToImages(files[0], (p: number) => onProgress?.(Math.round(p * 0.5)), 20, true);
       onProgress?.(50);
       const result = await processWithAI('pdf-to-word', images);
@@ -100,52 +99,125 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     maxFiles: 1,
     supportsBatchProcessing: false,
     handler: async ({ files, options, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
-      // convertPdfToImages statically imported
-      const { processDocumentExcel } = await import(svc('documentService'));
-      const { getExcelBlob } = await import(svc('excelService'));
-      const { processWithAI } = await import(svc('geminiService'));
-
       let result: { rows: Record<string, unknown>[]; metadata?: Record<string, unknown> } | undefined;
+      let lastError: Error | null = null;
 
       try {
         const docResult = await processDocumentExcel(files[0], options);
         if (docResult?.rows?.length > 0 && (docResult.metadata?.confidence ?? 1) >= 0.3) {
           result = docResult;
         }
-      } catch {
-        // Fall through to AI fallback
+      } catch (err: any) {
+        const msg = err?.message || String(err || '');
+        const code = err?.code || '';
+
+        // Password-protected PDFs cannot be fixed by AI — throw immediately
+        if (msg.toLowerCase().includes('password')) {
+          throw err instanceof Error ? err : new Error(msg);
+        }
+
+        // For compression / blank / unreadable PDFs, fall through to AI vision
+        const isCompressionError =
+          code === 'COMPRESSION_UNREADABLE' ||
+          msg.includes('unusual compression') ||
+          msg.includes('blank pages') ||
+          msg.includes('AI vision extraction may be able to help');
+
+        if (isCompressionError) {
+          console.warn('[pdf-to-excel] Compression/blank error — routing to AI vision fallback:', msg);
+        } else {
+          console.warn('[pdf-to-excel] Local extraction failed, trying AI fallback:', msg);
+        }
+        lastError = err instanceof Error ? err : new Error(msg);
       }
 
       if (!result?.rows?.length) {
-        const images = await convertPdfToImages(files[0], undefined, 20, true);
-        const aiResult = await processWithAI('pdf-to-excel', images);
-        if (aiResult?.data?.rows?.length > 0) {
-          const r = aiResult.data as Record<string, unknown>;
-          result = {
-            rows: r.rows as Record<string, unknown>[],
-            metadata: {
-              pageCount: images.length,
-              rowCount: (r.rows as Record<string, unknown>[]).length,
-              confidence: 0.70,
-              columnCount: Object.keys((r.rows as Record<string, unknown>[])[0]).length,
-              columns: Object.keys((r.rows as Record<string, unknown>[])[0]),
-              source: 'ai-vision',
-              openingBalance: (r.document_metadata as Record<string, unknown>)?.OpeningBalance,
-              closingBalance: (r.document_metadata as Record<string, unknown>)?.ClosingBalance,
-            },
-          };
+        // AI Vision fallback: convert PDF pages to images and send to AI
+        try {
+          // First try normalizing the PDF to fix compression issues before rendering
+          let fileForAI = files[0];
+          try {
+            const { normalizePdf } = await import('../../services/pdfNormalizer');
+            const normResult = await normalizePdf(files[0]);
+            if (normResult.wasNormalized) {
+              fileForAI = normResult.file;
+              console.log('[pdf-to-excel] Using normalized PDF for AI vision fallback.');
+            }
+          } catch (normErr) {
+            console.warn('[pdf-to-excel] PDF normalization for AI failed, using original:', normErr);
+          }
+
+          const images = await convertPdfToImages(fileForAI, undefined, 20, true);
+          if (!images.length) {
+            throw new Error('NO_IMAGES');
+          }
+          const aiResult = await processWithAI('pdf-to-excel', images);
+          const aiRows =
+            (aiResult?.data?.rows as Record<string, unknown>[] | undefined) ||
+            (aiResult?.rows as Record<string, unknown>[] | undefined);
+          if (aiRows?.length) {
+            const meta = (aiResult?.data?.document_metadata ||
+              aiResult?.document_metadata ||
+              {}) as Record<string, unknown>;
+            result = {
+              rows: aiRows,
+              metadata: {
+                pageCount: images.length,
+                rowCount: aiRows.length,
+                confidence: 0.70,
+                columnCount: Object.keys(aiRows[0] || {}).length,
+                columns: Object.keys(aiRows[0] || {}),
+                source: 'ai-vision',
+                openingBalance: meta.OpeningBalance ?? meta.openingBalance,
+                closingBalance: meta.ClosingBalance ?? meta.closingBalance,
+              },
+            };
+          }
+        } catch (aiErr: any) {
+          const aiMsg = aiErr?.message || String(aiErr || '');
+          console.warn('[pdf-to-excel] AI vision fallback failed:', aiMsg);
+
+          // Handle auth errors gracefully
+          if (aiMsg.includes('Sign in required') || aiMsg.includes('401')) {
+            throw new Error(
+              'This PDF requires AI-powered extraction, but you need to sign in first. ' +
+              'Please sign in and try again.'
+            );
+          }
+
+          // If AI also can't render the pages
+          if (aiMsg === 'NO_IMAGES') {
+            throw new Error(
+              'This PDF has unsupported compression and could not be rendered. ' +
+              'Please try re-saving the PDF from the original application (e.g. Adobe Acrobat "Save As") and try again.'
+            );
+          }
+
+          // If we had a previous error from local extraction, throw that context
+          if (lastError) {
+            throw new Error(
+              'Extraction failed. Local extraction and AI vision both could not process this PDF. ' +
+              'The document may use unsupported compression or be corrupted.'
+            );
+          }
+          throw aiErr instanceof Error ? aiErr : new Error(aiMsg);
         }
       }
 
       if (!result?.rows?.length) {
-        throw new Error('No table data found in this document. If this is a scanned PDF, sign in to use AI-powered extraction.');
+        throw new Error(
+          'No table data found in this document. ' +
+          'If this is a scanned PDF, sign in to use AI-powered extraction.'
+        );
       }
 
       const mapped: Record<string, unknown>[] = (result.rows || []).map((r: Record<string, unknown>) => {
         const debit = (r.Debit ?? r.debit ?? null) as string | null;
         const credit = (r.Credit ?? r.credit ?? null) as string | null;
+        const explicitAmount = r.Amount ?? r.amount;
+        const explicitDirection = String(r.Direction ?? r.direction ?? '').toUpperCase();
         let amount = 0;
-        let direction: 'DEBIT' | 'CREDIT' = 'DEBIT';
+        let direction: 'DEBIT' | 'CREDIT' | 'UNKNOWN' = 'UNKNOWN';
 
         if (debit !== null && debit !== undefined && String(debit).trim() !== '') {
           amount = -Math.abs(Number(String(debit).replace(/[^0-9.-]/g, '')) || 0);
@@ -154,9 +226,11 @@ export const TOOL_REGISTRY: ToolHandler[] = [
           amount = Math.abs(Number(String(credit).replace(/[^0-9.-]/g, '')) || 0);
           direction = 'CREDIT';
         } else {
-          const a = Number(String(r.Amount ?? r.amount ?? '').replace(/[^0-9.-]/g, '')) || 0;
+          const a = Number(String(explicitAmount ?? '').replace(/[^0-9.-]/g, '')) || 0;
           amount = a;
-          direction = a < 0 ? 'DEBIT' : 'CREDIT';
+          direction = explicitDirection === 'DEBIT' || explicitDirection === 'CREDIT' || explicitDirection === 'UNKNOWN'
+            ? explicitDirection
+            : a < 0 ? 'DEBIT' : a > 0 ? 'CREDIT' : 'UNKNOWN';
         }
 
         return {
@@ -173,7 +247,9 @@ export const TOOL_REGISTRY: ToolHandler[] = [
       });
 
       onProgress?.(90);
-      const blob = await getExcelBlob(mapped, result?.metadata);
+      // Keep the extractor's complete source schema in the workbook. The
+      // normalized rows above are strictly for the cross-bank review UI.
+      const blob = await getExcelBlob(result.rows, result?.metadata);
       if (!blob) throw new Error('Failed to generate Excel data.');
 
       return {
@@ -257,9 +333,6 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     maxFiles: 1,
     supportsBatchProcessing: false,
     handler: async ({ files, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
-      // convertPdfToImages + redactPdf statically imported
-      const { processWithAI } = await import(svc('geminiService'));
-
       // Scan for PII using regex
       let piiRegions: Array<{ page: number; text: string; category: string; x: number; y: number; width: number; height: number }> = [];
       try {
@@ -357,7 +430,7 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     supportsBatchProcessing: false,
     handler: async ({ files, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
       // convertPdfToImages + createTextPdf statically imported
-      const { processWithAI } = await import(svc('geminiService'));
+      // processWithAI statically imported
       const images = await convertPdfToImages(files[0], (p: number) => onProgress?.(Math.round(p * 0.4)), 50, true);
       onProgress?.(40);
       const result = await processWithAI('ocr', images);
@@ -382,7 +455,7 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     handler: async ({ files, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
       if (files.length !== 2) throw new Error('Comparison requires exactly 2 PDF files.');
       // convertPdfToImages statically imported
-      const { processWithAI } = await import(svc('geminiService'));
+      // processWithAI statically imported
       const docAImages = await convertPdfToImages(files[0], undefined, 20, true);
       const docBImages = await convertPdfToImages(files[1], undefined, 20, true);
       onProgress?.(40);
@@ -412,30 +485,6 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     },
   },
   {
-    id: 'ocr-to-pdf',
-    category: 'AI Labs',
-    name: 'OCR to PDF',
-    description: 'Convert scanned PDFs into high-fidelity searchable PDF documents.',
-    icon: 'Zap',
-    color: 'bg-amber-500',
-    requiresAuth: true,
-    allowedFileTypes: ['application/pdf'],
-    maxFiles: 1,
-    supportsBatchProcessing: false,
-    handler: async ({ files, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
-      // convertPdfToImages + createTextPdf statically imported
-      const { processWithAI } = await import(svc('geminiService'));
-      const images = await convertPdfToImages(files[0], (p: number) => onProgress?.(Math.round(p * 0.4)), 50, true);
-      onProgress?.(40);
-      const result = await processWithAI('ocr', images);
-      onProgress?.(80);
-      const rawData = result.data ?? result.summary ?? 'No text extracted.';
-      const ocrText = typeof rawData === 'string' ? rawData : JSON.stringify(rawData, null, 2);
-      const blob = await createTextPdf(ocrText, `OCR: ${files[0].name}`);
-      return { blob, filename: `${files[0].name.replace(/\.pdf$/i, '')}_Searchable.pdf` };
-    },
-  },
-  {
     id: 'ocr-to-md',
     category: 'AI Labs',
     name: 'OCR to Markdown',
@@ -448,7 +497,7 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     supportsBatchProcessing: false,
     handler: async ({ files, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
       // convertPdfToImages statically imported
-      const { processWithAI } = await import(svc('geminiService'));
+      // processWithAI statically imported
       const images = await convertPdfToImages(files[0], (p: number) => onProgress?.(Math.round(p * 0.4)), 50, true);
       onProgress?.(40);
       const result = await processWithAI('ocr', images);
@@ -472,7 +521,7 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     supportsBatchProcessing: false,
     handler: async ({ files, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
       // convertPdfToImages statically imported
-      const { processWithAI } = await import(svc('geminiService'));
+      // processWithAI statically imported
       const images = await convertPdfToImages(files[0], (p: number) => onProgress?.(Math.round(p * 0.5)), 20, true);
       onProgress?.(50);
       const result = await processWithAI('grammar-check', images);

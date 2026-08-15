@@ -1,7 +1,8 @@
 import { WORKER_BASE_URL } from './apiConfig';
-import { supabase } from './authService';
+import { getAuthToken } from './authService';
 import { getToolPagesCost } from './usageConfig';
-import type { ToolID } from '../types';
+import type { ToolID } from '../src/types';
+import { isInternalDesktopDistribution } from '../src/config/distribution';
 
 export interface ExecutionCheckResult {
   allowed: boolean;
@@ -20,10 +21,10 @@ export async function checkExecutionAuthorization(
   toolId: ToolID,
   pageCount?: number
 ): Promise<ExecutionCheckResult> {
+  if (isInternalDesktopDistribution) return { allowed: true, plan: 'business', pagesUsed: 0, limit: -1 };
   try {
-    // Get the current session JWT
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
+    // Get the current Clerk session token
+    const token = await getAuthToken();
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

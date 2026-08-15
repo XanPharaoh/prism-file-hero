@@ -48,10 +48,11 @@ export function detectColumns(headers: string[]): Record<string, number> {
   const mapping: Record<string, number> = {};
 
   const headerPatterns = {
-    date: ['date', 'transaction date', 'value date', 'posted date', 'valuta', 'datum'],
+    date: ['date', 'transaction date', 'value date', 'posted date', 'valuta', 'datum', 'post date', 'trans date'],
     description: ['description', 'memo', 'particulars', 'reference', 'details', 'narration', 'description text'],
-    debit: ['debit', 'debits', 'withdrawal', 'withdrawn', 'dr', 'out'],
-    credit: ['credit', 'credits', 'deposit', 'deposited', 'cr', 'in'],
+    debit: ['debit', 'debits', 'withdrawal', 'withdrawn', 'dr', 'out', 'money out'],
+    credit: ['credit', 'credits', 'deposit', 'deposited', 'cr', 'in', 'money in'],
+    fees: ['fees', 'fee', 'charge', 'charges', 'service fee', 'bank fee'],
     balance: ['balance', 'running balance', 'closing balance', 'bal', 'available balance'],
   };
 

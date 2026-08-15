@@ -1,50 +1,79 @@
-import type { ToolID } from '../types';
+import type { ToolID } from '../src/types';
 
-export interface ToolConfig {
-  id: ToolID;
+export type Plan = 'free' | 'pro' | 'business';
+export type FeatureType = 'local' | 'ai';
+
+export interface ToolCost {
+  aiPagesPerPage: number;
+  aiPagesFlat: number;
+  operationCost: number;
   category: 'free' | 'ai';
-  pagesPerUse: number;
-  description: string;
+  featureType: FeatureType;
+  displayName: string;
 }
 
-export const TOOL_USAGE_CONFIG: Record<ToolID, ToolConfig> = {
-  // Free tools - unlimited
-  merge: { id: 'merge', category: 'free', pagesPerUse: 0, description: 'Combine PDFs' },
-  split: { id: 'split', category: 'free', pagesPerUse: 0, description: 'Split PDFs' },
-  compress: { id: 'compress', category: 'free', pagesPerUse: 0, description: 'Compress PDFs' },
-  rotate: { id: 'rotate', category: 'free', pagesPerUse: 0, description: 'Rotate pages' },
-  'jpg-to-pdf': { id: 'jpg-to-pdf', category: 'free', pagesPerUse: 0, description: 'Images to PDF' },
-  protect: { id: 'protect', category: 'free', pagesPerUse: 0, description: 'Password protect' },
-  watermark: { id: 'watermark', category: 'free', pagesPerUse: 0, description: 'Add watermark' },
+export const LOCAL_PER_TOOL_LIMIT = 5;
+export const LOCAL_GLOBAL_CAP = 15;
+export const AI_PER_TOOL_LIMIT = 2;
+export const AI_GLOBAL_CAP = 6;
+export const SAST_OFFSET_HOURS = 2;
 
-  // AI tools - limited
-  'pdf-to-excel': { id: 'pdf-to-excel', category: 'ai', pagesPerUse: 1, description: 'PDF to Excel' },
-  'pdf-to-word': { id: 'pdf-to-word', category: 'ai', pagesPerUse: 1, description: 'PDF to Markdown' },
-  'pdf-to-jpg': { id: 'pdf-to-jpg', category: 'ai', pagesPerUse: 1, description: 'PDF to JPG' },
-  ocr: { id: 'ocr', category: 'ai', pagesPerUse: 1, description: 'OCR PDF' },
-  'ocr-to-pdf': { id: 'ocr-to-pdf', category: 'ai', pagesPerUse: 1, description: 'OCR to PDF' },
-  'ocr-to-md': { id: 'ocr-to-md', category: 'ai', pagesPerUse: 1, description: 'OCR to Markdown' },
-  compare: { id: 'compare', category: 'ai', pagesPerUse: 2, description: 'Compare PDFs' },
-  redact: { id: 'redact', category: 'ai', pagesPerUse: 1, description: 'Redact PII' },
-  'grammar-check': { id: 'grammar-check', category: 'ai', pagesPerUse: 1, description: 'Grammar check' },
+export const TOOL_COSTS: Record<string, ToolCost> = {
+  'merge':         { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Merge PDF' },
+  'split':         { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Split PDF' },
+  'compress':      { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Compress PDF' },
+  'rotate':        { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Rotate PDF' },
+  'protect':       { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Protect PDF' },
+  'watermark':     { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Watermark' },
+  'jpg-to-pdf':    { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'JPG to PDF' },
+  'pdf-to-jpg':    { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'PDF to JPG' },
+  'pdf-to-excel':  { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'PDF to Excel' },
+  'ocr':           { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'OCR to Searchable PDF' },
+  'ocr-to-md':     { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'OCR to Markdown' },
+  'pdf-to-word':   { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'PDF to Word' },
+  'redact':        { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'Redact PDF' },
+  'compare':       { aiPagesPerPage: 0, aiPagesFlat: 2, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'Compare PDF' },
+  'grammar-check': { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'Grammar Check' },
 };
 
-export function isFreeTool(toolId: ToolID): boolean {
-  return TOOL_USAGE_CONFIG[toolId]?.category === 'free';
+export const PLAN_LIMITS: Record<Plan, { aiPages: number; operations: number; maxFileSizeMB: number; maxPagesPerFile: number; }> = {
+  free:     { aiPages: 10,    operations: 50,    maxFileSizeMB: 10,  maxPagesPerFile: 20 },
+  pro:      { aiPages: 500,   operations: -1,    maxFileSizeMB: 50,  maxPagesPerFile: 100 },
+  business: { aiPages: -1,    operations: -1,    maxFileSizeMB: 100, maxPagesPerFile: 500 },
+};
+
+export function getFeatureType(toolId: string): FeatureType { return TOOL_COSTS[toolId]?.featureType || 'local'; }
+export function getPerToolLimit(featureType: FeatureType): number { return featureType === 'ai' ? AI_PER_TOOL_LIMIT : LOCAL_PER_TOOL_LIMIT; }
+export function getDailyLimit(featureType: FeatureType): number { return getPerToolLimit(featureType); }
+export function getGlobalCap(featureType: FeatureType): number { return featureType === 'ai' ? AI_GLOBAL_CAP : LOCAL_GLOBAL_CAP; }
+export function getToolDisplayName(toolId: string): string { return TOOL_COSTS[toolId]?.displayName || toolId; }
+
+export function getSastMidnightUTC(date: Date = new Date()): Date {
+  const sastTime = new Date(date.getTime() + (SAST_OFFSET_HOURS * 60 * 60 * 1000));
+  sastTime.setUTCHours(0, 0, 0, 0);
+  return new Date(sastTime.getTime() - (SAST_OFFSET_HOURS * 60 * 60 * 1000));
 }
 
-export function getToolPagesCost(toolId: ToolID): number {
-  return TOOL_USAGE_CONFIG[toolId]?.pagesPerUse || 0;
+export function getNextSastMidnightDate(date: Date = new Date()): Date {
+  const todayMidnight = getSastMidnightUTC(date);
+  if (date > todayMidnight) return new Date(todayMidnight.getTime() + 24 * 60 * 60 * 1000);
+  return todayMidnight;
 }
 
-export function getAiTools(): ToolID[] {
-  return Object.values(TOOL_USAGE_CONFIG)
-    .filter(t => t.category === 'ai')
-    .map(t => t.id);
+export function calculateToolCost(toolId: string, pagesProcessed: number): { aiPages: number; operations: number; } {
+  const cost = TOOL_COSTS[toolId];
+  if (!cost) return { aiPages: 0, operations: 0 };
+  return { aiPages: (cost.aiPagesPerPage * pagesProcessed) + cost.aiPagesFlat, operations: cost.operationCost };
 }
 
-export function getFreeTools(): ToolID[] {
-  return Object.values(TOOL_USAGE_CONFIG)
-    .filter(t => t.category === 'free')
-    .map(t => t.id);
+export function getCurrentMonthKey(date: Date = new Date()): string {
+  return date.toISOString().slice(0, 7);
+}
+
+export function isAiTool(toolId: string): boolean { return TOOL_COSTS[toolId]?.category === 'ai'; }
+export function isFreeTool(toolId: string): boolean { return TOOL_COSTS[toolId]?.category === 'free'; }
+export function getToolPagesCost(toolId: string, pageCount: number = 1): number {
+  const cost = TOOL_COSTS[toolId];
+  if (!cost) return 0;
+  return (cost.aiPagesPerPage * pageCount) + cost.aiPagesFlat;
 }

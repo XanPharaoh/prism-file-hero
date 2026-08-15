@@ -1,4 +1,4 @@
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from './pdfjsClient';
 
 /**
  * Bank-specific configuration for FNB (First National Bank, South Africa).
@@ -36,6 +36,8 @@ export interface FNBMetadata {
   reconciles: boolean;
   /** Count of transactions that failed to parse money values. */
   parseErrors: number;
+  /** Aggregated mean of per-row confidence scores. */
+  aggregatedConfidence?: number;
 }
 
 /** Hard page cap so a runaway statement doesn't block the UI. */
@@ -72,7 +74,12 @@ function isNoiseLine(text: string): boolean {
   const lower = text.toLowerCase().trim();
   // Only skip noise filtering for lines that look like real transactions:
   // must start with a date AND contain a money-like amount (digits with decimals).
-  if (/^\d{2}\/\d{2}\/\d{4}/.test(lower) && /[\d,]+\.\d{2}/.test(lower)) return false;
+  // FNB Gold uses "DD Mon" (e.g. "02 Jan"); standard formats use DD/MM/YYYY or YYYY/MM/DD.
+  const startsWithDate =
+    /^\d{2}\/\d{2}\/\d{4}/.test(lower) ||
+    /^\d{4}\/\d{2}\/\d{2}/.test(lower) ||
+    /^\d{1,2}\s+[a-z]{3}\b/.test(lower);
+  if (startsWithDate && /[\d,]+\.\d{2}/.test(lower)) return false;
   return NOISE_PHRASES.some(phrase => lower.includes(phrase));
 }
 
@@ -146,6 +153,77 @@ export function computeRowConfidence(row: {
   return Math.min(1, score);
 }
 
+/** Fixed measured column ranges for FNB Gold Business Account statements. */
+export const FNB_GOLD_COLUMNS: Array<{ name: string; xLeft: number; xRight: number }> = [
+  { name: 'Date', xLeft: 0, xRight: 35 },
+  { name: 'Description', xLeft: 35, xRight: 430 },
+  { name: 'Amount', xLeft: 430, xRight: 485 },
+  { name: 'Balance', xLeft: 485, xRight: 548 },
+  { name: 'Charges', xLeft: 548, xRight: 620 },
+];
+
+/**
+ * Detect FNB Gold Business Account format.
+ * Gold format has header "Date" at x&lt;30 and "Description" at x&gt;150.
+ * Uses fixed measured ranges (not header-midpoint ranges).
+ */
+export function detectGoldFormat(textItems: Array<{ str?: string; transform?: number[] }>): {
+  isGold: boolean;
+  columns?: Array<{ name: string; xLeft: number; xRight: number }>;
+} {
+  const dateCol = textItems.find(
+    (item) => item.str?.trim().toLowerCase() === 'date' && item.transform
+  );
+  const descCol = textItems.find(
+    (item) => item.str?.trim().toLowerCase() === 'description' && item.transform
+  );
+
+  if (!dateCol || !descCol) {
+    return { isGold: false };
+  }
+
+  // Prefer the transaction-table Date header (x&lt;30), not the page chrome "Date" field.
+  const dateCandidates = textItems.filter(
+    (item) => item.str?.trim().toLowerCase() === 'date' && item.transform
+  );
+  const tableDate =
+    dateCandidates.find((item) => (item.transform?.[4] ?? 0) < 30) || dateCol;
+  const dateX = tableDate.transform ? tableDate.transform[4] : 0;
+  const descX = descCol.transform ? descCol.transform[4] : 0;
+
+  if (dateX < 30 && descX > 150) {
+    console.log(`[FNB] Detected Gold Business Account format (Date x=${dateX}, Desc x=${descX})`);
+    return { isGold: true, columns: FNB_GOLD_COLUMNS.map((c) => ({ ...c })) };
+  }
+
+  return { isGold: false };
+}
+
+function goldColumnsToColMap(
+  columns: Array<{ name: string; xLeft: number; xRight: number }>
+): Record<string, { min: number; max: number; isLast?: boolean }> {
+  const colMap: Record<string, { min: number; max: number; isLast?: boolean }> = {};
+  for (let idx = 0; idx < columns.length; idx++) {
+    const col = columns[idx]!;
+    colMap[col.name] = {
+      min: col.xLeft,
+      max: col.xRight,
+      isLast: idx === columns.length - 1,
+    };
+  }
+  return colMap;
+}
+
+/** True when the token looks like an FNB statement date (ISO-like or "DD Mon"). */
+function looksLikeFnbDate(value: string): boolean {
+  const t = value.trim();
+  return (
+    /^\d{4}\/\d{2}\/\d{2}/.test(t) ||
+    /^\d{2}\/\d{2}\/\d{4}/.test(t) ||
+    /^\d{1,2}\s+[A-Za-z]{3}\b/.test(t)
+  );
+}
+
 /**
  * Reconcile opening balance + signed rows against the closing balance.
  * Returns `true` when the running balance fits within ±tolerance.
@@ -166,14 +244,65 @@ export function reconciles(
 
 export async function extractFNBStatement(
   file: File,
-  password?: string
+  password?: string,
+  maxPages: number = FNB_MAX_PAGES
 ): Promise<{ transactions: FNBTransaction[]; metadata: FNBMetadata }> {
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer, password }).promise;
+  // PDF.js may transfer its input to a worker, so retain no shared File buffer.
+  const bytes = new Uint8Array(new Uint8Array(await file.arrayBuffer()));
+  const pdf = await pdfjsLib.getDocument({ data: bytes, password }).promise;
 
   const transactions: FNBTransaction[] = [];
   let parseErrors = 0;
-  const totalPages = Math.min(pdf.numPages, FNB_MAX_PAGES);
+  const totalPages = Math.min(pdf.numPages, FNB_MAX_PAGES, Math.max(1, maxPages));
+
+  // Multi-page Gold format column map (headers often missing on later pages)
+  let persistedGoldFormat = false;
+  let persistedColumns: Array<{ name: string; xLeft: number; xRight: number }> | null = null;
+
+  // Header-section opening/closing balances (FNB places these ABOVE the data table)
+  let headerOpeningBalance: number | null = null;
+  let headerClosingBalance: number | null = null;
+  try {
+    const page1 = await pdf.getPage(1);
+    const content1 = await page1.getTextContent();
+    const items1 = (content1.items as any[]).map((item: any) => ({
+      str: item.str?.trim() || '',
+      x: item.transform[4],
+      y: item.transform[5],
+    }));
+    const hdrLines = new Map<number, typeof items1>();
+    for (const item of items1) {
+      if (!item.str) continue;
+      const yKey = Math.round(item.y / 5) * 5;
+      if (!hdrLines.has(yKey)) hdrLines.set(yKey, []);
+      hdrLines.get(yKey)!.push(item);
+    }
+    for (const [, lineItems] of hdrLines) {
+      const sorted = lineItems.sort((a, b) => a.x - b.x);
+      const lineText = sorted.map((i) => i.str).join(' ');
+      const lower = lineText.toLowerCase();
+      if (lower.includes('opening balance') && headerOpeningBalance === null) {
+        for (const item of sorted) {
+          const m = item.str.match(/^([\d,]+\.\d{2})\s*(Cr|Dr)?$/i);
+          if (m) {
+            headerOpeningBalance = parseMoney(m[0]);
+            break;
+          }
+        }
+      }
+      if (lower.includes('closing balance') && headerClosingBalance === null) {
+        for (const item of sorted) {
+          const m = item.str.match(/^([\d,]+\.\d{2})\s*(Cr|Dr)?$/i);
+          if (m) {
+            headerClosingBalance = parseMoney(m[0]);
+            break;
+          }
+        }
+      }
+    }
+  } catch {
+    /* ignore header scan errors */
+  }
 
   for (let i = 1; i <= totalPages; i++) {
     const page = await pdf.getPage(i);
@@ -182,8 +311,23 @@ export async function extractFNBStatement(
 
     // 1. Strict Column Detection via Header X-Coordinates
     // First try: join items on same Y-coordinate and match against full-line patterns
-    let colMap: Record<string, { min: number; max: number }> = {};
+    let colMap: Record<string, { min: number; max: number; isLast?: boolean }> = {};
     let headerFound = false;
+    let useGoldRanges = false;
+
+    // Gold format detection runs before generic header-midpoint logic.
+    const goldDetection = detectGoldFormat(items);
+    if (goldDetection.isGold && goldDetection.columns) {
+      persistedGoldFormat = true;
+      persistedColumns = goldDetection.columns;
+      useGoldRanges = true;
+      colMap = goldColumnsToColMap(goldDetection.columns);
+      headerFound = true;
+    } else if (persistedGoldFormat && persistedColumns) {
+      useGoldRanges = true;
+      colMap = goldColumnsToColMap(persistedColumns);
+      headerFound = true;
+    }
 
     // Group items by Y-coordinate to find header lines.
     // CRITICAL: snap Y to a 3px grid. PDF generators often emit header tokens
@@ -234,6 +378,12 @@ export async function extractFNBStatement(
       if (FNB_HEADER_PATTERNS.some(p => p.test(lineText))) {
         headerFound = true;
         headerYKeys = line.yKeys;
+
+        // Gold fixed ranges take precedence — only record header Y keys for exclusion.
+        if (useGoldRanges) {
+          break;
+        }
+
         // Compute non-overlapping column boundaries from header keyword x-positions.
         // Each column's range spans from the midpoint between it and the previous column
         // to the midpoint between it and the next column.
@@ -283,13 +433,12 @@ export async function extractFNBStatement(
       }
     }
 
-    // Fallback: try individual item keyword matching
-    if (!headerFound) {
+    // Fallback: try individual item keyword matching (skip when Gold ranges already set)
+    if (!headerFound && !useGoldRanges) {
       for (const item of items) {
         const text = item.str.trim();
         if (!text) continue;
         const x = item.transform[4];
-        const y = item.transform[5];
         if (/^date$/i.test(text) && !colMap['Date']) colMap['Date'] = { min: x - 10, max: x + 50 };
         if (/^description|^narrative$/i.test(text) && !colMap['Description']) colMap['Description'] = { min: x - 10, max: x + 200 };
         if (/^debit$/i.test(text) && !colMap['Debit']) colMap['Debit'] = { min: x - 10, max: x + 60 };
@@ -388,20 +537,80 @@ export async function extractFNBStatement(
           } else if (currentRow['Direction']?.toUpperCase().includes('IN')) {
             direction = 'CREDIT';
             credit = amount !== null ? Math.abs(amount) : null;
+          } else if (amount !== null && amount < 0) {
+            direction = 'DEBIT';
+            debit = Math.abs(amount);
+          } else {
+            // Gold / single-Amount layouts often omit Cr/Dr on the amount token.
+            // Resolve from description markers only (never balance-progression guessing).
+            // Credit keywords first so "SALARY PAYMENT" / "Payment From" stay CREDIT.
+            const descLower = description.toLowerCase();
+            if (
+              /\bcr\b/.test(descLower) ||
+              /\bcredit\b/.test(descLower) ||
+              /\bdeposit\b/.test(descLower) ||
+              /\bsalary\b/.test(descLower) ||
+              /\btransfer from\b/.test(descLower) ||
+              /\bpayment from\b/.test(descLower) ||
+              /\bpayshap credit\b/.test(descLower) ||
+              /\breversal\b/.test(descLower)
+            ) {
+              direction = 'CREDIT';
+              credit = amount !== null ? Math.abs(amount) : null;
+              if (amount !== null) amount = Math.abs(amount);
+            } else if (
+              /\bdr\b/.test(descLower) ||
+              /\bdebit\b/.test(descLower) ||
+              /\bpos purchase\b/.test(descLower) ||
+              /\batm\b/.test(descLower) ||
+              /\bmagtape debit\b/.test(descLower) ||
+              /\bsend money\b/.test(descLower) ||
+              /\bpurchase\b/.test(descLower) ||
+              /\bfee\b/.test(descLower) ||
+              /\btransfer to\b/.test(descLower) ||
+              /\bpayment to\b/.test(descLower) ||
+              /\bpayment\b/.test(descLower)
+            ) {
+              direction = 'DEBIT';
+              debit = amount !== null ? Math.abs(amount) : null;
+              if (amount !== null) amount = -Math.abs(amount);
+            }
           }
         }
 
-        if (date && description) {
+        // Accept rows with a real date and at least one money field.
+        // Gold fee-only continuation lines often have date + amount/charges but empty description.
+        const hasMoneyField =
+          (amountStr && amountStr !== '0') ||
+          Boolean(debitStr) ||
+          Boolean(creditStr) ||
+          (balanceStr && balanceStr !== '0') ||
+          Boolean(chargesStr);
+        if (date && looksLikeFnbDate(date) && (description || hasMoneyField)) {
+          const rowDescription =
+            description ||
+            (chargesStr && (!amountStr || amountStr === '0')
+              ? 'Bank Charges'
+              : amountStr
+                ? 'Fee / Adjustment'
+                : 'Transaction');
           const parsedBalance = parseMoney(balanceStr);
           const parsedCharges = chargesStr ? parseMoney(chargesStr) : null;
           // Count rows where money parsing failed
-          if (amount === null) parseErrors++;
-          if (parsedBalance === null) parseErrors++;
+          if (amount === null && (amountStr || debitStr || creditStr)) parseErrors++;
+          if (parsedBalance === null && balanceStr && balanceStr !== '0') parseErrors++;
+
+          // Fee-only rows with no direction yet: treat non-zero amount as DEBIT
+          if (direction === 'UNKNOWN' && amount !== null && amount !== 0 && !description) {
+            direction = 'DEBIT';
+            debit = Math.abs(amount);
+            amount = -Math.abs(amount);
+          }
 
           const confidence = computeRowConfidence({
             hasDate: Boolean(date),
-            hasDescription: Boolean(description),
-            hasAmount: amountStr !== '',
+            hasDescription: Boolean(rowDescription),
+            hasAmount: amountStr !== '' || Boolean(debitStr) || Boolean(creditStr),
             hasBalance: balanceStr !== '0',
             amountParsed: amount !== null,
             balanceParsed: parsedBalance !== null,
@@ -410,7 +619,7 @@ export async function extractFNBStatement(
 
           transactions.push({
             date,
-            description,
+            description: rowDescription,
             debit,
             credit,
             amount,
@@ -425,13 +634,29 @@ export async function extractFNBStatement(
     }
   }
 
-  // Opening / closing balance from first/last row balance values
-  const openingBalance: number | null = transactions.length > 0 ? transactions[0].balance : null;
-  const closingBalance: number | null = transactions.length > 0 ? transactions[transactions.length - 1].balance : null;
+  // Prefer header-section balances when present; else first/last row balances
+  const openingBalance: number | null =
+    headerOpeningBalance !== null
+      ? headerOpeningBalance
+      : transactions.length > 0
+        ? transactions[0].balance
+        : null;
+  const closingBalance: number | null =
+    headerClosingBalance !== null
+      ? headerClosingBalance
+      : transactions.length > 0
+        ? transactions[transactions.length - 1].balance
+        : null;
 
-  const doesReconcile = openingBalance !== null && closingBalance !== null
-    ? reconciles(openingBalance, transactions, closingBalance)
-    : false;
+  const doesReconcile =
+    openingBalance !== null && closingBalance !== null
+      ? reconciles(openingBalance, transactions, closingBalance)
+      : false;
+
+  // Aggregate per-row confidence into a single extraction-level score
+  const aggregatedConfidence = transactions.length > 0
+    ? transactions.reduce((sum, tx) => sum + tx.confidence, 0) / transactions.length
+    : 0;
 
   return {
     transactions,
@@ -445,6 +670,7 @@ export async function extractFNBStatement(
       rowCount: transactions.length,
       reconciles: doesReconcile,
       parseErrors,
+      aggregatedConfidence,
     },
   };
 }

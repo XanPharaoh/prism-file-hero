@@ -1,11 +1,19 @@
 import { create } from 'zustand';
-import type { User } from '@supabase/supabase-js';
 import type { ToolID, ToolCategory, BatchItem, ProcessStatus, Toast } from '../types';
 import { setCachedFile } from '../../services/fileCache';
+import type { FeatureType } from '../../services/usageConfig';
+import type { TableAlignmentResult } from '../../services/spatialTableExtractor';
+
+/** Authenticated user shape — provider-agnostic (Clerk, Supabase, etc.) */
+export interface AppUser {
+  id: string;
+  email: string;
+  name: string;
+}
 
 const makeItemId = (): string => `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
-interface AppStore {
+interface AppState {
   // Tool state
   selectedTool: ToolID | null;
   activeCategory: ToolCategory;
@@ -26,8 +34,8 @@ interface AppStore {
   setIsProcessing: (v: boolean) => void;
 
   // Auth
-  user: User | null;
-  setUser: (u: User | null) => void;
+  user: AppUser | null;
+  setUser: (u: AppUser | null) => void;
   isPremium: boolean;
   setIsPremium: (v: boolean) => void;
 
@@ -46,7 +54,19 @@ interface AppStore {
   // Extraction review
   extractedTransactions: Record<string, unknown>[];
   currentPdfUrl: string | null;
-  setExtractedTransactions: (txs: Record<string, unknown>[], pdfUrl?: string) => void;
+  extractionMetadata: Record<string, unknown>;
+  alignmentResult: TableAlignmentResult | null;
+  activeReviewFileId: string | null;
+  reviewConfirmed: boolean;
+  setExtractedTransactions: (txs: Record<string, unknown>[], _legacyPdfUrl?: string | null) => void;
+  setExtractionReview: (
+    txs: Record<string, unknown>[],
+    metadata: Record<string, unknown>,
+    fileId: string | null,
+  ) => void;
+  setAlignmentResult: (result: TableAlignmentResult | null) => void;
+  setReviewConfirmed: (confirmed: boolean) => void;
+  clearExtractionReview: () => void;
 
   // Toasts
   toasts: Toast[];
@@ -64,24 +84,43 @@ interface AppStore {
     mergePages: string;
     splitPages: string;
   };
-  setToolOptions: (opts: Partial<AppStore['toolOptions']>) => void;
+  setToolOptions: (opts: Partial<AppState['toolOptions']>) => void;
+
+  // Page counting (for quota enforcement)
+  totalSelectedPages: number;
+  setTotalSelectedPages: (pages: number) => void;
+
+  // Quota exceeded modal
+  showQuotaModal: boolean;
+  setShowQuotaModal: (v: boolean) => void;
+  quotaModalInfo: {
+    featureType: FeatureType;
+    requestedPages: number;
+    usedToday: number;
+    dailyLimit: number;
+    globalUsedToday: number;
+    globalCap: number;
+    limitReason: 'tool_limit' | 'global_cap';
+    nextReset: string;
+  } | null;
+  setQuotaModalInfo: (info: { featureType: FeatureType; requestedPages: number; usedToday: number; dailyLimit: number; globalUsedToday: number; globalCap: number; limitReason: 'tool_limit' | 'global_cap'; nextReset: string } | null) => void;
 }
 
-export const useAppStore = create<AppStore>((set, get) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   // Tool state
   selectedTool: null,
   activeCategory: 'All',
   searchQuery: '',
-  setSelectedTool: (tool) => set({ selectedTool: tool }),
-  setActiveCategory: (cat) => set({ activeCategory: cat }),
-  setSearchQuery: (query) => set({ searchQuery: query }),
+  setSelectedTool: (tool: ToolID | null) => set({ selectedTool: tool }),
+  setActiveCategory: (cat: ToolCategory) => set({ activeCategory: cat }),
+  setSearchQuery: (query: string) => set({ searchQuery: query }),
 
   // Batch queue
   batch: [],
-  addFiles: (files) => {
+  addFiles: (files: File[]) => {
     const newItems: BatchItem[] = files.map((file) => {
       const id = makeItemId();
-      setCachedFile(id, file); // Store file in transient cache, not Zustand
+      setCachedFile(id, file);
       return {
         id,
         fileName: file.name,
@@ -94,7 +133,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
     set((state) => ({ batch: [...state.batch, ...newItems] }));
   },
-  removeItem: (id) => {
+  removeItem: (id: string) => {
     set((state) => {
       const item = state.batch.find((b) => b.id === id);
       if (item?.resultBlob) {
@@ -124,41 +163,60 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   // Processing
   isProcessing: false,
-  setIsProcessing: (v) => set({ isProcessing: v }),
+  setIsProcessing: (v: boolean) => set({ isProcessing: v }),
 
   // Auth
   user: null,
-  setUser: (u) => set({ user: u }),
+  setUser: (u: AppUser | null) => set({ user: u }),
   isPremium: false,
-  setIsPremium: (v) => set({ isPremium: v }),
+  setIsPremium: (v: boolean) => set({ isPremium: v }),
 
   // UI
   showAuthModal: false,
-  setShowAuthModal: (v) => set({ showAuthModal: v }),
+  setShowAuthModal: (v: boolean) => set({ showAuthModal: v }),
   showUpgradeCTA: false,
-  setShowUpgradeCTA: (v) => set({ showUpgradeCTA: v }),
+  setShowUpgradeCTA: (v: boolean) => set({ showUpgradeCTA: v }),
   showHistory: false,
-  setShowHistory: (v) => set({ showHistory: v }),
+  setShowHistory: (v: boolean) => set({ showHistory: v }),
   isDragging: false,
-  setIsDragging: (v) => set({ isDragging: v }),
+  setIsDragging: (v: boolean) => set({ isDragging: v }),
   isMobileMenuOpen: false,
-  setIsMobileMenuOpen: (v) => set({ isMobileMenuOpen: v }),
+  setIsMobileMenuOpen: (v: boolean) => set({ isMobileMenuOpen: v }),
 
   // Extraction review
   extractedTransactions: [],
   currentPdfUrl: null,
-  setExtractedTransactions: (txs, pdfUrl) => {
-    // Revoke previous object URL to prevent memory leaks
-    const { currentPdfUrl } = get();
-    if (currentPdfUrl) {
-      try { URL.revokeObjectURL(currentPdfUrl); } catch { /* ignore */ }
-    }
-    set({ extractedTransactions: txs, currentPdfUrl: pdfUrl ?? null });
+  extractionMetadata: {},
+  alignmentResult: null,
+  activeReviewFileId: null,
+  reviewConfirmed: false,
+  setExtractedTransactions: (txs: Record<string, unknown>[], legacyPdfUrl = null) => {
+    set({ extractedTransactions: txs, currentPdfUrl: legacyPdfUrl });
   },
+  setExtractionReview: (txs, metadata, fileId) => {
+    set({
+      extractedTransactions: txs,
+      extractionMetadata: metadata,
+      alignmentResult: (metadata.alignment as TableAlignmentResult | undefined) ?? null,
+      activeReviewFileId: fileId,
+      reviewConfirmed: !metadata.requiresReview,
+      currentPdfUrl: null,
+    });
+  },
+  setAlignmentResult: (result) => set({ alignmentResult: result }),
+  setReviewConfirmed: (confirmed) => set({ reviewConfirmed: confirmed }),
+  clearExtractionReview: () => set({
+    extractedTransactions: [],
+    extractionMetadata: {},
+    alignmentResult: null,
+    activeReviewFileId: null,
+    reviewConfirmed: false,
+    currentPdfUrl: null,
+  }),
 
   // Toasts
   toasts: [],
-  addToast: (toast) => {
+  addToast: (toast: Omit<Toast, 'id'>) => {
     const id = Date.now() + Math.random();
     const duration = toast.duration ?? 4000;
     set((state) => ({ toasts: [...state.toasts.slice(-4), { ...toast, id }] }));
@@ -172,9 +230,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }, duration);
     }
   },
-  removeToast: (id) => {
+  removeToast: (id: number) => {
     set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
   },
+
+  // Page counting
+  totalSelectedPages: 0,
+  setTotalSelectedPages: (pages: number) => set({ totalSelectedPages: pages }),
+
+  // Quota exceeded modal
+  showQuotaModal: false,
+  setShowQuotaModal: (v: boolean) => set({ showQuotaModal: v }),
+  quotaModalInfo: null,
+  setQuotaModalInfo: (info) => set({ quotaModalInfo: info }),
 
   // Tool options
   toolOptions: {
@@ -187,7 +255,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     mergePages: '',
     splitPages: '',
   },
-  setToolOptions: (opts) => {
+  setToolOptions: (opts: Partial<AppState['toolOptions']>) => {
     set((state) => ({ toolOptions: { ...state.toolOptions, ...opts } }));
   },
 }));

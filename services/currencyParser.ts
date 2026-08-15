@@ -93,8 +93,13 @@ function stripCurrencySymbols(text: string): string {
   let cleaned = text.trim();
 
   // Remove leading/trailing currency symbols
-  cleaned = cleaned.replace(/^[r€£₹₽¥฿₴₪$]/i, '').trim();
-  cleaned = cleaned.replace(/[r€£₹₽¥฿₴₪$]$/i, '').trim();
+  // CRITICAL: Use word-boundary or lookahead to avoid stripping 'r' from 'Dr' suffix.
+  // Only strip 'R' when followed by a digit, space, or end-of-string (i.e., the Rand symbol, not a suffix letter).
+  cleaned = cleaned.replace(/^R(?=[\d\s]|$)/i, '').trim();
+  cleaned = cleaned.replace(/R(?=[\s\d]|$)$/i, '').trim();
+  // Strip actual symbols (€, £, etc.) — these never appear in Cr/Dr suffixes
+  cleaned = cleaned.replace(/^[€£₹₽¥฿₴₪$]/, '').trim();
+  cleaned = cleaned.replace(/[€£₹₽¥฿₴₪$]$/, '').trim();
 
   // Remove currency codes (USD, EUR, etc.)
   cleaned = cleaned.replace(/^(usd|eur|gbp|zar|inr|cny|rub|krw|thb|uah|ils|chf|cad|aud|nzd|sgd|hkd|jpy|mxn|php|idr|myr|vnd)\s*/i, '').trim();

@@ -1,13 +1,7 @@
 
-import * as pdfjsLib from 'pdfjs-dist';
+import { pdfjsLib } from './pdfjsClient';
 import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
-
-const isTauri = typeof window !== 'undefined' && (window as any).__TAURI__ !== undefined;
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = isTauri
-  ? 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs'
-  : new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
 
 /**
  * Simple main-thread image preprocessing for OCR enhancement.
@@ -460,6 +454,7 @@ function filterTextOperations(
  */
 export async function convertImagesToPdf(files: File[]): Promise<Blob> {
   const pdfDoc = await PDFDocument.create();
+  let embeddedImageCount = 0;
 
   for (const file of files) {
     const imageBytes = await file.arrayBuffer();
@@ -481,6 +476,11 @@ export async function convertImagesToPdf(files: File[]): Promise<Blob> {
       width: width,
       height: height,
     });
+    embeddedImageCount++;
+  }
+
+  if (embeddedImageCount === 0) {
+    throw new Error('No supported JPG, JPEG, or PNG images were provided.');
   }
 
   const pdfDocBytes = await pdfDoc.save();

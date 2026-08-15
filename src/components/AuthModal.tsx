@@ -1,79 +1,57 @@
-import React, { useState } from 'react';
-import { signIn, signUp } from '../../services/authService';
+import React, { useEffect } from 'react';
+import { SignIn, useAuth } from '@clerk/react';
 
 interface Props {
   onClose: () => void;
 }
 
 export default function AuthModal({ onClose }: Props) {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState('');
+  const { isSignedIn } = useAuth();
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      if (mode === 'signin') {
-        const { error: err } = await signIn(email, password);
-        if (err) setError(err.message); else onClose();
-      } else {
-        const { error: err } = await signUp(email, password);
-        if (err) setError(err.message);
-        else setSuccess('Check your email to confirm your account.');
-      }
-    } finally {
-      setLoading(false);
+  // Auto-close the modal once the user has successfully signed in.
+  // A short delay gives Clerk time to finalise the session before
+  // the parent re-renders with the authenticated UI.
+  useEffect(() => {
+    if (isSignedIn) {
+      const timer = setTimeout(onClose, 400);
+      return () => clearTimeout(timer);
     }
-  }
+  }, [isSignedIn, onClose]);
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold">
-            {mode === 'signin' ? 'Sign In' : 'Create Account'}
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-        </div>
-        {success ? (
-          <p className="text-green-600 text-center">{success}</p>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <input
-              type="email" value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="Email" required
-              className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <input
-              type="password" value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Password" required minLength={6}
-              className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            {error && <p className="text-red-500 text-sm">{error}</p>}
-            <button type="submit" disabled={loading}
-              className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-              {loading ? 'Please wait…' : mode === 'signin' ? 'Sign In' : 'Create Account'}
-            </button>
-          </form>
-        )}
-        <p className="text-center text-sm text-gray-500 mt-4">
-          {mode === 'signin' ? (
-            <span>No account?{' '}
-              <button onClick={() => setMode('signup')} className="text-blue-600 hover:underline">Sign up</button>
-            </span>
-          ) : (
-            <span>Already have an account?{' '}
-              <button onClick={() => setMode('signin')} className="text-blue-600 hover:underline">Sign in</button>
-            </span>
-          )}
-        </p>
+    <div className="fixed inset-0 backdrop-blur-xl bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="w-full max-w-md relative">
+        <button
+          onClick={onClose}
+          className="absolute -top-2 -right-2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/80 backdrop-blur text-gray-500 hover:text-gray-800 hover:bg-white text-lg shadow-md transition-colors"
+          aria-label="Close sign-in modal"
+        >
+          &times;
+        </button>
+        <SignIn
+          routing="hash"
+          appearance={{
+            elements: {
+              rootBox: 'w-full',
+              card: 'shadow-2xl rounded-[32px] border border-white/40 bg-white/90 backdrop-blur-2xl',
+              cardBox: 'w-full',
+              headerTitle: 'text-2xl font-black text-slate-900 text-center pt-8',
+              headerSubtitle: 'text-sm text-slate-500 text-center mt-1 mb-6',
+              formButtonPrimary: 'prism-gradient font-black rounded-2xl text-base py-3',
+              formFieldInput: 'rounded-2xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500',
+              formFieldLabel: 'font-bold text-slate-700 text-sm',
+              socialButtonsBlockButton: 'rounded-2xl border-slate-200 hover:bg-slate-50 transition-colors',
+              socialButtonsBlockButtonText: 'font-medium text-slate-700',
+              dividerLine: 'bg-slate-200',
+              dividerText: 'text-slate-400 text-sm',
+              footer: 'bg-slate-50/50 rounded-b-[32px]',
+              footerActionText: 'text-slate-500 text-sm',
+              footerActionLink: 'text-indigo-600 font-bold text-sm',
+              identityPreviewText: 'text-slate-700',
+              formResendCodeLink: 'text-indigo-600',
+            },
+          }}
+        />
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { CanonicalTransaction } from '../../types';
+import { CanonicalTransaction } from '../types';
 
 export interface ReconciliationResult {
   /** Map of row index → error description for rows that failed reconciliation */

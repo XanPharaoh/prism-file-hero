@@ -1,11 +1,22 @@
 /**
- * OCR Extraction Service Wrapper
- * Provides unified interface for Tesseract.js OCR extraction
+ * OCR EXTRACTION SERVICE (SPATIAL BRIDGE)
+ * Renders PDF to images, runs Tesseract, captures word-level bounding boxes,
+ * and feeds them into the exact same Spatial Clustering & X-Projection engine
+ * used for digital PDFs. Completely eliminates regex-based data destruction.
  */
 
 import Tesseract from 'tesseract.js';
 import * as pdfjs from 'pdfjs-dist';
 import type { DocumentType, ExtractionResult } from './extractionPipeline';
+import type { SpatialTextItem } from './spatialTableExtractor';
+import { discoverColumnBoundaries, assignCells, mergeMultiLineRows } from './spatialTableExtractor';
+import { ocrRectToNormalized } from './pdfCoordinateAdapter';
+import { parseMatrixWithLLM } from './semanticCellParser';
+import { detectBank } from './bankRegistry';
+import {
+  convertTymeBankToExcelRows,
+  extractTymeBankStatementFromText,
+} from './tymebankExtractService';
 
 export interface TextItem {
   str: string;
@@ -18,33 +29,284 @@ export interface TextItem {
 }
 
 /**
+ * Check if a canvas is blank (mostly white pixels).
+ * Detects pdf.js flate/compression render failures that produce empty pages.
+ */
+export function isCanvasBlank(canvas: HTMLCanvasElement): boolean {
+  if (!canvas || canvas.width === 0 || canvas.height === 0) return true;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return true;
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const totalPixels = data.length / 4;
+  if (totalPixels === 0) return true;
+
+  // Sample pixels for performance (check every 10th pixel; denser on small canvases)
+  const sampleRate = totalPixels > 200_000 ? 16 : totalPixels > 50_000 ? 10 : 4;
+  let whitePixels = 0;
+  let sampledCount = 0;
+
+  for (let i = 0; i < data.length; i += 4 * sampleRate) {
+    sampledCount++;
+    if (data[i] > 250 && data[i + 1] > 250 && data[i + 2] > 250) {
+      whitePixels++;
+    }
+  }
+
+  return sampledCount > 0 && whitePixels / sampledCount > 0.95;
+}
+
+export const BLANK_PDF_USER_MESSAGE =
+  'All pages appear to be blank or have unsupported compression. Please try re-saving the PDF or uploading a different file.';
+
+/** Minimal Tesseract page shape used by the spatial-bridge fallback chain. */
+export interface TesseractBBox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+export interface TesseractToken {
+  text?: string;
+  bbox?: TesseractBBox;
+  words?: TesseractToken[];
+  lines?: TesseractToken[];
+  paragraphs?: TesseractToken[];
+}
+
+export interface TesseractPageData {
+  text?: string;
+  words?: TesseractToken[];
+  lines?: TesseractToken[];
+  blocks?: TesseractToken[];
+}
+
+function tokenToSpatialItem(
+  token: TesseractToken,
+  page: number
+): SpatialTextItem | null {
+  if (!token.text || !token.text.trim() || !token.bbox) return null;
+  const { x0, y0, x1, y1 } = token.bbox;
+  return {
+    str: token.text.trim(),
+    // Keep Y in image-top-origin (Tesseract Y=0 is top) so TSR sort ascending = top-to-bottom.
+    bbox: {
+      x: x0,
+      y: y0,
+      width: x1 - x0,
+      height: y1 - y0,
+    },
+    page,
+  };
+}
+
+function flattenNestedWords(data: TesseractPageData): TesseractToken[] {
+  if (data.words && data.words.length > 0) return data.words;
+  const words: TesseractToken[] = [];
+  for (const block of data.blocks || []) {
+    for (const paragraph of block.paragraphs || []) {
+      for (const line of paragraph.lines || []) {
+        for (const word of line.words || []) {
+          words.push(word);
+        }
+      }
+    }
+  }
+  return words;
+}
+
+function flattenNestedLines(data: TesseractPageData): TesseractToken[] {
+  if (data.lines && data.lines.length > 0) return data.lines;
+  const lines: TesseractToken[] = [];
+  for (const block of data.blocks || []) {
+    for (const paragraph of block.paragraphs || []) {
+      for (const line of paragraph.lines || []) {
+        lines.push(line);
+      }
+    }
+  }
+  return lines;
+}
+
+/**
+ * Map Tesseract page data to SpatialTextItems with fallback chain:
+ * word-level → line-level → block-level.
+ * Exported for unit tests.
+ */
+export function mapTesseractDataToSpatialItems(
+  data: TesseractPageData,
+  pageNumber: number
+): SpatialTextItem[] {
+  const words = flattenNestedWords(data);
+  const lines = flattenNestedLines(data);
+  const blocks = data.blocks || [];
+
+  console.log(
+    `[OCR] Page ${pageNumber} Results -> Text Length: ${data.text?.length || 0}, Words: ${words.length}, Lines: ${lines.length}`
+  );
+
+  const spatialItems: SpatialTextItem[] = [];
+
+  if (words.length > 0) {
+    for (const word of words) {
+      const item = tokenToSpatialItem(word, pageNumber);
+      if (item) spatialItems.push(item);
+    }
+    return spatialItems;
+  }
+
+  if (lines.length > 0) {
+    console.warn(
+      `[OCR] Page ${pageNumber}: data.words is empty, falling back to data.lines (${lines.length} lines)`
+    );
+    for (const line of lines) {
+      const item = tokenToSpatialItem(line, pageNumber);
+      if (item) spatialItems.push(item);
+    }
+    return spatialItems;
+  }
+
+  if (blocks.length > 0) {
+    console.warn(
+      `[OCR] Page ${pageNumber}: data.words and data.lines empty, falling back to data.blocks`
+    );
+    for (const block of blocks) {
+      const item = tokenToSpatialItem(block, pageNumber);
+      if (item) spatialItems.push(item);
+    }
+    return spatialItems;
+  }
+
+  return spatialItems;
+}
+
+/**
+ * Last-resort line-by-line regex parse when Tesseract returns text but no geometry.
+ */
+export function extractRowsFromOCRText(
+  text: string,
+  pageNumber: number,
+  _docType: DocumentType
+): Record<string, unknown>[] {
+  const rows: Record<string, unknown>[] = [];
+  const lines = text.split('\n').filter(l => l.trim().length > 0);
+
+  for (const line of lines) {
+    const dateMatch = line.match(/(\d{2}[-/]\d{2}[-/]\d{4}|\d{2}\s[A-Za-z]{3}\s\d{4})/);
+    const amountMatch = line.match(/([R$£€]?\s?\d{1,3}(?:,\d{3})*\.\d{2})/);
+
+    if (dateMatch || amountMatch) {
+      rows.push({
+        Page: pageNumber,
+        RawText: line.trim(),
+        Date: dateMatch?.[1] || '',
+        Amount: amountMatch?.[1] || '',
+      });
+    }
+  }
+  return rows;
+}
+
+/**
  * Local OCR Fallback (Free & Private)
- * Renders PDF pages to canvas and uses Tesseract.js to extract text patterns.
+ * Used exclusively by documentService.ts for initial bank detection on scanned PDFs.
+ * Skips blank pages produced by pdf.js rendering failures.
  */
 export async function ocrPdfToTextItems(file: File, maxPages = 10): Promise<TextItem[]> {
   const bytes = await file.arrayBuffer();
+  // pdf.js detaches ArrayBuffers after consuming them, so keep a Uint8Array
+  // copy that we can re-slice for each getDocument call.
+  const bytesSafe = new Uint8Array(bytes);
   // @ts-ignore
-  const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+  const pdf = await pdfjs.getDocument({ data: bytesSafe.slice().buffer }).promise;
   const pageCount = Math.min(pdf.numPages, maxPages);
-
+  
   const items: TextItem[] = [];
+  let renderErrorPages = 0;
 
   for (let p = 1; p <= pageCount; p++) {
     const page = await pdf.getPage(p);
-
-    // Render at 2.0x scale for better OCR accuracy
-    const viewport = page.getViewport({ scale: 2.0 });
-    const canvas = document.createElement('canvas');
+    let viewport = page.getViewport({ scale: 2.0 });
+    let canvas = document.createElement('canvas');
     canvas.width = Math.ceil(viewport.width);
     canvas.height = Math.ceil(viewport.height);
-    const ctx = canvas.getContext('2d')!;
+    let ctx = canvas.getContext('2d')!;
+    let rendered = false;
+    let hadRenderError = false;
 
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    // Attempt 1: Normal render at scale 2.0
+    try {
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      rendered = true;
+    } catch (renderError) {
+      console.warn(`[OCR] Page ${p} render failed (attempt 1, scale 2.0):`, renderError);
+      hadRenderError = true;
+    }
 
-    // Run Tesseract OCR
-    const { data } = await Tesseract.recognize(canvas, 'eng', {
-      // logger: m => console.log(`OCR Page ${p}:`, m.status)
-    });
+    // Attempt 2: Retry with lower scale and disableFontFace if first attempt failed or blank
+    if (!rendered || isCanvasBlank(canvas)) {
+      if (hadRenderError || isCanvasBlank(canvas)) {
+        console.warn(`[OCR] Page ${p}: ${hadRenderError ? 'Render failed' : 'Blank canvas (flate stream error)'}. Retrying with alt params...`);
+        canvas.width = 0; canvas.height = 0;
+        // @ts-ignore
+        const altPdf = await pdfjs.getDocument({
+          data: bytesSafe.slice().buffer,
+          disableFontFace: true,
+          useSystemFonts: false,
+        }).promise;
+        const altPage = await altPdf.getPage(p);
+        viewport = altPage.getViewport({ scale: 1.0 });
+        canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        ctx = canvas.getContext('2d')!;
+        try {
+          await altPage.render({ canvasContext: ctx, viewport }).promise;
+          rendered = true;
+          hadRenderError = false;
+          console.log(`[OCR] Page ${p}: Alt render succeeded (scale 1.0, disableFontFace)`);
+        } catch (altError) {
+          console.warn(`[OCR] Page ${p} alt render also failed:`, altError);
+          rendered = false;
+          hadRenderError = true;
+        }
+      }
+    }
+
+    // If all rendering attempts failed, pass whatever we have to Tesseract rather than skipping
+    if (!rendered) {
+      renderErrorPages++;
+      console.warn(`[OCR] Page ${p}: All render attempts failed. Passing raw text content to fallback.`);
+      // Try to get text content directly from the page as last resort
+      try {
+        const textContent = await page.getTextContent();
+        const rawText = textContent.items.map((item: any) => item.str || '').join(' ');
+        if (rawText.trim()) {
+          // Synthesize a minimal TextItem from raw text content
+          items.push({
+            str: rawText.trim(),
+            x: 0, y: 0, width: 100,
+            right: 100, center: 50,
+            page: p,
+          });
+          console.log(`[OCR] Page ${p}: Recovered ${rawText.trim().length} chars from text layer despite render failure`);
+        }
+      } catch { /* no text layer available */ }
+      canvas.width = 0;
+      canvas.height = 0;
+      continue;
+    }
+
+    // If canvas is still blank after retry, log but still attempt OCR (something > nothing)
+    if (isCanvasBlank(canvas)) {
+      console.warn(`[OCR] Page ${p}: Canvas still blank after retry. Attempting OCR anyway (partial content is better than none).`);
+      renderErrorPages++;
+    }
+
+    const { data } = await Tesseract.recognize(canvas, 'eng', {});
 
     for (const block of data.blocks || []) {
       for (const paragraph of block.paragraphs || []) {
@@ -53,17 +315,15 @@ export async function ocrPdfToTextItems(file: File, maxPages = 10): Promise<Text
           const bbox = line.bbox || line.words[0]?.bbox;
           if (!bbox || !text.trim()) continue;
 
-          // Normalize coordinates back to a 1.0x scale (roughly)
-          // pdf.js and tesseract systems differ; this is a best-effort alignment
           const x = bbox.x0 / 2;
-          const y = (viewport.height - bbox.y0) / 2; // Flip Y axis for PDF coordinate systems
+          // Keep Y in image-top-origin (same as Tesseract) so that
+          // sort-by-Y-ascending = top-to-bottom within a page.
+          const y = bbox.y0 / 2;
           const width = (bbox.x1 - bbox.x0) / 2;
 
           items.push({
             str: text,
-            x,
-            y,
-            width,
+            x, y, width,
             right: x + width,
             center: x + width / 2,
             page: p,
@@ -71,18 +331,21 @@ export async function ocrPdfToTextItems(file: File, maxPages = 10): Promise<Text
         }
       }
     }
-
-    // Garbage collection
     canvas.width = 0;
     canvas.height = 0;
+  }
+
+  // If ALL pages had render errors but we recovered text from text layers, return what we have
+  if (items.length === 0 && renderErrorPages === pageCount) {
+    console.warn(`[OCR] All ${pageCount} pages had render failures and no text could be recovered.`);
   }
 
   return items;
 }
 
 /**
- * Extract structured data from PDF using OCR
- * Part of the multi-strategy extraction pipeline
+ * Strategy 2: Extract using OCR (Spatial Bridge)
+ * Replaces regex parsing with 2D coordinate-based Table Structure Recognition.
  */
 export async function extractWithOCR(
   file: File,
@@ -90,7 +353,7 @@ export async function extractWithOCR(
   options: { password?: string; enhanceForOcr?: boolean }
 ): Promise<ExtractionResult> {
   try {
-    // Convert PDF to images
+    // 1. Convert PDF to Images
     const { convertPdfToImages } = await import('./pdfService');
     const images = await convertPdfToImages(
       file,
@@ -101,108 +364,224 @@ export async function extractWithOCR(
     );
 
     if (images.length === 0) {
-      throw new Error('No images extracted from PDF');
+      throw new Error(BLANK_PDF_USER_MESSAGE);
     }
 
+    const allSpatialItems: SpatialTextItem[] = [];
     const allText: string[] = [];
-    const rows: Record<string, unknown>[] = [];
+    let maxPageWidth = 0;
+    let blankPageCount = 0;
+    let processedPageCount = 0;
 
-    // Process each page with OCR
+    // 2. Run Tesseract with word → line → block spatial fallback
     for (const image of images) {
-      // Create canvas for OCR
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d')!;
       
       const img = new Image();
       img.src = `data:image/jpeg;base64,${image.base64}`;
-      await img.decode();
+      try {
+        await img.decode();
+      } catch (decodeErr) {
+        console.error(`[OCR] Failed to decode page ${image.pageNumber}:`, decodeErr);
+        blankPageCount++;
+        canvas.width = 0;
+        canvas.height = 0;
+        continue;
+      }
       
       canvas.width = img.width;
       canvas.height = img.height;
       ctx.drawImage(img, 0, 0);
-      
-      // Run Tesseract OCR
+
+      if (isCanvasBlank(canvas)) {
+        blankPageCount++;
+        console.warn(
+          `[OCR] Page ${image.pageNumber} appears to be blank (unusual PDF compression). Skipping.`
+        );
+        canvas.width = 0;
+        canvas.height = 0;
+        continue;
+      }
+
+      processedPageCount++;
+      // The shared alignment engine consumes page-relative coordinates, not
+      // Tesseract image pixels. This makes rendered scale/crop differences
+      // irrelevant to row and column inference.
+      maxPageWidth = 1;
+
       const { data } = await Tesseract.recognize(canvas, 'eng', {
         logger: m => console.log(`OCR Page ${image.pageNumber}:`, m.status)
       });
-      
-      allText.push(data.text);
-      
-      // Extract basic table structure from OCR text
-      const ocrRows = extractRowsFromOCRText(data.text, image.pageNumber, docType);
-      rows.push(...ocrRows);
+
+      if (data.text && data.text.trim()) {
+        allText.push(data.text.trim());
+      }
+
+      const spatialItems = mapTesseractDataToSpatialItems(data as TesseractPageData, image.pageNumber)
+        .map((item) => ({
+          ...item,
+          bbox: ocrRectToNormalized(
+            item.bbox.x,
+            item.bbox.y,
+            item.bbox.width,
+            item.bbox.height,
+            img.width,
+            img.height,
+          ),
+        }));
+
+      if (spatialItems.length === 0) {
+        console.warn(
+          `[OCR] Page ${image.pageNumber}: All fallback levels empty. Text was: ${data.text?.substring(0, 100)}...`
+        );
+        canvas.width = 0;
+        canvas.height = 0;
+        continue;
+      }
+
+      allSpatialItems.push(...spatialItems);
       
       // Cleanup
       canvas.width = 0;
       canvas.height = 0;
     }
 
-    // Calculate confidence based on extraction quality
-    const confidence = calculateOCRConfidence(rows, allText.join('\n'));
+    if (processedPageCount === 0 || (blankPageCount === images.length && allText.length === 0 && allSpatialItems.length === 0)) {
+      throw new Error(BLANK_PDF_USER_MESSAGE);
+    }
+
+    const fullText = allText.join('\n\n---PAGE BREAK---\n\n');
+    const bankDetection = detectBank(fullText);
+    const bankConfidence =
+      bankDetection.confidence > 1
+        ? bankDetection.confidence / 100
+        : bankDetection.confidence;
+    console.log(
+      `[OCR] Detected bank: ${bankDetection.bankName} (${bankDetection.bankCode}) with confidence ${bankDetection.confidence}`
+    );
+
+    if (bankDetection.bankCode === 'TYMEBANK_SA' && bankConfidence > 0.5 && fullText.trim()) {
+      console.log('[OCR] Using TymeBank-specific extractor');
+      const result = extractTymeBankStatementFromText(fullText, images.length);
+      if (result.transactions.length > 0) {
+        return {
+          rows: convertTymeBankToExcelRows(result.transactions),
+          metadata: {
+            documentType: 'bank-statement',
+            confidence: result.metadata.parseErrors === 0 ? 0.9 : 0.7,
+            extractionMethod: 'ocr',
+            pagesProcessed: images.length,
+            tablesDetected: 1,
+          },
+          rawText: fullText,
+        };
+      }
+    }
+
+    if (allSpatialItems.length === 0) {
+      console.warn('[OCR] No spatial items extracted. Attempting line-by-line fallback from raw text.');
+
+      const fallbackRows: Record<string, unknown>[] = [];
+      allText.forEach((text, index) => {
+        const parsed = extractRowsFromOCRText(text, index + 1, docType);
+        fallbackRows.push(...parsed);
+      });
+
+      if (fallbackRows.length > 0) {
+        return {
+          rows: fallbackRows,
+          metadata: {
+            documentType: docType,
+            confidence: 0.4,
+            extractionMethod: 'ocr',
+            pagesProcessed: images.length,
+            tablesDetected: 1,
+          },
+          rawText: fullText,
+        };
+      }
+
+      console.warn('[OCR] Line-by-line fallback also failed.');
+      if (allText.length === 0) {
+        throw new Error(BLANK_PDF_USER_MESSAGE);
+      }
+      return {
+        rows: [{ RawText: fullText }],
+        metadata: {
+          documentType: docType,
+          confidence: 0.15,
+          extractionMethod: 'ocr',
+          pagesProcessed: images.length,
+          tablesDetected: 0,
+        },
+        rawText: fullText,
+      };
+    }
+
+    // 3. Spatial Clustering (Y-Axis Tolerance Grouping)
+    // Sort by page first, then ASCENDING by Y (Top to Bottom, Tesseract Y=0 is top).
+    // CRITICAL: a pure Y sort interleaves items across pages because image Y
+    // coordinates reset to 0 on each page. We key on (page, y) so page 1 always
+    // precedes page 2 regardless of Y values.
+    const sortedItems = [...allSpatialItems].sort((a, b) => {
+      if (a.page !== b.page) return a.page - b.page;
+      return a.bbox.y - b.bbox.y;
+    });
+    const rows: SpatialTextItem[][] = [];
+    let currentRow: SpatialTextItem[] = [];
+    let currentY = -9999;
+    let currentPage = 1;
+    const yTolerance = 0.012; // Normalized equivalent of OCR baseline jitter
+
+    for (const item of sortedItems) {
+      const pageBreak = item.page !== currentPage;
+      const yGap = pageBreak ? 9999 : Math.abs(item.bbox.y - currentY);
+      if (yGap > yTolerance) {
+        if (currentRow.length > 0) rows.push(currentRow);
+        currentRow = [item];
+        currentY = item.bbox.y;
+        currentPage = item.page;
+      } else {
+        currentRow.push(item);
+      }
+    }
+    if (currentRow.length > 0) rows.push(currentRow);
+
+    // Sort items within each row by X coordinate (Left to Right)
+    const orderedRows = rows.map(row => row.sort((a, b) => a.bbox.x - b.bbox.x));
+
+    // 4. Column Discovery & Cell Assignment (Reusing TSR Engine)
+    const colBoundaries = discoverColumnBoundaries(allSpatialItems, maxPageWidth);
+    let matrix = assignCells(orderedRows, colBoundaries);
+    
+    // 5. Multi-Line Row Merging
+    matrix = mergeMultiLineRows(matrix);
+
+    // Extract headers (assume first row is headers)
+    const headers = matrix.length > 0 ? matrix[0] : [];
+    const dataMatrix = matrix.slice(1);
+
+    if (dataMatrix.length === 0) {
+       throw new Error('OCR spatial matrix is empty after header extraction');
+    }
+
+    // 6. Semantic Cell Parsing (LLM as Cleaner)
+    const structuredRows = await parseMatrixWithLLM(dataMatrix, headers, docType);
 
     return {
-      rows,
+      rows: structuredRows,
       metadata: {
         documentType: docType,
-        confidence,
+        confidence: 0.85, // High confidence: Spatial Geometry + LLM Normalization
         extractionMethod: 'ocr',
         pagesProcessed: images.length,
-        tablesDetected: rows.length > 0 ? 1 : 0,
+        tablesDetected: 1,
       },
-      rawText: allText.join('\n\n---PAGE BREAK---\n\n'),
+      rawText: undefined, // We no longer dump raw flat text
     };
   } catch (error) {
-    console.error('OCR extraction failed:', error);
+    console.error('OCR Spatial extraction failed:', error);
     throw error;
   }
-}
-
-/**
- * Extract rows from OCR text based on document type
- */
-function extractRowsFromOCRText(text: string, pageNumber: number, docType: DocumentType): Record<string, unknown>[] {
-  const rows: Record<string, unknown>[] = [];
-  const lines = text.split('\n').filter(l => l.trim().length > 0);
-
-  // Simple line-by-line extraction for OCR
-  // In production, this would use more sophisticated table detection
-  for (const line of lines) {
-    // Try to detect if line contains date pattern
-    const dateMatch = line.match(/(\d{2}[-/]\d{2}[-/]\d{4})/);
-    const amountMatch = line.match(/(\d{1,3}(?:,\d{3})*\.\d{2})/);
-    
-    if (dateMatch || amountMatch) {
-      rows.push({
-        Page: pageNumber,
-        RawText: line.trim(),
-        Date: dateMatch?.[1] || '',
-        Amount: amountMatch?.[1] || '',
-      });
-    }
-  }
-
-  return rows;
-}
-
-/**
- * Calculate confidence score for OCR extraction
- */
-function calculateOCRConfidence(rows: Record<string, unknown>[], rawText: string): number {
-  if (rows.length === 0) return 0.1;
-  
-  // Base confidence for successful OCR
-  let confidence = 0.6;
-  
-  // Boost confidence based on number of extracted rows
-  if (rows.length > 5) confidence += 0.1;
-  if (rows.length > 20) confidence += 0.1;
-  
-  // Boost confidence if text contains expected patterns
-  const hasDates = /\d{2}[-/]\d{2}[-/]\d{4}/.test(rawText);
-  const hasAmounts = /\d{1,3}(?:,\d{3})*\.\d{2}/.test(rawText);
-  
-  if (hasDates) confidence += 0.1;
-  if (hasAmounts) confidence += 0.1;
-  
-  return Math.min(0.85, confidence); // Cap at 0.85 for OCR
 }

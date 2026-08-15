@@ -203,10 +203,26 @@ function parseNumericDate(text: string): ParsedDate | null {
       day = parseInt(match[order[0]], 10);
       month = parseInt(match[order[1]], 10);
       year = match[order[2]] ? parseInt(match[order[2]], 10) : new Date().getFullYear();
+      // Disambiguation: if first component > 12, it must be the day (swap)
+      if (day > 12 && month <= 12) {
+        [day, month] = [month, day];
+      }
+      // If second component > 12, it must be the day (swap)
+      if (month > 12 && day <= 12) {
+        [day, month] = [month, day];
+      }
     } else {
       day = parseInt(match[order[0]], 10);
       month = parseInt(match[order[1]], 10);
       year = parseInt(match[order[2]], 10);
+      // Disambiguation: if first component > 12, it must be the day (swap)
+      if (day > 12 && month <= 12) {
+        [day, month] = [month, day];
+      }
+      // If second component > 12, it must be the day (swap)
+      if (month > 12 && day <= 12) {
+        [day, month] = [month, day];
+      }
     }
 
     // Validate

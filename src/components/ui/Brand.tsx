@@ -6,7 +6,7 @@ interface PrismLogoProps {
 
 export const PrismLogo: React.FC<PrismLogoProps> = ({ className = '' }) => (
   <img
-    src="/PFH Logo.png"
+    src="/pfh-logo.png"
     alt="Prism File Hero"
     className={`w-full max-w-[140px] sm:max-w-[150px] md:max-w-[160px] h-auto object-contain ${className}`}
   />

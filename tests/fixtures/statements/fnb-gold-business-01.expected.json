@@ -1,0 +1,24 @@
+{
+  "bankCode": "FNB_SA",
+  "format": "Gold Business Account",
+  "expectedRowCount": 15,
+  "openingBalance": 1250.00,
+  "closingBalance": 890.50,
+  "columns": ["Date", "Description", "Amount", "Balance", "Charges"],
+  "sampleRows": [
+    {
+      "date": "2026/01/15",
+      "descriptionContains": "SALARY",
+      "amount": 15000.00,
+      "balance": 16250.00,
+      "direction": "CREDIT"
+    },
+    {
+      "date": "2026/01/20",
+      "descriptionContains": "OFFICE SUPPLIES",
+      "amount": -450.00,
+      "balance": 15800.00,
+      "direction": "DEBIT"
+    }
+  ]
+}

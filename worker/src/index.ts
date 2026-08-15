@@ -1,14 +1,30 @@
 import { z } from 'zod';
-import { getComprehensiveUsage, incrementUsage, getExecutionContext } from './db';
-import { isWithinLimit, PLAN_LIMITS, type Plan } from './planLimits';
+import { getUsageSummary, checkServerLimit, reportAndSummarize, reserveUsage, settleUsage } from './usageTracker';
+import { isAiTool, isFreeTool } from '../../services/usageConfig';
+import { activationCodeMatches, issueDeviceToken, revokeDeviceToken, sha256Base64Url, verifyDeviceToken } from './deviceTokens';
+import { validateClerkClaims } from './jwtValidation';
 
 interface Env {
   NVIDIA_API_KEY: string;
+  GROQ_API_KEY_1?: string;
+  GROQ_API_KEY_2?: string;
+  MISTRAL_API_KEY_1?: string;
+  MISTRAL_API_KEY_2?: string;
+  MISTRAL_API_KEY_3?: string;
   ALLOWED_ORIGIN: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
-  SUPABASE_JWT_SECRET: string;
-  SUPABASE_JWK_PUBLIC_KEY: string;
+  CLERK_JWKS_URL: string;
+  /** Optional explicit claim configuration; issuer defaults to the JWKS origin. */
+  CLERK_JWT_ISSUER?: string;
+  /** Configure only when the Clerk session token/template includes aud. */
+  CLERK_JWT_AUDIENCE?: string;
+  /** Secret set with `wrangler secret put INTERNAL_ACTIVATION_CODE`. */
+  INTERNAL_ACTIVATION_CODE?: string;
+  /** Optional non-secret configuration; defaults to 90 days. */
+  INTERNAL_DEVICE_TOKEN_TTL_DAYS?: string;
+  /** Optional non-secret cap, constrained to 1-25 and defaulting to 10. */
+  INTERNAL_MAX_ACTIVE_DEVICES?: string;
   KV: KVNamespace;
 }
 
@@ -20,31 +36,14 @@ const ALLOWED_ORIGINS = [
   'https://prism-file-hero.pages.dev',
   'http://localhost:5173',
   'http://localhost:4173',
+  // Tauri's production webview origin. Device tokens are still required for AI.
+  'http://tauri.localhost',
+  'tauri://localhost',
 ];
 
-// Per-tool page cost mapping
-const TOOL_PAGE_COSTS: Record<string, number> = {
-  'merge': 0, 'split': 0, 'compress': 0, 'jpg-to-pdf': 0, 'protect': 0, 'watermark': 0, 'rotate': 0,
-  'pdf-to-excel': 1, 'pdf-to-word': 1, 'pdf-to-jpg': 1,
-  'ocr': 1, 'ocr-to-pdf': 1, 'ocr-to-md': 1,
-  'compare': 2, 'redact': 1, 'grammar-check': 1,
-};
-
-// Global IP limit decoupled from user plan — prevents multi-account abuse
-const GLOBAL_IP_MONTHLY_LIMIT = 50;
-
-function getToolPagesCost(toolId: string): number {
-  return TOOL_PAGE_COSTS[toolId] ?? 1;
-}
-
 function getClientIp(request: Request): string {
-  const cfIp = request.headers.get('CF-Connecting-IP');
-  if (cfIp) return cfIp;
-  const xForwardedFor = request.headers.get('X-Forwarded-For');
-  if (xForwardedFor) return xForwardedFor.split(',')[0].trim();
-  const xRealIp = request.headers.get('X-Real-IP');
-  if (xRealIp) return xRealIp;
-  return 'unknown';
+  // Cloudflare sets this header at the edge; forwarded headers are client-spoofable.
+  return request.headers.get('CF-Connecting-IP') ?? 'unknown';
 }
 
 function securityHeaders(): Record<string, string> {
@@ -99,66 +98,133 @@ function base64urlDecode(b64url: string): Uint8Array {
   return bytes;
 }
 
-async function verifyES256(token: string, jwkJson: string): Promise<{ sub: string } | null> {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const [headerB64, payloadB64, sigB64] = parts;
-    
-    // CRITICAL: Validate algorithm in header
-    const headerBytes = base64urlDecode(headerB64!);
-    const header = JSON.parse(new TextDecoder().decode(headerBytes)) as { alg?: string };
-    if (header.alg !== 'ES256') return null; // Reject if algorithm doesn't match
-    
-    const jwk = JSON.parse(jwkJson) as JsonWebKey;
-    const publicKey = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-    const signingInput = new TextEncoder().encode(headerB64 + '.' + payloadB64);
-    const signature = base64urlDecode(sigB64!);
-    const valid = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, publicKey, signature as BufferSource, signingInput);
-    if (!valid) return null;
-    const payloadBytes = base64urlDecode(payloadB64!);
-    const payloadJson = new TextDecoder().decode(payloadBytes);
-    const payload = JSON.parse(payloadJson) as Record<string, unknown>;
-    if (typeof payload.exp === 'number' && payload.exp < Date.now() / 1000) return null;
-    if (payload.aud !== 'authenticated') return null;
-    return { sub: payload.sub as string };
-  } catch { return null; }
+// ── Clerk RS256 JWT verification ─────────────────────────────────
+// Clerk signs JWTs with RS256. We fetch the JWKS from Clerk's well-known endpoint,
+// cache it in memory, and verify the signature using crypto.subtle.
+
+interface JwkSet {
+  keys: JsonWebKey[];
 }
 
-async function verifyHS256(token: string, secret: string): Promise<{ sub: string } | null> {
+let _jwksCache: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
+const JWKS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+async function fetchJwks(jwksUrl: string): Promise<JsonWebKey[]> {
+  if (_jwksCache && Date.now() - _jwksCache.fetchedAt < JWKS_CACHE_TTL_MS) {
+    return _jwksCache.keys;
+  }
+  const resp = await fetch(jwksUrl);
+  if (!resp.ok) throw new Error(`JWKS fetch failed: ${resp.status}`);
+  const jwks: JwkSet = await resp.json();
+  _jwksCache = { keys: jwks.keys, fetchedAt: Date.now() };
+  return jwks.keys;
+}
+
+function clerkIssuerFromJwksUrl(jwksUrl: string): string | null {
+  try { return new URL(jwksUrl).origin; } catch { return null; }
+}
+
+async function verifyClerkJWT(token: string, env: Env): Promise<{ sub: string } | null> {
+  const issuer = env.CLERK_JWT_ISSUER ?? clerkIssuerFromJwksUrl(env.CLERK_JWKS_URL);
+  if (!issuer) return null;
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     const [headerB64, payloadB64, sigB64] = parts;
-    
-    // CRITICAL: Validate algorithm in header
+
+    // Parse header to get kid and verify algorithm
     const headerBytes = base64urlDecode(headerB64!);
-    const header = JSON.parse(new TextDecoder().decode(headerBytes)) as { alg?: string };
-    if (header.alg !== 'HS256') return null; // Reject if algorithm doesn't match
-    
-    const enc = new TextEncoder();
-    const cryptoKey = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-    const signingInput = enc.encode(headerB64 + '.' + payloadB64);
-    const sigBytes = base64urlDecode(sigB64!);
-    const valid = await crypto.subtle.verify('HMAC', cryptoKey, sigBytes as BufferSource, signingInput);
+    const header = JSON.parse(new TextDecoder().decode(headerBytes)) as { alg?: string; kid?: string };
+    if (header.alg !== 'RS256') return null;
+    if (!header.kid) return null;
+
+    // Fetch JWKS and find matching key
+    const keys = await fetchJwks(env.CLERK_JWKS_URL);
+    const jwk = keys.find(k => (k as JsonWebKey & { kid?: string }).kid === header.kid);
+    if (!jwk) return null;
+
+    // Import the RSA public key
+    const publicKey = await crypto.subtle.importKey(
+      'jwk', jwk,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false, ['verify']
+    );
+
+    // Verify signature
+    const signingInput = new TextEncoder().encode(headerB64 + '.' + payloadB64);
+    const signature = base64urlDecode(sigB64!);
+    const valid = await crypto.subtle.verify(
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      publicKey,
+      signature as BufferSource,
+      signingInput
+    );
     if (!valid) return null;
+
+    // Parse and validate payload
     const payloadBytes = base64urlDecode(payloadB64!);
     const payloadJson = new TextDecoder().decode(payloadBytes);
     const payload = JSON.parse(payloadJson) as Record<string, unknown>;
-    // Validate expiration, issuer, and audience
-    if (typeof payload.exp === 'number' && payload.exp < Date.now() / 1000) return null;
-    if (payload.aud !== 'authenticated') return null;
-    return { sub: payload.sub as string };
-  } catch { return null; }
+
+    return validateClerkClaims(payload, { issuer, audience: env.CLERK_JWT_AUDIENCE });
+  } catch {
+    return null;
+  }
 }
 
 async function verifyJWT(token: string, env: Env): Promise<{ sub: string } | null> {
-  if (env.SUPABASE_JWK_PUBLIC_KEY) {
-    const result = await verifyES256(token, env.SUPABASE_JWK_PUBLIC_KEY);
-    if (result) return result;
+  return verifyClerkJWT(token, env);
+}
+
+async function allowCounter(env: Env, key: string, limit: number, ttlSeconds: number): Promise<boolean> {
+  // KV is eventually consistent: this is a conservative edge throttle, not a distributed lock.
+  const existing = await env.KV.get(key, 'json') as { count?: number } | null;
+  const count = (existing?.count ?? 0) + 1;
+  if (count > limit) return false;
+  await env.KV.put(key, JSON.stringify({ count }), { expirationTtl: ttlSeconds });
+  return true;
+}
+
+async function allowActivationAttempt(env: Env, ipAddress: string): Promise<boolean> {
+  return allowCounter(env, `internal-activation-rate:${await sha256Base64Url(ipAddress)}`, 10, 600);
+}
+
+async function allowGlobalIssuance(env: Env): Promise<boolean> {
+  return allowCounter(env, 'internal-device-issuance-rate:v1', 10, 300);
+}
+
+async function allowDeviceRequest(env: Env, deviceId: string): Promise<boolean> {
+  return allowCounter(env, `internal-device-rate:${await sha256Base64Url(deviceId)}`, 20, 60);
+}
+
+function internalMaxActiveDevices(env: Env): number {
+  const configured = Number(env.INTERNAL_MAX_ACTIVE_DEVICES ?? 10);
+  return Number.isInteger(configured) && configured >= 1 && configured <= 25 ? configured : 10;
+}
+
+function internalTokenTtlDays(env: Env): number {
+  const configured = Number(env.INTERNAL_DEVICE_TOKEN_TTL_DAYS ?? 90);
+  return Number.isInteger(configured) && configured >= 1 && configured <= 365 ? configured : 90;
+}
+
+async function proxyInternalAiRequest(env: Env, toolId: string, messages: NvidiaMessage[], cors: HeadersInit): Promise<Response> {
+  try {
+    const providers = getProviderChain(env, toolId);
+    if (!providers.length) throw new Error('No provider configured');
+    let failure = { error: 'AI processing failed. Please try again later.', status: 502 };
+    for (const provider of providers) {
+      const response = await callAiProvider(provider, toolId, messages);
+      if (response.ok) {
+        return new Response(await response.text(), { status: 200, headers: { ...(cors as Record<string, string>), 'Content-Type': 'application/json' } });
+      }
+      failure = mapProviderError(response.status);
+      if (!shouldTryNextProvider(response.status)) break;
+    }
+    return Response.json({ error: failure.error }, { status: failure.status, headers: cors });
+  } catch (error) {
+    console.error('[Internal AI] Provider request failed:', error);
+    return Response.json({ error: 'AI processing failed. Please try again later.' }, { status: 502, headers: cors });
   }
-  if (env.SUPABASE_JWT_SECRET) { return verifyHS256(token, env.SUPABASE_JWT_SECRET); }
-  return null;
 }
 
 function currentMonth(): string {
@@ -167,19 +233,54 @@ function currentMonth(): string {
 }
 
 type NvidiaMessage = { role: string; content: any };
+type ProviderName = 'nvidia' | 'groq' | 'mistral';
+
+interface ProviderConfig {
+  name: ProviderName;
+  apiKey?: string;
+  endpoint: string;
+  model: string;
+}
 
 function getNvidiaModel(toolId: string): string {
   switch (toolId) {
     case 'redact': return 'nvidia/gliner-pii';
     case 'pdf-to-excel': return 'stockmark/stockmark-2-100b-instruct';
     case 'ocr':
-    case 'ocr-to-pdf':
     case 'ocr-to-md':
     case 'pdf-to-word':
     case 'compare':
       return 'microsoft/phi-4-multimodal-instruct';
     default:
       return 'microsoft/phi-4-mini-instruct';
+  }
+}
+
+function getGroqModel(toolId: string): string {
+  switch (toolId) {
+    case 'pdf-to-excel':
+    case 'pdf-to-word':
+    case 'ocr':
+    case 'ocr-to-md':
+    case 'compare':
+    case 'redact':
+      return 'meta-llama/llama-4-scout-17b-16e-instruct';
+    default:
+      return 'llama-3.3-70b-versatile';
+  }
+}
+
+function getMistralModel(toolId: string): string {
+  switch (toolId) {
+    case 'pdf-to-excel':
+    case 'pdf-to-word':
+    case 'ocr':
+    case 'ocr-to-md':
+    case 'compare':
+    case 'redact':
+      return 'pixtral-large-latest';
+    default:
+      return 'mistral-large-latest';
   }
 }
 
@@ -219,19 +320,165 @@ function buildNvidiaPayload(toolId: string, messages: NvidiaMessage[]) {
   };
 }
 
+function buildOpenAiCompatPayload(toolId: string, model: string, messages: NvidiaMessage[]) {
+  const nvidiaPayload = buildNvidiaPayload(toolId, messages);
+  return { ...nvidiaPayload, model };
+}
+
+function getProviderChain(env: Env, toolId: string): ProviderConfig[] {
+  const providers: ProviderConfig[] = [
+    {
+      name: 'nvidia',
+      apiKey: env.NVIDIA_API_KEY,
+      endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions',
+      model: getNvidiaModel(toolId),
+    },
+    {
+      name: 'groq',
+      apiKey: env.GROQ_API_KEY_1,
+      endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+      model: getGroqModel(toolId),
+    },
+    {
+      name: 'groq',
+      apiKey: env.GROQ_API_KEY_2,
+      endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+      model: getGroqModel(toolId),
+    },
+    {
+      name: 'mistral',
+      apiKey: env.MISTRAL_API_KEY_1,
+      endpoint: 'https://api.mistral.ai/v1/chat/completions',
+      model: getMistralModel(toolId),
+    },
+    {
+      name: 'mistral',
+      apiKey: env.MISTRAL_API_KEY_2,
+      endpoint: 'https://api.mistral.ai/v1/chat/completions',
+      model: getMistralModel(toolId),
+    },
+    {
+      name: 'mistral',
+      apiKey: env.MISTRAL_API_KEY_3,
+      endpoint: 'https://api.mistral.ai/v1/chat/completions',
+      model: getMistralModel(toolId),
+    },
+  ];
+
+  return providers.filter((provider) => Boolean(provider.apiKey));
+}
+
+function mapProviderError(status: number): { error: string; status: number } {
+  if (status === 400 || status === 422) return { error: 'ERR_INVALID_FILE', status: 400 };
+  if (status === 413) return { error: 'ERR_FILE_TOO_LARGE', status: 413 };
+  if (status === 429) return { error: 'ERR_AI_RATE_LIMIT', status: 429 };
+  return { error: 'AI processing failed. Please try again later.', status: 502 };
+}
+
+function shouldTryNextProvider(status: number): boolean {
+  return status === 400 || status === 413 || status === 422 || status === 429 || status >= 500;
+}
+
+async function callAiProvider(provider: ProviderConfig, toolId: string, messages: NvidiaMessage[]) {
+  const payload = buildOpenAiCompatPayload(toolId, provider.model, messages);
+  const response = await fetch(provider.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${provider.apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return response;
+}
+
 // ---- Zod schemas ----
 const AiRequestSchema = z.object({
-  toolId: z.string(),
-  messages: z.array(z.object({ role: z.string(), content: z.any() })),
-  response_format: z.any().optional(),
-});
+  toolId: z.string().min(1).max(64),
+  messages: z.array(z.object({
+    role: z.enum(['system', 'user', 'assistant']),
+    content: z.union([z.string().max(40_000), z.array(z.unknown()).max(20)]),
+  })).min(1).max(12),
+  response_format: z.unknown().optional(),
+  options: z.unknown().optional(),
+}).strict();
 
 const ExecuteCheckSchema = z.object({
-  toolId: z.string(),
-  pageCount: z.number().optional(),
-});
+  toolId: z.string().min(1).max(64),
+  pageCount: z.number().int().positive().max(500),
+}).strict();
+
+const DeviceIdSchema = z.string().regex(/^[A-Za-z0-9_-]{24}$/);
+
+const RevokeDeviceSchema = z.object({
+  activationCode: z.string().min(32).max(256),
+  deviceId: DeviceIdSchema,
+}).strict();
+
+const ActivationSchema = z.object({
+  activationCode: z.string().min(32).max(256),
+  deviceLabel: z.string().trim().min(1).max(80),
+}).strict();
+
+const UsageReportSchema = z.object({
+  toolId: z.string().min(1).max(64),
+  pagesProcessed: z.number().int().positive().max(500),
+  fileSizeBytes: z.number().int().nonnegative().max(100 * 1024 * 1024).optional(),
+  fileName: z.string().max(255).optional(),
+  status: z.enum(['SUCCESS', 'ERROR']),
+  error: z.string().max(1_000).optional(),
+}).strict();
+
+function countImagePages(messages: Array<{ content: string | unknown[] }>): number | null {
+  let imageCount = 0;
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (!part || typeof part !== 'object') return null;
+      const record = part as Record<string, unknown>;
+      if (record.type !== 'image_url') continue;
+      const imageUrl = record.image_url;
+      const url = typeof imageUrl === 'string'
+        ? imageUrl
+        : imageUrl && typeof imageUrl === 'object' && typeof (imageUrl as Record<string, unknown>).url === 'string'
+          ? (imageUrl as Record<string, string>).url
+          : null;
+      if (!url || (!url.startsWith('data:image/') && !url.startsWith('https://'))) return null;
+      imageCount += 1;
+    }
+  }
+  return imageCount || 1;
+}
+
+async function readBoundedJson(request: Request, maxBytes: number): Promise<unknown | null> {
+  const contentLength = Number(request.headers.get('Content-Length') ?? 0);
+  if (contentLength > maxBytes) return null;
+  const body = await request.text();
+  if (new TextEncoder().encode(body).byteLength > maxBytes) return null;
+  try { return JSON.parse(body); } catch { return null; }
+}
 
 export default {
+  // --- Cron / Scheduled handler: Supabase keep-alive ---
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    try {
+      const resp = await fetch(`${env.SUPABASE_URL}/rest/v1/`, {
+        headers: {
+          'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      });
+      if (resp.ok) {
+        console.log(`[Keepalive] Supabase ping successful at ${new Date().toISOString()}`);
+      } else {
+        console.error(`[Keepalive] Supabase ping failed with status ${resp.status}`);
+      }
+    } catch (err) {
+      console.error('[Keepalive] Scheduled ping failed:', err);
+    }
+  },
+
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = request.headers.get('Origin');
     const { cors, isAllowed } = corsHeaders(origin);
@@ -253,6 +500,40 @@ export default {
         return Response.json({ status: 'ok' }, { headers: cors });
       }
 
+      // --- POST /api/internal/activate ---
+      if (url.pathname === '/api/internal/activate' && request.method === 'POST') {
+        const ipAddress = getClientIp(request);
+        if (!env.INTERNAL_ACTIVATION_CODE) {
+          return Response.json({ error: 'Activation failed' }, { status: 401, headers: cors });
+        }
+        if (!(await allowActivationAttempt(env, ipAddress))) {
+          return Response.json({ error: 'Activation failed' }, { status: 429, headers: cors });
+        }
+        const parsed = ActivationSchema.safeParse(await readBoundedJson(request, 2_048));
+        const activationCode = parsed.success ? parsed.data.activationCode.trim() : '';
+        if (!parsed.success || !(await activationCodeMatches(activationCode, env.INTERNAL_ACTIVATION_CODE))) {
+          return Response.json({ error: 'Activation failed' }, { status: 401, headers: cors });
+        }
+        if (!(await allowGlobalIssuance(env))) {
+          return Response.json({ error: 'Activation failed' }, { status: 429, headers: cors });
+        }
+        const issued = await issueDeviceToken(env, parsed.data.deviceLabel, internalTokenTtlDays(env), internalMaxActiveDevices(env));
+        if (!issued) return Response.json({ error: 'Activation failed' }, { status: 429, headers: cors });
+        return Response.json({ token: issued.token, deviceLabel: issued.record.label, expiresAt: issued.record.expiresAt }, { status: 201, headers: cors });
+      }
+
+      // --- POST /api/internal/revoke ---
+      if (url.pathname === '/api/internal/revoke' && request.method === 'POST') {
+        const ipAddress = getClientIp(request);
+        const parsed = RevokeDeviceSchema.safeParse(await readBoundedJson(request, 2_048));
+        if (!env.INTERNAL_ACTIVATION_CODE || !parsed.success || !(await allowActivationAttempt(env, ipAddress)) || !(await activationCodeMatches(parsed.data.activationCode, env.INTERNAL_ACTIVATION_CODE))) {
+          return Response.json({ error: 'Request failed' }, { status: 401, headers: cors });
+        }
+        // Idempotent generic response avoids exposing device inventory.
+        await revokeDeviceToken(env, parsed.data.deviceId);
+        return Response.json({ ok: true }, { status: 200, headers: cors });
+      }
+
       // --- GET /api/usage ---
       if (url.pathname === '/api/usage' && request.method === 'GET') {
         const authHeader = request.headers.get('Authorization') ?? '';
@@ -260,16 +541,12 @@ export default {
         if (!token) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: cors });
         const jp = await verifyJWT(token, env);
         if (!jp) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
-        const month = currentMonth();
-        // Phase 3: Single RPC for plan + total pages, plus getComprehensiveUsage for per-tool breakdown
         const ipAddress = getClientIp(request);
-        const ctx = await getExecutionContext(env, jp.sub, ipAddress, month);
-        const usage = await getComprehensiveUsage(env, jp.sub, month);
-        const limit = PLAN_LIMITS[ctx.plan].aiPagesPerMonth;
+        const usage = await getUsageSummary(env, jp.sub, ipAddress);
         return Response.json({
-          plan: ctx.plan,
-          pages_used: usage.pagesUsed,
-          pages_limit: limit,
+          plan: usage.plan,
+          pages_used: usage.aiPagesUsed,
+          pages_limit: usage.aiPagesLimit,
           by_tool: usage.byTool,
         }, { headers: cors });
       }
@@ -285,30 +562,27 @@ export default {
         const jp = await verifyJWT(token, env);
         if (!jp) return Response.json({ error: 'Invalid or expired token' }, { status: 401, headers: cors });
 
-        // Zod validation
-        const body = await request.json().catch(() => null);
+        const body = await readBoundedJson(request, 8_192);
         const parseResult = ExecuteCheckSchema.safeParse(body);
         if (!parseResult.success) return Response.json({ error: 'Invalid payload' }, { status: 400, headers: cors });
 
         const { toolId, pageCount } = parseResult.data;
-        const pagesRequested = pageCount ?? getToolPagesCost(toolId);
-        const month = currentMonth();
-        // Phase 3: Single RPC for execute route too (uses real client IP, not 'check')
+        if (!isAiTool(toolId) && !isFreeTool(toolId)) {
+          return Response.json({ error: 'Unknown tool' }, { status: 400, headers: cors });
+        }
         const ipAddress = getClientIp(request);
-        const ctx = await getExecutionContext(env, jp.sub, ipAddress, month);
-        const { plan, pagesUsed } = ctx;
-
-        if (!isWithinLimit(plan, pagesUsed, pagesRequested)) {
-          const limit = PLAN_LIMITS[plan].aiPagesPerMonth;
+        const limit = await checkServerLimit(env, jp.sub, ipAddress, toolId, pageCount);
+        if (!limit.allowed) {
           return Response.json({
             allowed: false,
-            reason: `Monthly ${plan} plan limit reached (${limit === -1 ? 'unlimited' : limit} pages).`,
-            plan,
-            pages_used: pagesUsed,
-            limit,
+            reason: limit.reason,
+            plan: limit.plan,
+            pages_used: limit.aiPagesUsed,
+            limit: limit.aiPagesLimit,
+            next_reset: limit.nextReset,
           }, { status: 402, headers: cors });
         }
-        return Response.json({ allowed: true, plan, pages_used: pagesUsed, limit: PLAN_LIMITS[plan].aiPagesPerMonth }, { headers: cors });
+        return Response.json({ allowed: true, plan: limit.plan, pages_used: limit.aiPagesUsed, limit: limit.aiPagesLimit }, { headers: cors });
       }
 
       // --- POST /api/ai ---
@@ -316,110 +590,101 @@ export default {
         const authHeader = request.headers.get('Authorization') ?? '';
         const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
         if (!token) return Response.json({ error: 'Authentication required' }, { status: 401, headers: cors });
-        const jp = await verifyJWT(token, env);
-        if (!jp) return Response.json({ error: 'Invalid or expired token' }, { status: 401, headers: cors });
+        // Opaque internal device tokens are accepted only on this AI route; all other
+        // endpoints retain their existing Clerk-only authentication contract.
+        const device = token.startsWith('pfd_') ? await verifyDeviceToken(env, token) : null;
+        const jp = device ? null : await verifyJWT(token, env);
+        if (!device && !jp) return Response.json({ error: 'Invalid or expired token' }, { status: 401, headers: cors });
+        if (device && !(await allowDeviceRequest(env, device.deviceId))) {
+          return Response.json({ error: 'AI request failed. Please try again later.' }, { status: 429, headers: cors });
+        }
 
-        // Extract client IP for multi-account abuse prevention
         const ipAddress = getClientIp(request);
-
-        // Zod validation
-        const body = await request.json().catch(() => null);
+        const body = await readBoundedJson(request, 12 * 1024 * 1024);
         const parseResult = AiRequestSchema.safeParse(body);
         if (!parseResult.success) return Response.json({ error: 'Invalid AI request format' }, { status: 400, headers: cors });
         const { toolId, messages } = parseResult.data;
-
-        const pagesRequested = getToolPagesCost(toolId);
-        const month = currentMonth();
-
-        // Phase 3: Single RPC call replaces 3 separate DB queries (waterfall fix)
-        const ctx = await getExecutionContext(env, jp.sub, ipAddress, month);
-        const { plan, pagesUsed, ipPagesUsed } = ctx;
-
-        // Check user limit
-        if (!isWithinLimit(plan, pagesUsed, pagesRequested)) {
-          return Response.json({
-            error: 'Monthly AI page limit reached. Upgrade to Pro for more pages.',
-            pages_used: pagesUsed,
-            pages_limit: PLAN_LIMITS[plan].aiPagesPerMonth,
-            plan,
-          }, { status: 429, headers: cors });
+        if (!isAiTool(toolId)) return Response.json({ error: 'Unknown AI tool' }, { status: 400, headers: cors });
+        const pagesRequested = countImagePages(messages);
+        if (!pagesRequested || pagesRequested > 20) {
+          return Response.json({ error: 'Invalid or excessive image payload' }, { status: 400, headers: cors });
         }
 
-        // Global IP limit (decoupled from user plan) — exempt Business users (shared NAT fix)
-        if (plan !== 'business' && ipPagesUsed + pagesRequested > GLOBAL_IP_MONTHLY_LIMIT) {
-          return Response.json({
-            error: 'Network usage limit exceeded.',
-          }, { status: 429, headers: cors });
+        // Internal devices are provisioned outside the public Clerk/Supabase quota system.
+        // Their authorization is the revocable KV record validated above.
+        if (device) return proxyInternalAiRequest(env, toolId, messages, cors);
+
+        // The reservation is atomic and includes PENDING rows in quota totals.
+        const reservation = await reserveUsage(env, jp!.sub, ipAddress, toolId, pagesRequested);
+        if (!reservation.limit.allowed) {
+          return Response.json({ error: reservation.limit.reason, plan: reservation.limit.plan }, { status: 402, headers: cors });
         }
 
-        // Forward to NVIDIA NIM
-        const nvidiaPayload = buildNvidiaPayload(toolId, messages);
-        const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': 'Bearer ' + env.NVIDIA_API_KEY 
-          },
-          body: JSON.stringify(nvidiaPayload),
-        });
-
-        // Sanitize NVIDIA errors — map to specific frontend codes
-        if (!nvidiaRes.ok) {
-          const errText = await nvidiaRes.text();
-          console.error(`[NVIDIA NIM] Error ${nvidiaRes.status}:`, errText);
-
-          let clientError = 'AI processing failed. Please try again later.';
-          let statusCode = 502;
-
-          if (nvidiaRes.status === 400) { clientError = 'ERR_INVALID_FILE'; statusCode = 400; }
-          else if (nvidiaRes.status === 413) { clientError = 'ERR_FILE_TOO_LARGE'; statusCode = 413; }
-          else if (nvidiaRes.status === 429) { clientError = 'ERR_AI_RATE_LIMIT'; statusCode = 429; }
-
-          return Response.json({ error: clientError }, { status: statusCode, headers: cors });
-        }
-
-        const nvidiaData = await nvidiaRes.json();
-
-        // Atomic RPC increment (only on success) — catch billing failures
+        let settled = false;
         try {
-          await incrementUsage(env, jp.sub, toolId, pagesRequested, ipAddress, month);
-        } catch (billingErr) {
-          console.error('[Billing] Transaction halted:', billingErr);
-        }
+          const providers = getProviderChain(env, toolId);
+          if (providers.length === 0) throw new Error('No AI providers configured');
+          let providerData: unknown = null;
+          let finalError: { error: string; status: number } = { error: 'AI processing failed. Please try again later.', status: 502 };
 
-        return new Response(JSON.stringify(nvidiaData), {
-          status: 200,
-          headers: { ...cors as Record<string, string>, 'Content-Type': 'application/json' },
-        });
+          for (const provider of providers) {
+            const providerRes = await callAiProvider(provider, toolId, messages);
+            if (providerRes.ok) {
+              providerData = await providerRes.json();
+              break;
+            }
+            const errText = await providerRes.text();
+            console.error(`[AI PROVIDER FAIL] ${provider.name.toUpperCase()} returned ${providerRes.status}:`, errText.substring(0, 500));
+            finalError = mapProviderError(providerRes.status);
+            if (!shouldTryNextProvider(providerRes.status)) break;
+          }
+
+          if (!providerData) {
+            await settleUsage(env, reservation.requestId, 'ERROR');
+            settled = true;
+            return Response.json({ error: finalError.error }, { status: finalError.status, headers: cors });
+          }
+
+          // Do not disclose a paid response until authoritative settlement succeeds.
+          await settleUsage(env, reservation.requestId, 'SUCCESS');
+          settled = true;
+          return new Response(JSON.stringify(providerData), {
+            status: 200,
+            headers: { ...cors as Record<string, string>, 'Content-Type': 'application/json' },
+          });
+        } catch (error) {
+          if (!settled) {
+            try {
+              await settleUsage(env, reservation.requestId, 'ERROR');
+              settled = true;
+            } catch (settlementError) {
+              console.error('[Billing] Unable to release reservation:', settlementError);
+            }
+          }
+          console.error('[AI] Processing failed:', error);
+          return Response.json({ error: 'AI processing failed. Please try again later.' }, { status: 502, headers: cors });
+        }
       }
 
       // --- POST /api/usage/report ---
       if (url.pathname === '/api/usage/report' && request.method === 'POST') {
-        let body: any;
+        const authHeader = request.headers.get('Authorization') ?? '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+        if (!token) return Response.json({ error: 'Authentication required' }, { status: 401, headers: cors });
+        const jwt = await verifyJWT(token, env);
+        if (!jwt) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
+        const parseResult = UsageReportSchema.safeParse(await readBoundedJson(request, 32_768));
+        if (!parseResult.success || !isFreeTool(parseResult.data.toolId)) {
+          return Response.json({ error: 'Only known local tools may report telemetry' }, { status: 400, headers: cors });
+        }
         try {
-          body = await request.json();
-        } catch {
-          return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors });
-        }
-        if (!body.toolId || !body.status) {
-          return Response.json({ error: 'toolId and status required' }, { status: 400, headers: cors });
-        }
-        let userId: string | null = null;
-        const authHeader = request.headers.get('Authorization');
-        if (authHeader?.startsWith('Bearer ')) {
-          const payload = await verifyJWT(authHeader.slice(7), env.SUPABASE_JWT_SECRET);
-          userId = payload?.sub ?? null;
-        }
-        const clientIp = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || 'unknown';
-        try {
-          const { reportAndSummarize } = await import('./usageTracker');
-          const summary = await reportAndSummarize(env as any, userId, clientIp, {
-            toolId: body.toolId,
-            pagesProcessed: body.pagesProcessed ?? 1,
-            fileSizeBytes: body.fileSizeBytes ?? 0,
-            fileName: body.fileName ?? 'unknown',
-            status: body.status,
-            error: body.error,
+          const summary = await reportAndSummarize(env, jwt.sub, getClientIp(request), {
+            toolId: parseResult.data.toolId,
+            pagesProcessed: parseResult.data.pagesProcessed,
+            fileSizeBytes: parseResult.data.fileSizeBytes ?? 0,
+            fileName: parseResult.data.fileName ?? 'unknown',
+            status: parseResult.data.status,
+            error: parseResult.data.error,
           });
           return Response.json(summary, {
             status: 200,
@@ -433,16 +698,13 @@ export default {
 
       // --- GET /api/usage/summary ---
       if (url.pathname === '/api/usage/summary' && request.method === 'GET') {
-        let userId: string | null = null;
-        const authHeader = request.headers.get('Authorization');
-        if (authHeader?.startsWith('Bearer ')) {
-          const payload = await verifyJWT(authHeader.slice(7), env.SUPABASE_JWT_SECRET);
-          userId = payload?.sub ?? null;
-        }
-        const clientIp = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || 'unknown';
+        const authHeader = request.headers.get('Authorization') ?? '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+        if (!token) return Response.json({ error: 'Authentication required' }, { status: 401, headers: cors });
+        const jwt = await verifyJWT(token, env);
+        if (!jwt) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
         try {
-          const { getUsageSummary } = await import('./usageTracker');
-          const summary = await getUsageSummary(env as any, userId, clientIp);
+          const summary = await getUsageSummary(env, jwt.sub, getClientIp(request));
           return Response.json(summary, {
             status: 200,
             headers: { ...(cors as Record<string, string>), 'Content-Type': 'application/json' },
@@ -455,10 +717,9 @@ export default {
 
       return Response.json({ error: 'Not found' }, { status: 404, headers: cors });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[Worker] Uncaught error:', error);
       return Response.json(
-        { error: 'Internal server error', details: errorMessage },
+        { error: 'Internal server error' },
         { status: 500, headers: cors },
       );
     }

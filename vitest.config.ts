@@ -16,9 +16,11 @@ export default defineConfig({
         },
     },
     resolve: {
-        alias: {
-            '@': path.resolve(__dirname, '.'),
-            'pdfjs-dist': path.resolve(__dirname, 'node_modules/pdfjs-dist/legacy/build/pdf.mjs'),
-        },
+        alias: [
+            { find: '@', replacement: path.resolve(__dirname, '.') },
+            // Keep tests on PDF.js's Node-safe legacy entry without intercepting
+            // the browser worker asset imported by the shared client facade.
+            { find: /^pdfjs-dist$/, replacement: path.resolve(__dirname, 'node_modules/pdfjs-dist/legacy/build/pdf.mjs') },
+        ],
     },
 });

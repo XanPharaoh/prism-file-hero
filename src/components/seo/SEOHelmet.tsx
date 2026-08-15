@@ -14,7 +14,7 @@ export const SEOHelmet: React.FC<SEOHelmetProps> = ({
   description,
   canonicalUrl,
   structuredData,
-  ogImage = '/PFH Logo.png',
+  ogImage = '/pfh-logo.png',
 }) => {
   const siteName = 'Prism File Hero';
   const defaultOgImage = `${window.location.origin}${ogImage}`;

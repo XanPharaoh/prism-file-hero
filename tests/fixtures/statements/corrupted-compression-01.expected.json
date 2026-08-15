@@ -1,0 +1,6 @@
+{
+  "canExtract": false,
+  "reason": "Unsupported compression / blank render — must fail-fast cleanly",
+  "bankCode": null,
+  "expectedRowCount": 0
+}

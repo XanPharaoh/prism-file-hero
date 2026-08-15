@@ -5,7 +5,11 @@ import type { ToolID } from '../types';
 
 export class TauriFileSystemProvider implements FileSystemProvider {
   async pickFiles(_toolId: ToolID, allowedTypes: string[], maxFiles: number): Promise<File[]> {
-    const extensions = allowedTypes.map((t) => t.split('/')[1] ?? t);
+    const extensions = allowedTypes.flatMap((type) => {
+      if (type === 'image/jpeg') return ['jpg', 'jpeg'];
+      if (type === 'image/png') return ['png'];
+      return [type.split('/')[1] ?? type];
+    });
     const selected = await open({
       multiple: maxFiles === 0 || maxFiles > 1,
       filters: [{ name: 'Files', extensions }],

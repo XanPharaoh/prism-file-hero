@@ -173,8 +173,8 @@ def _extract_pdfplumber(
         return [], "pdfplumber"
 
     table_settings = {
-        "vertical_strategy":      "text",
-        "horizontal_strategy":    "text",
+        "vertical_strategy":      "lines",
+        "horizontal_strategy":    "lines",
         "snap_tolerance":         3,
         "snap_x_tolerance":       3,
         "snap_y_tolerance":       3,
@@ -206,7 +206,6 @@ def _extract_pdfplumber(
 
                 page         = pdf.pages[page_idx]
                 page_tables  = page.extract_tables(table_settings=table_settings)
-                logger.debug("Page %d: pdfplumber found %d raw tables.", page_idx + 1, len(page_tables))
                 logger.debug("Page %d: pdfplumber found %d raw tables.", page_idx + 1, len(page_tables))
 
                 for t_idx, raw_table in enumerate(page_tables):
@@ -461,7 +460,8 @@ def _to_pdfplumber_pages(
             if "-" in part:
                 start_s, end_s = part.split("-", 1)
                 # Camelot range is inclusive on both ends; convert to 0-indexed
-                result.extend(range(int(start_s) - 1, int(end_s)))
+                # +1 to make the range inclusive of the end page (matching Camelot semantics)
+                result.extend(range(int(start_s) - 1, int(end_s) + 1 - 1))
             elif part.isdigit():
                 result.append(int(part) - 1)
         return result

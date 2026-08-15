@@ -5,10 +5,18 @@ export default function EditModal({ transaction, onSave, onCancel }: { transacti
   const [description, setDescription] = useState(transaction.description || '');
   const [amount, setAmount] = useState(String(transaction.amount ?? ''));
   const [balance, setBalance] = useState(transaction.balance ?? '');
+  const [charges, setCharges] = useState(transaction.charges ?? '');
 
   function handleSave() {
     const parsedAmount = Number(String(amount).replace(/[^0-9.-]/g, ''));
-    onSave({ ...transaction, date, description, amount: parsedAmount, balance: balance === '' ? undefined : Number(balance) });
+    onSave({
+      ...transaction,
+      date,
+      description,
+      amount: parsedAmount,
+      balance: balance === '' ? undefined : Number(balance),
+      charges: charges === '' ? undefined : Number(charges),
+    });
   }
 
   return (
@@ -31,6 +39,10 @@ export default function EditModal({ transaction, onSave, onCancel }: { transacti
           <label className="flex flex-col text-xs font-semibold text-slate-500 uppercase tracking-wider">
             Balance
             <input value={String(balance ?? '')} onChange={(e) => setBalance(e.target.value)} className="mt-1 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 text-right font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" aria-label="Balance" />
+          </label>
+          <label className="flex flex-col text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            Fees
+            <input value={String(charges ?? '')} onChange={(e) => setCharges(e.target.value)} className="mt-1 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 text-right font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" aria-label="Fees" />
           </label>
         </div>
 

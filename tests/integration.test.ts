@@ -1,6 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 
+vi.mock('../services/authService', () => ({
+    getAuthToken: vi.fn().mockResolvedValue('test-token'),
+}));
+
+vi.mock('../services/internalDeviceAuth', () => ({
+    getInternalAiHeaders: vi.fn().mockResolvedValue({
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-internal-token',
+    }),
+}));
+
 // ──────────────────────────────────────────────────
 // Mock pdfjs-dist (canvas-dependent)
 // ──────────────────────────────────────────────────
@@ -142,7 +153,7 @@ describe('Integration: OCR Pipeline', () => {
     // ─── mergeResults (via processWithAI batching) ──
     describe('Batch merging', () => {
         it('should batch 4+ images into groups of 3', async () => {
-            // Arrange: 4 images → 2 batches (3 + 1)
+            // Arrange: 4 images → 2 metered batches (2 + 2)
             const response = { data: 'Page text here', summary: 'Extracted text' };
             mockFetch.mockResolvedValue(groqResponse(response));
 
@@ -159,10 +170,10 @@ describe('Integration: OCR Pipeline', () => {
             // Assert: 2 API calls (batch of 3 + batch of 1)
             expect(mockFetch).toHaveBeenCalledTimes(2);
             // Result should contain merged data
-            expect(result.data).toContain('Page text here');
+            expect(result.text).toContain('Page text here');
         });
 
-        it('should send ≤3 images without batching', async () => {
+        it('splits more than two images into metered batches', async () => {
             // Arrange
             mockFetch.mockResolvedValue(groqResponse({ data: 'ok' }));
 
@@ -173,8 +184,8 @@ describe('Integration: OCR Pipeline', () => {
                 { base64: 'c', pageNumber: 3 },
             ]);
 
-            // Assert: single API call
-            expect(mockFetch).toHaveBeenCalledTimes(1);
+            // The server allocation permits two images per request.
+            expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
         it('should merge text data from multiple batches with separator', async () => {
@@ -189,9 +200,9 @@ describe('Integration: OCR Pipeline', () => {
             const result = await processWithAI('ocr', images);
 
             // Assert
-            expect(result.data).toContain('Batch 1 text');
-            expect(result.data).toContain('Batch 2 text');
-            expect(result.data).toContain('---'); // Separator between batches
+            expect(result.text).toContain('Batch 1 text');
+            expect(result.text).toContain('Batch 2 text');
+            expect(result.text).toContain('---'); // Separator between batches
         });
 
         it('should handle object data in merge without crashing (the [object Object] fix)', async () => {
@@ -206,20 +217,20 @@ describe('Integration: OCR Pipeline', () => {
             const result = await processWithAI('ocr', images);
 
             // Assert: should NOT contain [object Object]
-            expect(result.data).not.toContain('[object Object]');
-            expect(result.data).toContain('page 1 content');
-            expect(result.data).toContain('page 2 content');
+            expect(result.text).not.toContain('[object Object]');
+            expect(result.text).toContain('page 1 content');
+            expect(result.text).toContain('page 2 content');
         });
 
         it('should merge pdf-to-excel rows from multiple batches', async () => {
             // Arrange: each batch returns structured row data
             mockFetch
                 .mockResolvedValueOnce(groqResponse({
-                    data: { rows: [{ date: '2024-11-01', desc: 'Groceries', amount: 150 }] },
+                    rows: [{ date: '2024-11-01', desc: 'Groceries', amount: 150 }],
                     summary: 'Batch 1',
                 }))
                 .mockResolvedValueOnce(groqResponse({
-                    data: { rows: [{ date: '2024-11-15', desc: 'Fuel', amount: 850 }] },
+                    rows: [{ date: '2024-11-15', desc: 'Fuel', amount: 850 }],
                     summary: 'Batch 2',
                 }));
 
@@ -229,20 +240,20 @@ describe('Integration: OCR Pipeline', () => {
             const result = await processWithAI('pdf-to-excel', images);
 
             // Assert: rows should be merged into single array
-            expect(result.data.rows).toHaveLength(2);
-            expect(result.data.rows[0].desc).toBe('Groceries');
-            expect(result.data.rows[1].desc).toBe('Fuel');
+            expect(result.rows).toHaveLength(2);
+            expect(result.rows[0].desc).toBe('Groceries');
+            expect(result.rows[1].desc).toBe('Fuel');
         });
 
         it('should merge redact PII regions from multiple batches', async () => {
             // Arrange
             mockFetch
                 .mockResolvedValueOnce(groqResponse({
-                    data: [{ page: 1, x: 10, y: 20, width: 30, height: 5, text: 'John', category: 'name' }],
+                    regions: [{ page: 1, x: 10, y: 20, width: 30, height: 5, text: 'John', category: 'name' }],
                     summary: 'Found name',
                 }))
                 .mockResolvedValueOnce(groqResponse({
-                    data: [{ page: 4, x: 50, y: 60, width: 40, height: 5, text: '123456', category: 'id' }],
+                    regions: [{ page: 4, x: 50, y: 60, width: 40, height: 5, text: '123456', category: 'id' }],
                     summary: 'Found ID',
                 }));
 
@@ -252,9 +263,9 @@ describe('Integration: OCR Pipeline', () => {
             const result = await processWithAI('redact', images);
 
             // Assert: PII regions merged into flat array
-            expect(result.data).toHaveLength(2);
-            expect(result.data[0].text).toBe('John');
-            expect(result.data[1].text).toBe('123456');
+            expect(result.regions).toHaveLength(2);
+            expect(result.regions[0].text).toBe('John');
+            expect(result.regions[1].text).toBe('123456');
         });
     });
 
@@ -270,12 +281,10 @@ describe('Integration: OCR Pipeline', () => {
             // Assert
             const body = JSON.parse(mockFetch.mock.calls[0][1].body);
             const sysMsg = body.messages.find((m: any) => m.role === 'system');
-            expect(sysMsg.content).toContain('ULTRA-HIGH FIDELITY');
-            expect(sysMsg.content).toContain('VERBATIM ONLY');
-            expect(sysMsg.content).toContain('BANK STATEMENTS: List EVERY transaction row');
+            expect(sysMsg.content).toContain('COMPLETE, exhaustive, word-for-word transcript');
         });
 
-        it('should use max_tokens of 16384 for sufficient output', async () => {
+        it('sends the requested tool identifier to the metered worker', async () => {
             // Arrange
             mockFetch.mockResolvedValue(groqResponse({ data: 'text' }));
 
@@ -284,7 +293,7 @@ describe('Integration: OCR Pipeline', () => {
 
             // Assert
             const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-            expect(body.max_tokens).toBe(16384);
+            expect(body.toolId).toBe('ocr');
         });
     });
 });

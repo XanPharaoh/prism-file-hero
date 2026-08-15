@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { CanonicalTransaction, TransactionEdit } from '../../types';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { CanonicalTransaction, TransactionEdit } from '../types';
 
 interface UseExtractionStateReturn {
   transactions: CanonicalTransaction[];
@@ -23,11 +23,31 @@ interface UseExtractionStateReturn {
  * Maintains audit trail of all user corrections
  */
 export function useExtractionState(initialTransactions: CanonicalTransaction[]): UseExtractionStateReturn {
-  const [transactions, setTransactions] = useState<CanonicalTransaction[]>(initialTransactions);
+  const cloneTransactions = useCallback(
+    (rows: CanonicalTransaction[]) => rows.map((transaction) => ({
+      ...transaction,
+      metadata: transaction.metadata ? { ...transaction.metadata } : undefined,
+    })),
+    []
+  );
+  const [transactions, setTransactions] = useState<CanonicalTransaction[]>(() => cloneTransactions(initialTransactions));
   const [editHistory, setEditHistory] = useState<TransactionEdit[]>([]);
   const [currentEditIndex, setCurrentEditIndex] = useState<number>(-1);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
-  const [originalTransactions] = useState<CanonicalTransaction[]>(JSON.parse(JSON.stringify(initialTransactions)));
+  const sequenceCounter = useRef(0);
+  const [originalTransactions, setOriginalTransactions] = useState<CanonicalTransaction[]>(() => cloneTransactions(initialTransactions));
+
+  // A converted document replaces the review session rather than extending it.
+  // Keep an independent snapshot so Reset can never restore rows from a prior file.
+  useEffect(() => {
+    const nextOriginalTransactions = cloneTransactions(initialTransactions);
+    setTransactions(nextOriginalTransactions);
+    setOriginalTransactions(cloneTransactions(initialTransactions));
+    setEditHistory([]);
+    setCurrentEditIndex(-1);
+    setSelectedRows(new Set());
+    sequenceCounter.current = 0;
+  }, [initialTransactions, cloneTransactions]);
 
   const updateTransaction = useCallback(
     (index: number, updates: Partial<CanonicalTransaction>) => {
@@ -38,6 +58,7 @@ export function useExtractionState(initialTransactions: CanonicalTransaction[]):
         // Create edit record for each field changed
         const newEdits: TransactionEdit[] = [];
         const timestamp = Date.now();
+        const seq = ++sequenceCounter.current;
 
         Object.entries(updates).forEach(([field, newValue]) => {
           const oldValue = (oldTransaction as any)[field];
@@ -48,6 +69,7 @@ export function useExtractionState(initialTransactions: CanonicalTransaction[]):
               oldValue,
               newValue,
               timestamp,
+              seq,
             });
           }
         });
@@ -91,10 +113,10 @@ export function useExtractionState(initialTransactions: CanonicalTransaction[]):
       return newTransactions;
     });
 
-    // Move back
+    // Move back — skip all edits with the same sequence number (same logical group)
     let newIndex = currentEditIndex - 1;
     while (newIndex >= 0) {
-      if (editHistory[newIndex].timestamp !== currentLevel.timestamp) {
+      if (editHistory[newIndex].seq !== currentLevel.seq) {
         break;
       }
       newIndex--;
@@ -126,19 +148,20 @@ export function useExtractionState(initialTransactions: CanonicalTransaction[]):
       return newTransactions;
     });
 
-    // Find the last edit with same timestamp
+    // Find the last edit with same sequence number (same logical group)
     let newIndex = nextIndex;
-    while (newIndex < editHistory.length - 1 && editHistory[newIndex + 1].timestamp === nextLevel.timestamp) {
+    while (newIndex < editHistory.length - 1 && editHistory[newIndex + 1].seq === nextLevel.seq) {
       newIndex++;
     }
     setCurrentEditIndex(newIndex);
   }, [currentEditIndex, editHistory]);
 
   const resetToOriginal = useCallback(() => {
-    setTransactions(JSON.parse(JSON.stringify(originalTransactions)));
+    setTransactions(cloneTransactions(originalTransactions));
     setEditHistory([]);
     setCurrentEditIndex(-1);
-  }, [originalTransactions]);
+    setSelectedRows(new Set());
+  }, [cloneTransactions, originalTransactions]);
 
   const toggleRowSelection = useCallback((index: number) => {
     setSelectedRows((prev) => {
@@ -172,7 +195,7 @@ export function useExtractionState(initialTransactions: CanonicalTransaction[]):
   );
 
   const exportTransactions = useCallback((): CanonicalTransaction[] => {
-    return JSON.parse(JSON.stringify(transactions));
+    return transactions.map((transaction) => ({ ...transaction }));
   }, [transactions]);
 
   const canUndo = currentEditIndex >= 0;

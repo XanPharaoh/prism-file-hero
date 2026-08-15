@@ -6,9 +6,29 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 ALLOWED_ORIGIN = "https://prismfilehero.com"
 SUPABASE_URL = "https://vejdrvnymmowvjxleefm.supabase.co"
+CLERK_JWKS_URL = "https://innocent-manatee-90.clerk.accounts.dev/.well-known/jwks.json"
+# Issuer defaults to the JWKS URL origin. Set audience only for Clerk JWT templates that emit aud.
+# CLERK_JWT_ISSUER = "https://innocent-manatee-90.clerk.accounts.dev"
+# CLERK_JWT_AUDIENCE = "<your Clerk JWT template audience>"
+# INTERNAL_MAX_ACTIVE_DEVICES = "10"
 
 # SECURITY: Secrets must NOT be in this file — use: cd worker && npx wrangler secret put <KEY_NAME>
 # Required secrets:
 #   wrangler secret put NVIDIA_API_KEY
+#   wrangler secret put GROQ_API_KEY_1
+#   wrangler secret put GROQ_API_KEY_2
+#   wrangler secret put MISTRAL_API_KEY_1
+#   wrangler secret put MISTRAL_API_KEY_2
+#   wrangler secret put MISTRAL_API_KEY_3
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#   wrangler secret put CLERK_SECRET_KEY
+#   wrangler secret put INTERNAL_ACTIVATION_CODE
+# Optional non-secret vars: INTERNAL_DEVICE_TOKEN_TTL_DAYS = "90", INTERNAL_MAX_ACTIVE_DEVICES = "10"
+# KV must be bound as KV; see docs-internal-desktop.md before deployment.
 
+[[kv_namespaces]]
+binding = "KV"
+id = "4b7542976fcb4b97ba52b08d6f92f73c"
+
+[triggers]
+crons = ["0 */6 * * *"]
