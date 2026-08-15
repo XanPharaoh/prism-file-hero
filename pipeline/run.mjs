@@ -90,17 +90,45 @@ function prettyTable(rows, cols) {
 
 // ─── Workbook bootstrap (read XLSX historical transactions) ───────────────────
 
+// ─── Workbook bootstrap (read XLSX historical transactions) ───────────────────
+
 async function readWorkbookTransactions(xlsxPath) {
-  // Use the existing excelService logic if available, otherwise basic read via xlsx npm
   try {
     const { read, utils } = await import('xlsx');
     const buf  = await fs.readFile(xlsxPath);
     const wb   = read(buf);
-    const ws   = wb.Sheets[wb.SheetNames[0]];
-    const rows = utils.sheet_to_json(ws, { defval: '' });
+    const rows = [];
+
+    for (const sheetName of wb.SheetNames) {
+      const ws = wb.Sheets[sheetName];
+      const rawRows = utils.sheet_to_json(ws, { header: 1, defval: '' });
+      for (const r of rawRows) {
+        if (!Array.isArray(r) || r.length === 0) continue;
+        const nonBlank = r.filter(c => c !== '' && c !== null && c !== undefined);
+        if (nonBlank.length >= 2) {
+          const desc = String(nonBlank[0]).trim();
+          if (desc.length > 2 && !desc.toLowerCase().startsWith('total') && !desc.toLowerCase().startsWith('page')) {
+            rows.push({
+              description: desc,
+              account: String(sheetName).trim(),
+              accountName: desc,
+              raw: nonBlank.slice(1).join(' | '),
+            });
+          }
+        }
+      }
+    }
+
+    // Fallback: if no multi-sheet rows were found, try simple sheet_to_json
+    if (rows.length === 0 && wb.SheetNames.length > 0) {
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const simple = utils.sheet_to_json(ws, { defval: '' });
+      return simple;
+    }
+
     return rows;
   } catch (err) {
-    throw new Error(`Cannot read workbook ${xlsxPath}: ${err.message}\nMake sure the xlsx package is installed: npm i xlsx`);
+    throw new Error(`Cannot read workbook ${xlsxPath}: ${err.message}`);
   }
 }
 
@@ -149,15 +177,6 @@ async function runPipeline() {
     process.exit(0);
   }
 
-  // ── Validate required args ─────────────────────────────────────────────────
-  if (!args.statement) {
-    console.error('❌  --statement=<path.pdf> is required');
-    process.exit(1);
-  }
-
-  const statementPath = resolve(args.statement);
-  await fs.access(statementPath); // throws if not found
-
   // ── Check Ollama ───────────────────────────────────────────────────────────
   banner('Checking Ollama');
   const { ready, reason, models } = await checkOllamaReady(VISION_MODEL);
@@ -168,15 +187,35 @@ async function runPipeline() {
   }
   console.log(`✅  Ollama ready. Models: ${models.join(', ')}`);
 
-  // ── Optional: bootstrap rules from historical workbook ─────────────────────
-  if (args.bootstrap && args.client) {
+  // ── Bootstrap rules from historical workbook ───────────────────────────────
+  if (args.bootstrap) {
+    if (!args.client) {
+      console.error('❌  --client=<clientId> is required when using --bootstrap');
+      process.exit(1);
+    }
     banner(`Bootstrapping Rules for Client: ${args.client}`);
     const workbookPath = resolve(args.bootstrap);
     const historicalRows = await readWorkbookTransactions(workbookPath);
-    console.log(`  Read ${historicalRows.length} historical transactions from workbook`);
+    console.log(`  Read ${historicalRows.length} historical item(s) from workbook`);
     const rules = await bootstrapRulesFromHistory(args.client, args.client, historicalRows);
     console.log(`  ✅  ${rules.rules.length} rules created/updated`);
+
+    // If no statement is provided, we are done!
+    if (!args.statement) {
+      banner('Bootstrap Complete');
+      console.log(`  Rules protocol saved for client: ${args.client}`);
+      process.exit(0);
+    }
   }
+
+  // ── Validate statement if not in bootstrap-only mode ───────────────────────
+  if (!args.statement) {
+    console.error('❌  --statement=<path.pdf> or --bootstrap=<path.xlsx> is required');
+    process.exit(1);
+  }
+
+  const statementPath = resolve(args.statement);
+  await fs.access(statementPath); // throws if not found
 
   // ── Load client rules (strict per-client isolation) ───────────────────────
   const clientId = args.client;
