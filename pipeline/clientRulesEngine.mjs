@@ -35,6 +35,7 @@ import { promises as fs } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { ollamaChat } from './ollamaVision.mjs';
+import { preProcessWorkbook } from './workbookPreProcessor.mjs';
 
 const RULES_DIR = join(homedir(), '.fiscal-fox', 'client-rules');
 
@@ -136,58 +137,25 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
 Focus on the TOP 40 most common patterns. Higher confidence for frequently recurring patterns.`;
 
 /**
- * Bootstrap client rules from a list of historical transactions.
- * @param {string} clientId
- * @param {string} clientName
- * @param {Array<{description: string, account: string, debit: string, credit: string}>} historicalTransactions
+ * High-accuracy AFS & workbook bootstrap using the South African pre-processor.
  */
-export async function bootstrapRulesFromHistory(clientId, clientName, historicalTransactions) {
-  // Summarize the historical data for the model
-  const summary = historicalTransactions
-    .slice(0, 500) // Limit to 500 rows to fit in context
-    .map((t) => `${t.description || t.Description} → ${t.account || t.Account || t.accountName || ''}`)
-    .join('\n');
+export async function bootstrapFromWorkbook(clientId, clientName, xlsxPath) {
+  console.log(`[clientRulesEngine] Pre-processing workbook: ${xlsxPath}`);
+  const preProcessed = await preProcessWorkbook(xlsxPath);
 
-  const userMessage = `Client: ${clientName}
-
-Historical transactions (description → account assigned by accountant):
-${summary}
-
-Build the categorization rules for this client.`;
-
-  console.log(`[clientRulesEngine] Bootstrapping rules for ${clientName} from ${historicalTransactions.length} transactions…`);
-
-  const raw = await ollamaChat(WORKBOOK_BOOTSTRAP_SYSTEM, userMessage, {
-    options: { temperature: 0, num_ctx: 16384 },
-  });
-
-  // Parse the JSON response
-  let inferred;
-  try {
-    let cleaned = raw.trim();
-    if (cleaned.startsWith('```')) {
-      cleaned = cleaned.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim();
-    }
-    inferred = JSON.parse(cleaned);
-  } catch (err) {
-    console.error('[clientRulesEngine] Failed to parse bootstrap response:', err.message);
-    inferred = { rules: [], businessType: 'unknown', vatRegistered: false };
-  }
-
-  // Load existing rules and merge (new rules from workbook take precedence)
   const existing = await loadClientRules(clientId);
   const merged = {
     ...existing,
     clientId,
-    clientName,
-    businessType: inferred.businessType ?? existing.businessType,
-    vatRegistered: inferred.vatRegistered ?? existing.vatRegistered,
-    vatNumber:     inferred.vatNumber     ?? existing.vatNumber,
-    rules: mergeRules(existing.rules, inferred.rules ?? []),
+    clientName: preProcessed.entityName || clientName || existing.clientName,
+    businessType: preProcessed.businessType || existing.businessType,
+    vatRegistered: preProcessed.vatRegistered ?? existing.vatRegistered,
+    vatNumber: preProcessed.vatNumber || existing.vatNumber,
+    rules: mergeRules(existing.rules, preProcessed.suggestedRules ?? []),
   };
 
   await saveClientRules(clientId, merged);
-  console.log(`[clientRulesEngine] Bootstrap complete: ${merged.rules.length} rules`);
+  console.log(`[clientRulesEngine] Pre-processor bootstrap complete: ${merged.rules.length} bilingual rules for ${merged.clientName} (${merged.businessType})`);
   return merged;
 }
 

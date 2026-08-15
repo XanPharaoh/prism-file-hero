@@ -36,7 +36,7 @@ import { checkOllamaReady, VISION_MODEL } from './ollamaVision.mjs';
 import { extractBankStatement } from './bankStatementExtractor.mjs';
 import {
   loadClientRules,
-  bootstrapRulesFromHistory,
+  bootstrapFromWorkbook,
   addManualRule,
   listClientsWithRules,
 } from './clientRulesEngine.mjs';
@@ -195,10 +195,9 @@ async function runPipeline() {
     }
     banner(`Bootstrapping Rules for Client: ${args.client}`);
     const workbookPath = resolve(args.bootstrap);
-    const historicalRows = await readWorkbookTransactions(workbookPath);
-    console.log(`  Read ${historicalRows.length} historical item(s) from workbook`);
-    const rules = await bootstrapRulesFromHistory(args.client, args.client, historicalRows);
-    console.log(`  ✅  ${rules.rules.length} rules created/updated`);
+    const rules = await bootstrapFromWorkbook(args.client, args.client, workbookPath);
+    console.log(`  ✅  ${rules.rules.length} bilingual rules created for ${rules.clientName} (${rules.businessType})`);
+    console.log(`      VAT Registered: ${rules.vatRegistered ? 'Yes' : 'No'}`);
 
     // If no statement is provided, we are done!
     if (!args.statement) {
