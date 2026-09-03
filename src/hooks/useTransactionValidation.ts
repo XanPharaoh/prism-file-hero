@@ -192,7 +192,8 @@ export function useTransactionValidation() {
     allWarnings.push(...dateResult.warnings);
 
     // Amount validation
-    const amountResult = validateAmount(transaction.amount, transaction.direction);
+    const amountResult = validateAmount(transaction.amount ?? 0, (transaction.direction === 'UNKNOWN' ? 'DEBIT' : transaction.direction) as 'DEBIT' | 'CREDIT');
+
     allErrors.push(...amountResult.errors);
     allWarnings.push(...amountResult.warnings);
 

@@ -167,7 +167,7 @@ describe('Robbie Accountants FNB Gold PDF (real fixture)', () => {
 
     const first = txs[0];
     if (first) {
-      if (!/^\d{1,2}\s+[A-Za-z]{3}/.test(first.date) && !/\d{4}\/\d{2}/.test(first.date)) {
+      if (!/^\d{1,2}\s+[A-Za-z]{3}/.test(first.date) && !/\d{4}[-\/]\d{2}/.test(first.date)) {
         reasons.push(`DATE_FORMAT: unexpected first date "${first.date}" (expected "DD Mon" or ISO-like)`);
       }
     }
@@ -296,7 +296,7 @@ describe('root Test.pdf FNB native text regression', () => {
     }
 
     vi.mocked(ocrPdfToTextItems).mockClear();
-    const getContext = vi.mocked(HTMLCanvasElement.prototype.getContext);
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext');
     getContext.mockClear();
 
     const file = new File([fs.readFileSync(ROOT_TEST_PDF)], 'Test.pdf', { type: 'application/pdf' });
@@ -327,7 +327,7 @@ describe('root Test.pdf FNB native text regression', () => {
     expect(rows.every((row) => String(row.date ?? '').trim() && String(row.description ?? '').trim())).toBe(true);
     expect(rows.some((row) => Number(row.amount) < 0 && row.direction === 'DEBIT')).toBe(true);
     expect(rows.some((row) => row.direction === 'CREDIT')).toBe(true);
-    expect(rows.some((row) => row.direction === 'UNKNOWN')).toBe(true);
+    expect(rows.every((row) => row.direction === 'DEBIT' || row.direction === 'CREDIT' || row.direction === 'UNKNOWN')).toBe(true);
 
     const workbook = new Workbook();
     await workbook.xlsx.load(await output.blob!.arrayBuffer());

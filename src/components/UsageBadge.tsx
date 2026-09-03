@@ -4,7 +4,7 @@ import { fetchUsageFromServer, getToolDisplayName, type UsageData } from '../../
 import { getFeatureType, getDailyLimit } from '../../services/usageConfig';
 import { useCountdown } from '../hooks/useCountdown';
 import { useLocalTimezoneFormat } from '../hooks/useLocalTimezoneFormat';
-import type { AppUser } from '../store/appStore';
+import { useAppStore, type AppUser } from '../store/appStore';
 
 interface UsageBadgeProps {
   user: AppUser | null;
@@ -298,16 +298,36 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
 
       {/* Alerts */}
       {localUsed >= localCap && (
-        <div className="mt-2 flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span className="font-bold">Free limit reached. Upgrade for more.</span>
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setPopoverOpen(false);
+            useAppStore.getState().setShowUpgradeCTA(true);
+          }}
+          className="mt-2 w-full flex items-center justify-between text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-md px-2.5 py-1.5 transition-colors text-left"
+        >
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span className="font-semibold text-[11px]">Free limit reached</span>
+          </div>
+          <span className="underline font-bold text-[11px]">Upgrade →</span>
+        </button>
       )}
       {aiUsed >= aiCap && (
-        <div className="mt-2 flex items-center gap-2 text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span className="font-bold">Premium limit reached. Upgrade for more.</span>
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setPopoverOpen(false);
+            useAppStore.getState().setShowUpgradeCTA(true);
+          }}
+          className="mt-2 w-full flex items-center justify-between text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-md px-2.5 py-1.5 transition-colors text-left"
+        >
+          <div className="flex items-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span className="font-semibold text-[11px]">Premium limit reached</span>
+          </div>
+          <span className="underline font-bold text-[11px]">Upgrade →</span>
+        </button>
       )}
     </div>
   );

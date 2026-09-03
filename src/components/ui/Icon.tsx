@@ -181,6 +181,13 @@ export const ArrowLeft: React.FC<IconProps> = ({ className = '', size = 24, onCl
   </svg>
 );
 
+export const ArrowRight: React.FC<IconProps> = ({ className = '', size = 24, onClick }) => (
+  <svg {...baseProps} width={size} height={size} className={className} onClick={onClick}>
+    <line x1="5" y1="12" x2="19" y2="12" />
+    <polyline points="12 5 19 12 12 19" />
+  </svg>
+);
+
 export const BarChart3: React.FC<IconProps> = ({ className = '', size = 24, onClick }) => (
   <svg {...baseProps} width={size} height={size} className={`icon-pulse ${className}`} onClick={onClick}>
     <path d="M3 3v18h18" />
@@ -359,15 +366,22 @@ export const Sparkles: React.FC<IconProps> = ({ className = '', size = 24, onCli
   </svg>
 );
 
+export const Camera: React.FC<IconProps> = ({ className = '', size = 24, onClick }) => (
+  <svg {...baseProps} width={size} height={size} className={`icon-camera ${className}`} onClick={onClick}>
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+    <circle cx="12" cy="13" r="4" />
+  </svg>
+);
+
 // Registry for dynamic mapping
 export const ICON_REGISTRY: Record<string, React.FC<IconProps>> = {
   Zap, Layers, Scissors, CheckCircle, AlertCircle, History,
   Loader2, FileText, FileSpreadsheet, Wand2, ShieldCheck,
   Upload, Download, Merge, RotateCw, Eraser, AlertTriangle,
-  ArrowLeft, BarChart3, CheckCircle2, ChevronLeft, ChevronRight,
+  ArrowLeft, ArrowRight, BarChart3, CheckCircle2, ChevronLeft, ChevronRight,
   Clock, Eye, FileArchive, FileImage, FileType, FileUp, Layout,
   Lock, PenTool, Plus, Trash2, TrendingUp, UploadCloud, X, Menu, Search,
-  Cpu, Sparkles,
+  Cpu, Sparkles, Camera,
 };
 
 // Dynamic Icon Component

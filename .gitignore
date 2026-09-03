@@ -11,6 +11,10 @@ node_modules
 dist
 dist-ssr
 *.local
+*.keystore
+*.jks
+android/app/google-services.json
+.wrangler
 
 # Editor directories and files
 .vscode/*

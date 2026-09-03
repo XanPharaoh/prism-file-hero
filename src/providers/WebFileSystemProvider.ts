@@ -5,31 +5,37 @@ export class WebFileSystemProvider implements FileSystemProvider {
   async pickFiles(_toolId: ToolID, allowedTypes: string[], maxFiles: number): Promise<File[]> {
     return new Promise((resolve) => {
       const input = document.createElement('input');
+      let settled = false;
+      let cancelTimer: number | undefined;
+      const finish = (files: File[] = []) => {
+        if (settled) return;
+        settled = true;
+        if (cancelTimer !== undefined) window.clearTimeout(cancelTimer);
+        window.removeEventListener('focus', onWindowFocus);
+        resolve(maxFiles > 0 ? files.slice(0, maxFiles) : files);
+      };
+      const onWindowFocus = () => {
+        // Android browsers often emit no `cancel` event. Once the chooser closes,
+        // a short delay lets a genuine `change` event win before resolving empty.
+        cancelTimer = window.setTimeout(() => {
+          if (!input.files?.length) finish();
+        }, 250);
+      };
       input.type = 'file';
       input.accept = allowedTypes.join(',');
       input.multiple = maxFiles === 0 || maxFiles > 1;
       input.onchange = () => {
-        const files = Array.from(input.files ?? []);
-        resolve(maxFiles > 0 ? files.slice(0, maxFiles) : files);
+        finish(Array.from(input.files ?? []));
       };
+      input.addEventListener('cancel', () => finish());
+      window.addEventListener('focus', onWindowFocus, { once: true });
       input.click();
     });
   }
 
   async saveBlob(blob: Blob, filename: string): Promise<void> {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        if (a.parentNode) document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 1000);
-    });
+    const { saveAndShareFile } = await import('../../services/nativeBridge');
+    await saveAndShareFile(blob, filename);
   }
 
   async readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {

@@ -3,10 +3,14 @@ import type { AppUser } from '../store/appStore';
 import type { ToolID } from '../types';
 import { isInternalDesktopDistribution } from '../config/distribution';
 
-// Only enable PostHog when a real, valid key is configured
-const rawKey = import.meta.env.VITE_POSTHOG_KEY as string | undefined;
-const BLOCKED_KEYS = ['REDACTED-POSTHOG-KEY'];
-const isEnabled = !isInternalDesktopDistribution && Boolean(rawKey) && rawKey !== 'MISSING_KEY' && !BLOCKED_KEYS.includes(rawKey);
+// Only enable PostHog when a valid public client key (phc_ prefix) is configured.
+// PostHog secret/personal keys (phx_ prefix) grant administrative API access and must NEVER be used in client applications.
+const rawKey = (import.meta.env.VITE_POSTHOG_KEY as string | undefined)?.trim();
+const isEnabled = !isInternalDesktopDistribution && Boolean(rawKey) && rawKey.startsWith('phc_');
+
+if (rawKey && !rawKey.startsWith('phc_')) {
+  console.error('[Security Warning] Invalid PostHog key provided. Client applications must only use public project API keys starting with "phc_".');
+}
 
 if (isEnabled) {
   try {

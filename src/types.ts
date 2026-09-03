@@ -5,7 +5,14 @@ export type ToolID =
   | 'pdf-to-word' | 'pdf-to-excel' | 'pdf-to-jpg' | 'jpg-to-pdf'
   | 'protect' | 'redact' | 'watermark'
   | 'ocr' | 'compare' | 'rotate'
-  | 'ocr-to-md' | 'grammar-check';
+  | 'ocr-to-md' | 'grammar-check'
+  | 'delete-pages' | 'extract-pages' | 'page-numbers'
+  | 'unlock-pdf' | 'pdf-to-text' | 'pdf-repair'
+  | 'reorder-pages' | 'header-footer' | 'crop-resize'
+  | 'metadata-edit' | 'remove-blank-pages' | 'flatten-pdf'
+  | 'pdf-to-docx' | 'pdf-qa' | 'pdf-summary'
+  | 'sanitize' | 'extract-images' | 'n-up'
+  | 'scan-effect' | 'invert-colors' | 'auto-rotate' | 'stamp';
 
 export interface PDFTool {
   id: ToolID;
@@ -60,12 +67,17 @@ export interface BatchItem {
 export interface CanonicalTransaction {
   date: string;
   description: string;
-  amount: number;
-  balance?: number;
+  /** Net transaction amount (positive = credit, negative = debit). May be null for fee-only rows. */
+  amount: number | null;
+  balance?: number | null;
   charges?: number;
-  direction: 'DEBIT' | 'CREDIT';
+  direction: 'DEBIT' | 'CREDIT' | 'UNKNOWN';
   bankCode: string;
   confidence: number;
+  /** Raw text fragment from the source document (used for audit trail). */
+  raw?: string;
+  /** Extractor source identifier (e.g. 'docling', 'fnb-position', 'generic-text'). */
+  source?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -129,10 +141,50 @@ export interface Toast {
 export interface ToolOptions {
   password: string;
   watermarkText: string;
+  watermarkMode: 'tiled' | 'single';
   headerRow: string;
   dataRange: string;
   detectMergeCells: boolean;
   rotationAngle: string;
   mergePages: string;
   splitPages: string;
+  jpgPages: string;
+  compressionLevel: 'extreme' | 'recommended' | 'low';
+  compressionQuality?: number;
+  redactKeywords: string;
+  deletePages: string;
+  extractPages: string;
+  reorderPages: string;
+  pageNumberPosition: 'bottom-center' | 'bottom-right' | 'bottom-left' | 'top-center' | 'top-right' | 'top-left';
+  pageNumberFormat: 'page_n' | 'page_n_of_m' | 'n' | 'n_of_m';
+  pageNumberStart: number;
+  headerText: string;
+  footerText: string;
+  cropMargins: { top: number; bottom: number; left: number; right: number };
+  metaTitle: string;
+  metaAuthor: string;
+  metaSubject: string;
+  metaKeywords: string;
+  metaCreator: string;
+  metaProducer: string;
+  stripMetadata: boolean;
+  targetSize: number;
+  ocrEngine: 'tesseract' | 'gemini' | 'hybrid';
+  unlockPassword: string;
+  qaQuestion: string;
+  summaryLength: 'short' | 'medium' | 'detailed';
+  summaryFocus: string;
+  docxQuality: 'standard' | 'high';
+  blankPageThreshold: number;
+  stampText: string;
+  stampColor: 'red' | 'green' | 'blue';
+  stampDate: boolean;
+  nUpGrid: 2 | 4 | 9;
+  scannerContrast: number;
+  scannerNoise: number;
+  scannerTilt: boolean;
+  sanitizeRemoveJs: boolean;
+  sanitizeRemoveAttachments: boolean;
+  sanitizeRemoveLinks: boolean;
+  sanitizeRemoveMetadata: boolean;
 }

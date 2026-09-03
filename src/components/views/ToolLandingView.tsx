@@ -123,14 +123,14 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
     );
   }
 
-  const activeSlug = isBankStatement
+  const top10Slug = isBankStatement
     ? 'bank-statement-to-excel'
-    : Object.keys(SLUG_TO_TOOL_MAP).find((s) => SLUG_TO_TOOL_MAP[s].toolId === tool.id && !SLUG_TO_TOOL_MAP[s].isBankStatement) ||
-      params.toolSlug ||
-      params.toolId ||
-      tool.id;
+    : Object.keys(SLUG_TO_TOOL_MAP).find((s) => SLUG_TO_TOOL_MAP[s].toolId === tool.id && !SLUG_TO_TOOL_MAP[s].isBankStatement);
 
-  const canonicalUrl = `${typeof window !== 'undefined' ? window.location.origin : 'https://prismfilehero.com'}/${activeSlug}`;
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://prismfilehero.com';
+  const canonicalUrl = top10Slug
+    ? `${origin}/${top10Slug}`
+    : `${origin}/tools/${params.toolId || tool.id}`;
 
   const toolDisplayName = tool.id === 'pdf-to-word' ? 'PDF to Word' : tool.name;
 

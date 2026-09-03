@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 512 512"
+   role="img"
+   aria-labelledby="title"
+   version="1.1"
+   id="svg13"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs17" />
+  <title
+     id="title">Prism File Hero browser tab icon</title>
+  <rect
+     width="512"
+     height="512"
+     rx="92"
+     fill="#111318"
+     id="rect3" />
+  <rect
+     x="72"
+     y="86"
+     width="104"
+     height="48"
+     rx="10"
+     fill="#36A9E1"
+     id="rect5" />
+  <rect
+     x="204"
+     y="86"
+     width="104"
+     height="48"
+     rx="10"
+     fill="#F25F64"
+     id="rect7" />
+  <rect
+     x="336"
+     y="86"
+     width="104"
+     height="48"
+     rx="10"
+     fill="#3FAE77"
+     id="rect9" />
+  <g
+     aria-label="PFH"
+     id="text11"
+     style="font-weight:900;font-size:232px;font-family:'DejaVu Sans', Arial, sans-serif;letter-spacing:-22;text-anchor:middle;fill:#ffffff">
+    <path
+       d="m 37.957031,212.87109 h 72.386719 q 32.28516,0 49.50391,14.38672 17.33203,14.27344 17.33203,40.78125 0,26.6211 -17.33203,41.00781 -17.21875,14.27344 -49.50391,14.27344 H 81.570312 V 382 H 37.957031 Z m 43.613281,31.60547 v 47.23828 h 24.128908 q 12.6875,0 19.59766,-6.11718 6.91015,-6.23047 6.91015,-17.5586 0,-11.32812 -6.91015,-17.44531 -6.91016,-6.11719 -19.59766,-6.11719 z"
+       id="path19" />
+    <path
+       d="m 185.99219,212.87109 h 117.69922 v 32.96485 h -74.08594 v 31.49218 h 69.66797 v 32.96485 H 229.60547 V 382 h -43.61328 z"
+       id="path21" />
+    <path
+       d="m 322.47266,212.87109 h 43.61328 v 64.45703 h 64.34375 v -64.45703 h 43.61328 V 382 H 430.42969 V 310.29297 H 366.08594 V 382 h -43.61328 z"
+       id="path23" />
+  </g>
+</svg>

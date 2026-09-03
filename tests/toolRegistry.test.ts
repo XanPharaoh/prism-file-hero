@@ -1,17 +1,27 @@
 import { describe, it, expect } from 'vitest';
 import { TOOL_REGISTRY, getToolById, getToolsByCategory } from '../src/registry/toolRegistry';
 import type { ToolID, ToolCategory } from '../src/types';
-import { TOOL_COSTS } from '../services/usageConfig';
+import { TOOL_COSTS, isAiTool } from '../services/usageConfig';
 
 describe('Tool Registry', () => {
-  it('should have all 15 tools registered', () => {
-    expect(TOOL_REGISTRY.length).toBe(15);
+  it('should have all 37 tools registered', () => {
+    expect(TOOL_REGISTRY.length).toBe(37);
   });
 
   it('keeps usage configuration limited to registered UI tools', () => {
     expect(Object.keys(TOOL_COSTS).sort()).toEqual(
       TOOL_REGISTRY.map((tool) => tool.id).sort(),
     );
+  });
+
+  it('meters PDF to Excel as an AI tool because its recovery path calls the AI worker', () => {
+    expect(isAiTool('pdf-to-excel')).toBe(true);
+    expect(TOOL_COSTS['pdf-to-excel']).toMatchObject({
+      category: 'ai',
+      featureType: 'ai',
+      aiPagesPerPage: 1,
+      operationCost: 0,
+    });
   });
 
   it('should have unique tool IDs', () => {

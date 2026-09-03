@@ -4,9 +4,12 @@ compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-ALLOWED_ORIGIN = "https://prismfilehero.com"
+# Comma-separated exact browser origins. Add staging origins explicitly; do not use private-network ranges.
+# Trusted Cloudflare Pages preview host suffixes; only one HTTPS subdomain label is accepted.
+ALLOWED_ORIGIN_SUFFIXES = "prism-file-hero.pages.dev"
+ALLOWED_ORIGINS = "https://prismfilehero.com,https://www.prismfilehero.com,https://prismfilehero.free.nf,https://app.prismfilehero.free.nf,https://prism-file-hero.pages.dev,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://localhost:4173,https://localhost,http://tauri.localhost,tauri://localhost"
 SUPABASE_URL = "https://vejdrvnymmowvjxleefm.supabase.co"
-CLERK_JWKS_URL = "https://innocent-manatee-90.clerk.accounts.dev/.well-known/jwks.json"
+CLERK_JWKS_URL = "https://clerk.prismfilehero.com/.well-known/jwks.json"
 # Issuer defaults to the JWKS URL origin. Set audience only for Clerk JWT templates that emit aud.
 # CLERK_JWT_ISSUER = "https://innocent-manatee-90.clerk.accounts.dev"
 # CLERK_JWT_AUDIENCE = "<your Clerk JWT template audience>"
@@ -21,7 +24,6 @@ CLERK_JWKS_URL = "https://innocent-manatee-90.clerk.accounts.dev/.well-known/jwk
 #   wrangler secret put MISTRAL_API_KEY_2
 #   wrangler secret put MISTRAL_API_KEY_3
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-#   wrangler secret put CLERK_SECRET_KEY
 #   wrangler secret put INTERNAL_ACTIVATION_CODE
 # Optional non-secret vars: INTERNAL_DEVICE_TOKEN_TTL_DAYS = "90", INTERNAL_MAX_ACTIVE_DEVICES = "10"
 # KV must be bound as KV; see docs-internal-desktop.md before deployment.

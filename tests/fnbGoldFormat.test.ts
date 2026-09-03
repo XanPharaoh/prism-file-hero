@@ -88,7 +88,7 @@ describe('FNB Gold Business Account Format', () => {
     const result = await extractFNBStatement(new File([], 'gold-test.pdf'));
 
     expect(result.transactions).toHaveLength(1);
-    expect(result.transactions[0].date).toBe('2026/01/15');
+    expect(result.transactions[0].date).toBe('2026-01-15');
     expect(result.transactions[0].description).toContain('SALARY');
     expect(result.transactions[0].credit).toBe(15000.0);
     expect(result.transactions[0].balance).toBe(16250.0);

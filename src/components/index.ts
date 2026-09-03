@@ -1,9 +1,8 @@
 // Export all components
-export { ExtractionReview } from './ExtractionReview';
-export type { ExtractionReviewProps } from './ExtractionReview';
+export { default as ExtractionReview } from './ExtractionReview';
 
-export { TransactionRow } from './TransactionRow';
-export type { TransactionRowProps } from './TransactionRow';
+export { default as TransactionRow } from './TransactionRow';
 
-export { EditModal } from './EditModal';
-export type { EditModalProps } from './EditModal';
+export { default as EditModal } from './EditModal';
+
+export { default as PDFPageGrid } from './PDFPageGrid';

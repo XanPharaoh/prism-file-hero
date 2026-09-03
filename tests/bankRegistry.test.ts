@@ -8,9 +8,9 @@
  * - Column pattern retrieval
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { detectBank, getBankPattern, getAllBankCodes, isFooterLine } from '../services/bankRegistry';
-import { testAssertions, testDataGenerator } from './setup';
+import { testAssertions } from './setup';
 
 describe('Bank Registry', () => {
   describe('detectBank()', () => {
@@ -91,6 +91,46 @@ describe('Bank Registry', () => {
       expect(result.confidence).toBeGreaterThan(0);
     });
 
+    it('should detect Bidvest Bank from statement text', () => {
+      const text = 'Bidvest Bank Account Statement for Cheque Account';
+      const result = detectBank(text);
+
+      expect(result.bankCode).toBe('BIDVEST_BANK_SA');
+      expect(result.confidence).toBeGreaterThan(0);
+    });
+
+    it('should detect Standard Bank from statement text', () => {
+      const text = 'Standard Bank Account Statement for Cheque Account';
+      const result = detectBank(text);
+
+      expect(result.bankCode).toBe('STANDARD_BANK_SA');
+      expect(result.confidence).toBeGreaterThan(0);
+    });
+
+    it('should detect Old Mutual from statement text', () => {
+      const text = 'Old Mutual Max Investments Portfolio Valuation';
+      const result = detectBank(text);
+
+      expect(result.bankCode).toBe('OLD_MUTUAL_SA');
+      expect(result.confidence).toBeGreaterThan(0);
+    });
+
+    it('should detect Sanlam from statement text', () => {
+      const text = 'Sanlam Glacier Portfolio Statement';
+      const result = detectBank(text);
+
+      expect(result.bankCode).toBe('SANLAM_SA');
+      expect(result.confidence).toBeGreaterThan(0);
+    });
+
+    it('should detect Investment Portfolio from statement text', () => {
+      const text = 'Allan Gray Portfolio Valuation Statement';
+      const result = detectBank(text);
+
+      expect(result.bankCode).toBe('INVESTMENT_PORTFOLIO_SA');
+      expect(result.confidence).toBeGreaterThan(0);
+    });
+
     it('should handle empty input', () => {
       const result = detectBank('');
 
@@ -117,6 +157,47 @@ describe('Bank Registry', () => {
       expect(pattern?.currencySymbol).toBe('₹');
     });
 
+    it('should retrieve Bidvest Bank pattern', () => {
+      const pattern = getBankPattern('BIDVEST_BANK_SA');
+
+      expect(pattern).toBeDefined();
+      expect(pattern?.name).toBe('Bidvest Bank South Africa');
+      expect(pattern?.code).toBe('BIDVEST_BANK_SA');
+    });
+
+    it('should retrieve African Bank pattern', () => {
+      const pattern = getBankPattern('AFRICAN_BANK_SA');
+
+      expect(pattern).toBeDefined();
+      expect(pattern?.name).toBe('African Bank South Africa');
+      expect(pattern?.code).toBe('AFRICAN_BANK_SA');
+    });
+
+    it('should retrieve Standard Bank pattern', () => {
+      const pattern = getBankPattern('STANDARD_BANK_SA');
+
+      expect(pattern).toBeDefined();
+      expect(pattern?.name).toBe('Standard Bank South Africa');
+      expect(pattern?.code).toBe('STANDARD_BANK_SA');
+      expect(pattern?.currencySymbol).toBe('R');
+    });
+
+    it('should retrieve Old Mutual pattern', () => {
+      const pattern = getBankPattern('OLD_MUTUAL_SA');
+
+      expect(pattern).toBeDefined();
+      expect(pattern?.name).toBe('Old Mutual South Africa');
+      expect(pattern?.code).toBe('OLD_MUTUAL_SA');
+    });
+
+    it('should retrieve Sanlam pattern', () => {
+      const pattern = getBankPattern('SANLAM_SA');
+
+      expect(pattern).toBeDefined();
+      expect(pattern?.name).toBe('Sanlam South Africa');
+      expect(pattern?.code).toBe('SANLAM_SA');
+    });
+
     it('should return undefined for unknown bank', () => {
       const pattern = getBankPattern('UNKNOWN_BANK');
 
@@ -131,6 +212,13 @@ describe('Bank Registry', () => {
       expect(Array.isArray(codes)).toBe(true);
       expect(codes.length).toBeGreaterThan(0);
       expect(codes).toContain('FNB_SA');
+      expect(codes).toContain('STANDARD_BANK_SA');
+      expect(codes).toContain('ABSA_SA');
+      expect(codes).toContain('OLD_MUTUAL_SA');
+      expect(codes).toContain('SANLAM_SA');
+      expect(codes).toContain('INVESTMENT_PORTFOLIO_SA');
+      expect(codes).toContain('BIDVEST_BANK_SA');
+      expect(codes).toContain('AFRICAN_BANK_SA');
     });
   });
 

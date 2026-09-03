@@ -20,9 +20,22 @@
     "pipeline:list-clients": "node pipeline/run.mjs --list-clients",
     "pipeline:list-rules": "node pipeline/run.mjs --list-rules",
     "pipeline:add-rule": "node pipeline/run.mjs --add-rule",
-    "pipeline:dry-run": "node pipeline/run.mjs --dry-run"
+    "pipeline:dry-run": "node pipeline/run.mjs --dry-run",
+    "android:sync": "npm run build && npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:build": "npm run build && npx cap sync android && cd android && ./gradlew assembleDebug",
+    "android:bundle": "npm run build && npx cap sync android && cd android && ./gradlew bundleRelease"
   },
   "dependencies": {
+    "@capacitor-mlkit/document-scanner": "^8.1.0",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/camera": "^8.2.3",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/filesystem": "^8.1.3",
+    "@capacitor/share": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "@clerk/react": "^6.12.8",
     "@google/genai": "^1.40.0",
     "@pdfsmaller/pdf-encrypt-lite": "^1.0.1",
@@ -30,6 +43,7 @@
     "@supabase/supabase-js": "^2.98.0",
     "@tauri-apps/api": "^2.10.1",
     "@types/react-router-dom": "^5.3.3",
+    "docx": "^9.7.1",
     "exceljs": "^4.4.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.563.0",
@@ -46,6 +60,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/cli": "^2.10.0",
     "@tauri-apps/plugin-dialog": "^2.6.0",

@@ -62,7 +62,6 @@ const FOOTER_KEYWORDS = [
 /** Extract text geometry through the page viewport instead of raw transforms. */
 export async function extractSpatialAlignment(file: File): Promise<TableAlignmentResult> {
   const bytes = await file.arrayBuffer();
-  // @ts-expect-error PDF.js accepts browser ArrayBuffer data.
   const pdf = await pdfjs.getDocument({ data: bytes }).promise;
   const items: SpatialTextItem[] = [];
   const pageRects = new Map<number, PdfRect>();

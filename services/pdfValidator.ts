@@ -44,7 +44,6 @@ export async function validatePDF(file: File): Promise<PDFValidationResult> {
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({
       data: arrayBuffer,
-      // @ts-expect-error verbosity exists on getDocument params
       verbosity: 0,
     }).promise;
 
@@ -284,7 +283,6 @@ export async function hasCompressionIssues(file: File): Promise<boolean> {
     const pdfjsLib = await import('pdfjs-dist');
     const loadingTask = pdfjsLib.getDocument({
       data: arrayBuffer,
-      // @ts-expect-error verbosity exists on getDocument params
       verbosity: 0,
     });
 

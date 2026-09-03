@@ -16,6 +16,8 @@ const TOOL_PROMPTS: Record<string, string> = {
   'compare': `Compare the two provided documents thoroughly and list all differences, additions, and deletions.`,
   'redact': `Analyze these document pages and identify EVERY SINGLE instance of PII (names, IDs, account numbers, addresses). Return bounding boxes.`,
   'grammar-check': `Perform a comprehensive grammar, spelling, and style check. Return corrected text with explanations.`,
+  'pdf-qa': `You are an expert document assistant. Answer questions with absolute fidelity based solely on the provided document images. Be concise, clear, and cite specific pages or sections.`,
+  'pdf-summary': `Provide a comprehensive, highly structured executive summary of the provided document. Include key takeaways, main topics, critical dates/numbers, and action items.`,
 };
 
 // The server enforces a two-page per-tool daily allocation. Keep a request
@@ -82,17 +84,9 @@ export async function processWithAI(
       '';
     console.error('[AI] Batch processing failed:', firstReason);
 
-    // Bubble up specific compression/blank/502/service errors instead of a misleading generic
-    if (
-      msg.includes('compression') ||
-      msg.includes('blank') ||
-      msg.includes('502') ||
-      msg.includes('temporarily unavailable') ||
-      msg.includes('too large') ||
-      msg.includes('rate limit') ||
-      msg.includes('Sign in required')
-    ) {
-      throw new Error(msg);
+    // Always propagate the actual descriptive error reason to the user
+    if (msg) {
+      throw new Error(`All AI batches failed: ${msg}`);
     }
 
     throw new Error('All AI batches failed. Check network and API keys.');
@@ -114,7 +108,15 @@ async function callGroqAPI(
       type: 'image_url',
       image_url: { url: `data:image/jpeg;base64,${img.base64}` },
     }));
-    content.push({ type: 'text', text: 'Process the images according to the system prompt.' });
+    let promptText = 'Process the images according to the system prompt.';
+    if (toolId === 'pdf-qa' && options?.qaQuestion) {
+      promptText = `User Question: ${options.qaQuestion}\nAnswer based on these document pages.`;
+    } else if (toolId === 'pdf-summary') {
+      const length = options?.summaryLength ? `Summary length: ${options.summaryLength}.` : '';
+      const focus = options?.summaryFocus ? `Focus area: ${options.summaryFocus}.` : '';
+      promptText = `Generate a document summary. ${length} ${focus}`.trim();
+    }
+    content.push({ type: 'text', text: promptText });
 
     const response = await fetch(`${WORKER_BASE_URL}/api/ai`, {
       method: 'POST',

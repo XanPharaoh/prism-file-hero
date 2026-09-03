@@ -28,6 +28,7 @@ function renderProcessingView() {
       tool={tool}
       onBack={() => {}}
       onSelectFiles={() => {}}
+      onFilesSelected={async () => {}}
       onDownloadBlob={async () => {}}
       onRun={() => {}}
       renderToolIcon={() => null}

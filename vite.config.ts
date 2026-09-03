@@ -19,6 +19,27 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
     ],
+    optimizeDeps: {
+      include: [
+        'react',
+        'react-dom',
+        'react-dom/client',
+        'react-router-dom',
+        '@clerk/react',
+        'pdf-lib',
+        'pdfjs-dist',
+        'docx',
+        'xlsx',
+        'exceljs',
+        'jszip',
+        'tesseract.js',
+        'zustand',
+        'lucide-react',
+      ],
+      esbuildOptions: {
+        target: 'esnext',
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

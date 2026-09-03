@@ -31,6 +31,8 @@ export interface CanonicalTransaction {
   source: 'text' | 'ocr' | 'ai';
   confidence: number; // 0-100
   raw: string; // Original raw line for audit trail
+  /** Net transaction amount derived from debit/credit columns. */
+  amount?: number | null;
 }
 
 export interface NormalizationContext {

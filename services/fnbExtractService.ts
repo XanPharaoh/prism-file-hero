@@ -19,7 +19,7 @@ export interface FNBTransaction {
   amount: number | null;
   balance: number | null;
   charges: number | null;
-  direction: 'DEBIT' | 'CREDIT' | 'UNKNOWN';
+  direction: 'DEBIT' | 'CREDIT' | 'FEE' | 'UNKNOWN';
   confidence: number;
   rawText: string;
 }
@@ -242,11 +242,42 @@ export function reconciles(
   return Math.abs(openingBalance + sum - closingBalance) <= tolerance;
 }
 
+const FNB_MONTH_MAP: Record<string, string> = {
+  jan: '01', feb: '02', mar: '03', apr: '04',
+  may: '05', jun: '06', jul: '07', aug: '08',
+  sep: '09', oct: '10', nov: '11', dec: '12',
+};
+
+export function formatFnbDate(
+  rawDate: string,
+  monthYearMap?: Record<string, number>,
+  defaultYear = 2026
+): string {
+  const trimmed = rawDate.trim();
+  const iso = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (iso) {
+    return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  }
+  const ddmmyyyy = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (ddmmyyyy) {
+    return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, '0')}-${ddmmyyyy[1].padStart(2, '0')}`;
+  }
+  const ddMon = trimmed.match(/^(\d{1,2})\s+([A-Za-z]{3})$/);
+  if (ddMon) {
+    const day = ddMon[1].padStart(2, '0');
+    const monKey = ddMon[2].toLowerCase();
+    const monNum = FNB_MONTH_MAP[monKey] || '01';
+    const year = monthYearMap?.[monKey] ?? defaultYear;
+    return `${year}-${monNum}-${day}`;
+  }
+  return trimmed;
+}
+
 export async function extractFNBStatement(
   file: File,
   password?: string,
   maxPages: number = FNB_MAX_PAGES
-): Promise<{ transactions: FNBTransaction[]; metadata: FNBMetadata }> {
+): Promise<{ transactions: FNBTransaction[]; metadata: FNBMetadata; openingBalance: string | null; closingBalance: string | null }> {
   // PDF.js may transfer its input to a worker, so retain no shared File buffer.
   const bytes = new Uint8Array(new Uint8Array(await file.arrayBuffer()));
   const pdf = await pdfjsLib.getDocument({ data: bytes, password }).promise;
@@ -262,6 +293,9 @@ export async function extractFNBStatement(
   // Header-section opening/closing balances (FNB places these ABOVE the data table)
   let headerOpeningBalance: number | null = null;
   let headerClosingBalance: number | null = null;
+  const monthYearMap: Record<string, number> = {};
+  let defaultYear = 2026;
+
   try {
     const page1 = await pdf.getPage(1);
     const content1 = await page1.getTextContent();
@@ -281,6 +315,21 @@ export async function extractFNBStatement(
       const sorted = lineItems.sort((a, b) => a.x - b.x);
       const lineText = sorted.map((i) => i.str).join(' ');
       const lower = lineText.toLowerCase();
+
+      const periodMatch = lineText.match(/statement\s+period\s*:\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\s+to\s+(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/i);
+      if (periodMatch) {
+        const [, , startMon, startYr, , endMon, endYr] = periodMatch;
+        monthYearMap[startMon.toLowerCase().slice(0, 3)] = Number(startYr);
+        monthYearMap[endMon.toLowerCase().slice(0, 3)] = Number(endYr);
+        defaultYear = Number(endYr);
+      } else {
+        const dateMatch = lineText.match(/statement\s+date\s*:\s*\d{1,2}\s+([A-Za-z]+)\s+(\d{4})/i);
+        if (dateMatch) {
+          defaultYear = Number(dateMatch[2]);
+          monthYearMap[dateMatch[1].toLowerCase().slice(0, 3)] = defaultYear;
+        }
+      }
+
       if (lower.includes('opening balance') && headerOpeningBalance === null) {
         for (const item of sorted) {
           const m = item.str.match(/^([\d,]+\.\d{2})\s*(Cr|Dr)?$/i);
@@ -540,41 +589,55 @@ export async function extractFNBStatement(
           } else if (amount !== null && amount < 0) {
             direction = 'DEBIT';
             debit = Math.abs(amount);
-          } else {
-            // Gold / single-Amount layouts often omit Cr/Dr on the amount token.
-            // Resolve from description markers only (never balance-progression guessing).
-            // Credit keywords first so "SALARY PAYMENT" / "Payment From" stay CREDIT.
-            const descLower = description.toLowerCase();
-            if (
-              /\bcr\b/.test(descLower) ||
-              /\bcredit\b/.test(descLower) ||
-              /\bdeposit\b/.test(descLower) ||
-              /\bsalary\b/.test(descLower) ||
-              /\btransfer from\b/.test(descLower) ||
-              /\bpayment from\b/.test(descLower) ||
-              /\bpayshap credit\b/.test(descLower) ||
-              /\breversal\b/.test(descLower)
-            ) {
-              direction = 'CREDIT';
-              credit = amount !== null ? Math.abs(amount) : null;
-              if (amount !== null) amount = Math.abs(amount);
-            } else if (
-              /\bdr\b/.test(descLower) ||
-              /\bdebit\b/.test(descLower) ||
-              /\bpos purchase\b/.test(descLower) ||
-              /\batm\b/.test(descLower) ||
-              /\bmagtape debit\b/.test(descLower) ||
-              /\bsend money\b/.test(descLower) ||
-              /\bpurchase\b/.test(descLower) ||
-              /\bfee\b/.test(descLower) ||
-              /\btransfer to\b/.test(descLower) ||
-              /\bpayment to\b/.test(descLower) ||
-              /\bpayment\b/.test(descLower)
-            ) {
-              direction = 'DEBIT';
-              debit = amount !== null ? Math.abs(amount) : null;
-              if (amount !== null) amount = -Math.abs(amount);
-            }
+          }        
+          // Gold / single-Amount layouts often omit Cr/Dr on the amount token.
+          const descLower = description.toLowerCase();
+          if (
+            /\b(payment to|pmt to|transfer to)\b/.test(descLower)
+          ) {
+            direction = 'DEBIT';
+            debit = amount !== null ? Math.abs(amount) : null;
+            if (amount !== null) amount = -Math.abs(amount);
+          } else if (
+            /\bcr\b/.test(descLower) ||
+            /\bcredit\b/.test(descLower) ||
+            /\bdeposit\b/.test(descLower) ||
+            /\bsalary\b/.test(descLower) ||
+            /\btransfer from\b/.test(descLower) ||
+            /\bpayment from\b/.test(descLower) ||
+            /\bpayshap credit\b/.test(descLower) ||
+            /\breversal\b/.test(descLower) ||
+            /\brefund\b/.test(descLower)
+          ) {
+            direction = 'CREDIT';
+            credit = amount !== null ? Math.abs(amount) : null;
+            if (amount !== null) amount = Math.abs(amount);
+          } else if (
+            /\bdr\b/.test(descLower) ||
+            /\bdebit\b/.test(descLower) ||
+            /\bpos purchase\b/.test(descLower) ||
+            /\batm\b/.test(descLower) ||
+            /\bmagtape debit\b/.test(descLower) ||
+            /\bsend money\b/.test(descLower) ||
+            /\bpurchase\b/.test(descLower) ||
+            /\bfee\b/.test(descLower) ||
+            /\bexpress pmt\b/.test(descLower) ||
+            /\brtc pmt\b/.test(descLower) ||
+            /\binternet pmt\b/.test(descLower) ||
+            /\bprepaid\b/.test(descLower) ||
+            /\bairtime\b/.test(descLower) ||
+            /\bcashback\b/.test(descLower) ||
+            /\belectricity\b/.test(descLower) ||
+            /\bsavings\b/.test(descLower) ||
+            /\bwages\b/.test(descLower) ||
+            /\bsalaries\b/.test(descLower) ||
+            /\bpayshap account off-us\b/.test(descLower) ||
+            /\bbyc debit\b/.test(descLower) ||
+            /\bpayment\b/.test(descLower)
+          ) {
+            direction = 'DEBIT';
+            debit = amount !== null ? Math.abs(amount) : null;
+            if (amount !== null) amount = -Math.abs(amount);
           }
         }
 
@@ -607,6 +670,8 @@ export async function extractFNBStatement(
             amount = -Math.abs(amount);
           }
 
+          const isoDate = formatFnbDate(date, monthYearMap, defaultYear);
+
           const confidence = computeRowConfidence({
             hasDate: Boolean(date),
             hasDescription: Boolean(rowDescription),
@@ -618,7 +683,7 @@ export async function extractFNBStatement(
           });
 
           transactions.push({
-            date,
+            date: isoDate,
             description: rowDescription,
             debit,
             credit,
@@ -647,6 +712,50 @@ export async function extractFNBStatement(
       : transactions.length > 0
         ? transactions[transactions.length - 1].balance
         : null;
+
+  // Multi-pass balance progression direction resolution
+  let runningBal = openingBalance;
+  for (const tx of transactions) {
+    const curBal = tx.balance;
+    const absAmt = Math.abs(tx.amount || (tx.debit ?? tx.credit ?? 0));
+
+    if (runningBal !== null && curBal !== null && absAmt > 0) {
+      const diff = curBal - runningBal;
+      if (Math.abs(diff + absAmt) <= 0.05) {
+        tx.direction = 'DEBIT';
+        tx.amount = -absAmt;
+        tx.debit = absAmt;
+        tx.credit = null;
+      } else if (Math.abs(diff - absAmt) <= 0.05) {
+        tx.direction = 'CREDIT';
+        tx.amount = absAmt;
+        tx.credit = absAmt;
+        tx.debit = null;
+      }
+    }
+
+    if (tx.direction === 'DEBIT') {
+      tx.debit = absAmt > 0 ? absAmt : null;
+      tx.credit = null;
+      tx.amount = -absAmt;
+    } else if (tx.direction === 'CREDIT') {
+      tx.credit = absAmt > 0 ? absAmt : null;
+      tx.debit = null;
+      tx.amount = absAmt;
+    } else if (tx.direction === 'UNKNOWN') {
+      if ((tx.charges !== null && tx.charges > 0) || /fee|adjustment|charge/i.test(tx.description)) {
+        tx.direction = 'FEE';
+        if (absAmt > 0) {
+          tx.debit = absAmt;
+          tx.amount = -absAmt;
+        }
+      }
+    }
+
+    if (curBal !== null) {
+      runningBal = curBal;
+    }
+  }
 
   const doesReconcile =
     openingBalance !== null && closingBalance !== null

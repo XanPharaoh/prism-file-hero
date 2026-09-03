@@ -9,7 +9,7 @@ import { CanonicalTransaction } from '../src/types';
 import { parseDateToISO } from './dateParser';
 import { parseAmount } from './currencyParser';
 
-const DOCLING_SERVICE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_DOCLING_URL) || process.env.VITE_DOCLING_URL || 'https://xanpharaoh-prismfilehero-docling.hf.space';
+const DOCLING_SERVICE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_DOCLING_URL) || (typeof process !== 'undefined' ? process.env?.VITE_DOCLING_URL : '') || 'https://xanpharaoh-prismfilehero-docling.hf.space';
 
 export interface DoclingTable {
   table_index: number;

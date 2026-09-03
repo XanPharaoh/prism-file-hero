@@ -11,7 +11,12 @@ interface Env {
   MISTRAL_API_KEY_1?: string;
   MISTRAL_API_KEY_2?: string;
   MISTRAL_API_KEY_3?: string;
-  ALLOWED_ORIGIN: string;
+  /** Comma-separated explicit CORS origins. */
+  ALLOWED_ORIGINS?: string;
+  /** Comma-separated trusted HTTPS host suffixes for one-label preview subdomains. */
+  ALLOWED_ORIGIN_SUFFIXES?: string;
+  /** Legacy single-origin CORS setting, retained for existing deployments. */
+  ALLOWED_ORIGIN?: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   CLERK_JWKS_URL: string;
@@ -28,18 +33,18 @@ interface Env {
   KV: KVNamespace;
 }
 
-const ALLOWED_ORIGINS = [
-  'https://prismfilehero.com',
-  'https://www.prismfilehero.com',
-  'https://prismfilehero.free.nf',
-  'https://app.prismfilehero.free.nf',
-  'https://prism-file-hero.pages.dev',
-  'http://localhost:5173',
-  'http://localhost:4173',
-  // Tauri's production webview origin. Device tokens are still required for AI.
-  'http://tauri.localhost',
-  'tauri://localhost',
-];
+export function parseAllowedOrigins(value: string | undefined): Set<string> {
+  return new Set((value ?? '').split(',').map((origin) => origin.trim()).filter(Boolean));
+}
+
+export function parseAllowedOriginSuffixes(value: string | undefined): Set<string> {
+  return new Set((value ?? "").split(",").map((suffix) => suffix.trim().toLowerCase()).filter(Boolean));
+}
+
+function allowedOrigins(env: Env): Set<string> {
+  // ALLOWED_ORIGIN remains supported so existing deployed environments do not lose CORS access.
+  return new Set([...parseAllowedOrigins(env.ALLOWED_ORIGINS), ...parseAllowedOrigins(env.ALLOWED_ORIGIN)]);
+}
 
 function getClientIp(request: Request): string {
   // Cloudflare sets this header at the edge; forwarded headers are client-spoofable.
@@ -58,28 +63,20 @@ function securityHeaders(): Record<string, string> {
   };
 }
 
-function isOriginAllowed(origin: string | null): boolean {
-  if (!origin) return false;
-  if (ALLOWED_ORIGINS.includes(origin)) return true;
-  
-  // Allow localhost with any port
-  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return true;
-  if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return true;
-  
-  // Allow local network IP addresses (192.168.x.x, 10.x.x.x, 172.16-31.x.x) with any port
-  if (/^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin)) return true;
-  if (/^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin)) return true;
-  if (/^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin)) return true;
-  
-  // Allow Cloudflare Pages preview deployments
-  if (/^https:\/\/([a-zA-Z0-9-]+\.)?prism-file-hero\.pages\.dev$/.test(origin)) return true;
-  
-  return false;
+export function isOriginAllowed(origin: string | null, origins: ReadonlySet<string>, suffixes: ReadonlySet<string> = new Set()): boolean {
+  if (origin === null || origins.has(origin)) return origin !== null;
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" && !url.port && [...suffixes].some((suffix) => {
+      const prefix = url.hostname.slice(0, -(suffix.length + 1));
+      return url.hostname.endsWith(`.${suffix}`) && Boolean(prefix) && !prefix.includes(".");
+    });
+  } catch { return false; }
 }
 
 /** Strict CORS: only return ACAO header for known origins, block unknown origins for non-OPTIONS */
-function corsHeaders(origin: string | null): { cors: HeadersInit; isAllowed: boolean } {
-  const isAllowed = origin !== null && isOriginAllowed(origin);
+function corsHeaders(origin: string | null, origins: ReadonlySet<string>, suffixes: ReadonlySet<string>): { cors: HeadersInit; isAllowed: boolean } {
+  const isAllowed = isOriginAllowed(origin, origins, suffixes);
   const headers: Record<string, string> = {
     ...securityHeaders(),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -481,7 +478,7 @@ export default {
 
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = request.headers.get('Origin');
-    const { cors, isAllowed } = corsHeaders(origin);
+    const { cors, isAllowed } = corsHeaders(origin, allowedOrigins(env), parseAllowedOriginSuffixes(env.ALLOWED_ORIGIN_SUFFIXES));
 
     try {
       if (request.method === 'OPTIONS') {

@@ -38,17 +38,62 @@ if (!Blob.prototype.arrayBuffer) {
     };
 }
 
-// Mock canvas for pdf rendering tests
-HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
-    drawImage: vi.fn(),
-    getImageData: vi.fn().mockReturnValue({
-        data: new Uint8ClampedArray(4),
-    }),
-    putImageData: vi.fn(),
-    canvas: { toDataURL: vi.fn().mockReturnValue('data:image/png;base64,mock') },
-});
+const TINY_JPEG_B64 = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/Aaf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/Aaf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Aqf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/Iaf/xAAVEQEBAAAAAAAAAAAAAAAAAAAAEf/aAAgBAwEBPxCP/8QAFREBAQAAAAAAAAAAAAAAAAAAABH/2gAIAQIBAT8Qj//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QH//Z';
+const TINY_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLk7wAAAABJRU5ErkJggg==';
 
-HTMLCanvasElement.prototype.toDataURL = vi.fn().mockReturnValue('data:image/jpeg;base64,/9j/mock');
+class DOMMatrixMock {
+  a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+  m11 = 1; m12 = 0; m13 = 0; m14 = 0;
+  m21 = 0; m22 = 1; m23 = 0; m24 = 0;
+  m31 = 0; m32 = 0; m33 = 1; m34 = 0;
+  m41 = 0; m42 = 0; m43 = 0; m44 = 1;
+  is2D = true;
+  isIdentity = true;
+  constructor(init?: any) {
+    if (Array.isArray(init) && init.length >= 6) {
+      this.a = init[0]; this.b = init[1]; this.c = init[2];
+      this.d = init[3]; this.e = init[4]; this.f = init[5];
+    }
+  }
+  invertSelf() { return this; }
+  multiplySelf() { return this; }
+  preMultiplySelf() { return this; }
+  translateSelf() { return this; }
+  scaleSelf() { return this; }
+  rotateSelf() { return this; }
+  transformPoint(p?: any) { return p || { x: 0, y: 0, z: 0, w: 1 }; }
+}
+
+if (typeof (globalThis as any).DOMMatrix === 'undefined') {
+  (globalThis as any).DOMMatrix = DOMMatrixMock;
+}
+
+// Real canvas backing via @napi-rs/canvas for pdf rendering and image generation
+import { createCanvas as createNapiCanvas } from '@napi-rs/canvas';
+
+HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, contextId: string, ...args: any[]) {
+  if (contextId === '2d') {
+    const w = Math.max(1, Math.round(this.width || 300));
+    const h = Math.max(1, Math.round(this.height || 150));
+    if (!(this as any)._napiCanvas || (this as any)._napiCanvas.width !== w || (this as any)._napiCanvas.height !== h) {
+      (this as any)._napiCanvas = createNapiCanvas(w, h);
+    }
+    const ctx = (this as any)._napiCanvas.getContext('2d');
+    (ctx as any).canvas = this;
+    return ctx;
+  }
+  return null as any;
+};
+
+HTMLCanvasElement.prototype.toDataURL = function (this: HTMLCanvasElement, type?: string, quality?: any) {
+  const w = Math.max(1, Math.round(this.width || 300));
+  const h = Math.max(1, Math.round(this.height || 150));
+  const canvas = (this as any)._napiCanvas || createNapiCanvas(w, h);
+  const mimeType = type && (type.includes('jpeg') || type.includes('jpg')) ? 'image/jpeg' : 'image/png';
+  const q = typeof quality === 'number' ? Math.round(quality * 100) : 92;
+  const buf = canvas.toBuffer(mimeType as any, q);
+  return `data:${mimeType};base64,${buf.toString('base64')}`;
+};
 
 // Mock URL.createObjectURL
 URL.createObjectURL = vi.fn().mockReturnValue('blob:mock-url');

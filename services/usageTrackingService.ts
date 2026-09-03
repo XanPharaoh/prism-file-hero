@@ -375,7 +375,7 @@ const GUEST_TASKS_STORAGE_KEY = 'pfh_guest_tasks_count';
 export function getGuestTaskCount(): number {
   try {
     const raw = localStorage.getItem(GUEST_TASKS_STORAGE_KEY);
-    return raw ? parseInt(raw, 10) || 0 : 0;
+    return raw ? Math.max(0, parseInt(raw, 10) || 0) : 0;
   } catch {
     return 0;
   }

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Prism File Hero</string>
+    <string name="title_activity_main">Prism File Hero</string>
+    <string name="package_name">com.prismfilehero.app</string>
+    <string name="custom_url_scheme">com.prismfilehero.app</string>
+</resources>

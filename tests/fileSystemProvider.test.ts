@@ -90,6 +90,22 @@ describe('FileSystemProvider', () => {
 
         createElementSpy.mockRestore();
       });
+
+      it('resolves with no files when the picker is cancelled', async () => {
+        const fileInput = document.createElement('input');
+        const createElement = document.createElement.bind(document);
+        const createElementSpy = vi.spyOn(document, 'createElement');
+        createElementSpy.mockImplementation((tagName: string) => {
+          if (tagName === 'input') return fileInput;
+          return createElement(tagName);
+        });
+
+        const promise = provider.pickFiles('merge' as ToolID, ['application/pdf'], 1);
+        fileInput.dispatchEvent(new Event('cancel'));
+
+        await expect(promise).resolves.toEqual([]);
+        createElementSpy.mockRestore();
+      });
     });
 
     describe('saveBlob', () => {

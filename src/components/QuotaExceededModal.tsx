@@ -3,6 +3,7 @@ import { X, Zap, Cpu, AlertCircle, Sparkles } from './ui/Icon';
 import { LOCAL_GLOBAL_CAP, AI_GLOBAL_CAP, LOCAL_PER_TOOL_LIMIT, AI_PER_TOOL_LIMIT } from '../../services/usageConfig';
 import { useLocalTimezoneFormat } from '../hooks/useLocalTimezoneFormat';
 import type { FeatureType } from '../../services/usageConfig';
+import { useAppStore } from '../store/appStore';
 
 interface QuotaExceededModalProps {
   /** Which quota was hit: 'local' or 'ai' */
@@ -58,80 +59,70 @@ export default function QuotaExceededModal({
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-[32px] shadow-2xl max-w-md w-full p-8 animate-in zoom-in-95 duration-200">
+      <div className="relative bg-white dark:bg-[#111622] border border-slate-200 dark:border-slate-800 rounded-lg shadow-2xl max-w-md w-full p-6 animate-in zoom-in-95 duration-150 space-y-5">
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
+          className="absolute top-4 right-4 p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
-          <X className="w-5 h-5 text-slate-500" />
+          <X className="w-4 h-4" />
         </button>
 
-        {/* Icon */}
-        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 ${
-          isAi
-            ? 'bg-gradient-to-br from-indigo-100 to-purple-100'
-            : 'bg-gradient-to-br from-emerald-100 to-teal-100'
-        }`}>
-          {isAi ? (
-            <Cpu className="w-8 h-8 text-indigo-600" />
-          ) : (
-            <Zap className="w-8 h-8 text-emerald-600" />
-          )}
+        {/* Header & Title */}
+        <div className="text-center space-y-2 pt-2">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-[#fafafa]">
+            {title}
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-[#d4d4d8] leading-relaxed">
+            {description}
+          </p>
         </div>
 
-        {/* Title */}
-        <h2 className="text-2xl font-black text-slate-900 text-center mb-2">
-          {title}
-        </h2>
-
-        {/* Description */}
-        <p className="text-sm text-slate-500 text-center mb-6 leading-relaxed">
-          {description}
-        </p>
-
         {/* Usage bar */}
-        <div className="bg-slate-50 rounded-2xl p-4 mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              {isAi ? 'Premium Pages Today' : 'Free Pages Today'}
+        <div className="bg-slate-50 dark:bg-[#0B0F19] border border-slate-200 dark:border-slate-800 rounded-md p-3.5 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider">
+              {isAi ? 'Daily AI Statement Allowance' : 'Daily Local Operation Allowance'}
             </span>
-            <span className="text-xs font-black text-slate-700">
-              {isToolLimit ? `${usedToday}/${dailyLimit}` : `${globalUsedToday}/${globalCap}`}
+            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+              {isToolLimit ? `${usedToday} / ${dailyLimit}` : `${globalUsedToday} / ${globalCap}`}
             </span>
           </div>
-          <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
+          <div className="h-2 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                isAi ? 'bg-indigo-500' : 'bg-emerald-500'
-              }`}
+              className="h-full rounded-full bg-slate-900 dark:bg-white transition-all duration-300"
               style={{ width: `${isToolLimit
                 ? Math.min(100, (usedToday / dailyLimit) * 100)
                 : Math.min(100, (globalUsedToday / globalCap) * 100)
               }%` }}
             />
           </div>
-          <p className="text-[10px] text-slate-400 font-bold mt-2 text-center">
-            {isToolLimit ? `Attempted: ${requestedPages} page${requestedPages === 1 ? '' : 's'} • ${localTz.formatted}` : localTz.formatted}
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono text-center">
+            Resets at midnight SAST • {localTz.formatted}
           </p>
         </div>
 
-        {/* Contact CTA */}
-        <a
-          href="mailto:support@prismfilehero.com?subject=Prism%20File%20Hero%20%E2%80%93%20Quota%20Increase%20Request"
-          className="w-full prism-gradient text-white font-black py-4 rounded-2xl shadow-xl hover:shadow-2xl transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-        >
-          <Sparkles className="w-5 h-5" />
-          Contact Us for More
-        </a>
+        {/* Upgrade CTA */}
+        <div className="space-y-2 pt-1">
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              useAppStore.getState().setShowUpgradeCTA(true);
+            }}
+            className="w-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 font-bold py-2.5 px-4 rounded-md text-xs transition-colors duration-100 flex items-center justify-center gap-1.5 active:translate-y-px"
+          >
+            <span>Upgrade to Pro for Unlimited Processing</span>
+          </button>
 
-        {/* Dismiss */}
-        <button
-          onClick={onClose}
-          className="w-full mt-3 text-sm font-bold text-slate-400 py-3 hover:text-slate-600 transition-colors"
-        >
-          Maybe Later
-        </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full text-xs font-semibold text-slate-400 dark:text-slate-500 py-1.5 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+          >
+            Continue with Free Plan
+          </button>
+        </div>
       </div>
     </div>
   );
