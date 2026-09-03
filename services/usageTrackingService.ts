@@ -6,6 +6,8 @@ import {
   getNextSastMidnightDate,
   getPerToolLimit,
   getToolDisplayName,
+  LOCAL_GLOBAL_CAP,
+  AI_GLOBAL_CAP,
   type FeatureType,
   type Plan,
 } from './usageConfig';
@@ -36,7 +38,11 @@ export interface UsageSummary {
 export interface UsageReportPayload {
   toolId: string;
   pagesProcessed: number;
-  featureType: FeatureType;
+  featureType?: FeatureType;
+  fileSizeBytes?: number;
+  fileName?: string;
+  status?: 'SUCCESS' | 'ERROR';
+  error?: string;
 }
 
 export interface LimitCheckResult {
@@ -132,15 +138,15 @@ function getEmptySummary(hasToken: boolean): UsageSummary {
   return {
     plan: hasToken ? 'free' : 'anonymous',
     localGlobalUsed: 0,
-    localGlobalCap: 15,
+    localGlobalCap: LOCAL_GLOBAL_CAP,
     aiGlobalUsed: 0,
-    aiGlobalCap: 6,
+    aiGlobalCap: AI_GLOBAL_CAP,
     toolBreakdown: {},
     nextResetUtc: getNextSastMidnightDate().toISOString(),
     aiPagesUsed: 0,
-    aiPagesLimit: 10,
+    aiPagesLimit: PLAN_LIMITS.free.aiPages,
     operationsUsed: 0,
-    operationsLimit: 50,
+    operationsLimit: PLAN_LIMITS.free.operations,
     byTool: {},
     localPagesUsedToday: 0,
     aiPagesUsedToday: 0,
@@ -272,10 +278,12 @@ export async function reportUsage(
         toolId: payloadOrToolId,
         pagesProcessed: typeof pagesProcessedOrSession === 'number' ? pagesProcessedOrSession : 0,
         featureType: getFeatureType(payloadOrToolId),
+        status: 'SUCCESS',
       }
     : {
         ...payloadOrToolId,
         featureType: payloadOrToolId.featureType ?? getFeatureType(payloadOrToolId.toolId),
+        status: payloadOrToolId.status ?? 'SUCCESS',
       };
 
   try {
@@ -362,4 +370,38 @@ export function getUsageCountForUser(_userId?: string): number {
   return 0;
 }
 
-export { getToolDisplayName } from './usageConfig';
+const GUEST_TASKS_STORAGE_KEY = 'pfh_guest_tasks_count';
+
+export function getGuestTaskCount(): number {
+  try {
+    const raw = localStorage.getItem(GUEST_TASKS_STORAGE_KEY);
+    return raw ? parseInt(raw, 10) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function incrementGuestTaskCount(): number {
+  const current = getGuestTaskCount();
+  const next = current + 1;
+  try {
+    localStorage.setItem(GUEST_TASKS_STORAGE_KEY, next.toString());
+  } catch {
+    // ignore storage error
+  }
+  return next;
+}
+
+export function canGuestPerformTask(): boolean {
+  return getGuestTaskCount() < 1;
+}
+
+export function resetGuestTaskCount(): void {
+  try {
+    localStorage.removeItem(GUEST_TASKS_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export { getToolDisplayName, isProTool } from './usageConfig';

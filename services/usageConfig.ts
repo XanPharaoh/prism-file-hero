@@ -12,10 +12,10 @@ export interface ToolCost {
   displayName: string;
 }
 
-export const LOCAL_PER_TOOL_LIMIT = 5;
-export const LOCAL_GLOBAL_CAP = 15;
-export const AI_PER_TOOL_LIMIT = 2;
-export const AI_GLOBAL_CAP = 6;
+export const LOCAL_PER_TOOL_LIMIT = 3;
+export const LOCAL_GLOBAL_CAP = 3;
+export const AI_PER_TOOL_LIMIT = 0; // AI tools locked on free tier
+export const AI_GLOBAL_CAP = 0;
 export const SAST_OFFSET_HOURS = 2;
 
 export const TOOL_COSTS: Record<string, ToolCost> = {
@@ -27,17 +27,41 @@ export const TOOL_COSTS: Record<string, ToolCost> = {
   'watermark':     { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Watermark' },
   'jpg-to-pdf':    { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'JPG to PDF' },
   'pdf-to-jpg':    { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'PDF to JPG' },
-  'pdf-to-excel':  { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'PDF to Excel' },
+  // Local extraction is attempted first, but scan/compression recovery sends pages
+  // to the AI worker. Keep its entitlement aligned with that reachable AI path.
+  'pdf-to-excel':  { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'PDF to Excel' },
   'ocr':           { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'OCR to Searchable PDF' },
   'ocr-to-md':     { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'OCR to Markdown' },
   'pdf-to-word':   { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'PDF to Word' },
   'redact':        { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'Redact PDF' },
   'compare':       { aiPagesPerPage: 0, aiPagesFlat: 2, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'Compare PDF' },
   'grammar-check': { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'Grammar Check' },
+  'delete-pages':  { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Delete Pages' },
+  'extract-pages': { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Extract Pages' },
+  'page-numbers':  { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Add Page Numbers' },
+  'unlock-pdf':    { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Unlock PDF' },
+  'pdf-to-text':   { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'PDF to Text' },
+  'pdf-repair':    { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Repair PDF' },
+  'reorder-pages': { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Reorder Pages' },
+  'header-footer': { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Header & Footer' },
+  'crop-resize':   { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Crop & Resize' },
+  'metadata-edit': { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Edit Metadata' },
+  'remove-blank-pages': { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Remove Blank Pages' },
+  'flatten-pdf':   { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Flatten PDF' },
+  'pdf-to-docx':   { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'PDF to Word DOCX' },
+  'pdf-qa':        { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'PDF Q&A Assistant' },
+  'pdf-summary':   { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'PDF Summary' },
+  'sanitize':      { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Sanitize PDF' },
+  'extract-images':{ aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Extract Images' },
+  'n-up':          { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Multi-Page Layout (N-Up)' },
+  'scan-effect':   { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Scanner / Paper Look' },
+  'invert-colors': { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Invert Colors' },
+  'auto-rotate':   { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Auto-Rotate Pages' },
+  'stamp':         { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Add Stamp Badge' },
 };
 
 export const PLAN_LIMITS: Record<Plan, { aiPages: number; operations: number; maxFileSizeMB: number; maxPagesPerFile: number; }> = {
-  free:     { aiPages: 10,    operations: 50,    maxFileSizeMB: 10,  maxPagesPerFile: 20 },
+  free:     { aiPages: 0,     operations: 3,     maxFileSizeMB: 25,  maxPagesPerFile: 30 },
   pro:      { aiPages: 500,   operations: -1,    maxFileSizeMB: 50,  maxPagesPerFile: 100 },
   business: { aiPages: -1,    operations: -1,    maxFileSizeMB: 100, maxPagesPerFile: 500 },
 };
@@ -72,6 +96,11 @@ export function getCurrentMonthKey(date: Date = new Date()): string {
 
 export function isAiTool(toolId: string): boolean { return TOOL_COSTS[toolId]?.category === 'ai'; }
 export function isFreeTool(toolId: string): boolean { return TOOL_COSTS[toolId]?.category === 'free'; }
+export function isProTool(toolId: string): boolean {
+  const cost = TOOL_COSTS[toolId];
+  if (!cost) return false;
+  return cost.category === 'ai' || cost.featureType === 'ai';
+}
 export function getToolPagesCost(toolId: string, pageCount: number = 1): number {
   const cost = TOOL_COSTS[toolId];
   if (!cost) return 0;
