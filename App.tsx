@@ -6,6 +6,7 @@ import {
   Layers, Search, X, Menu, History, UploadCloud, Icon,
   CheckCircle, XCircle, AlertTriangle, Info,
 } from './src/components/ui/Icon';
+import { Sun, Moon } from 'lucide-react';
 import { BrandHeader } from './src/components/ui/Brand';
 import { ProcessStatus, type ToolID } from './src/types';
 import { getToolById } from './src/registry/toolRegistry';
@@ -18,6 +19,7 @@ import HistoryDashboard from './src/components/HistoryDashboard';
 import AuthModal from './src/components/AuthModal';
 import AccountPanel from './src/components/AccountPanel';
 import QuotaExceededModal from './src/components/QuotaExceededModal';
+import UpgradeModal from './src/components/UpgradeModal';
 import { checkExecutionAuthorization } from './services/edgeEnforcement';
 import { saveExtractionHistory } from './services/historyService';
 import { setClerkInstance, setClerkUserId } from './services/authService';
@@ -26,6 +28,7 @@ import { checkLimit, reportUsage, getUsageSummary, getToolButtonLabel, type Usag
 import { isFreeTool, getFeatureType } from './services/usageConfig';
 import UsageBadge from './src/components/UsageBadge';
 import ToolDashboard from './src/components/views/ToolDashboard';
+import HeaderMegaMenu from './src/components/navigation/HeaderMegaMenu';
 import ProcessingView from './src/components/views/ProcessingView';
 import { ToolLandingView } from './src/components/views/ToolLandingView';
 import { analytics } from './src/services/analyticsService';
@@ -33,6 +36,8 @@ import { isInternalDesktopDistribution } from './src/config/distribution';
 import BugReportForm from './src/components/BugReportForm';
 import PublicAdNotice from './src/components/PublicAdNotice';
 import InternalActivationGate from './src/components/InternalActivationGate';
+import { initializeMobilePlatform, registerHardwareBackButton } from './services/nativeBridge';
+import { MobileBottomNav } from './src/components/mobile/MobileBottomNav';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const fsProvider = isTauriEnvironment() ? new TauriFileSystemProvider() : new WebFileSystemProvider();
@@ -98,7 +103,7 @@ type PublicAuth = { isLoaded: boolean; isSignedIn: boolean | undefined; clerkUse
 
 const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> = ({ auth, internalDesktop }) => {
   const s = useAppStore();
-  const isLoaded = internalDesktop || Boolean(auth?.isLoaded);
+  const isLoaded = internalDesktop || auth === null || Boolean(auth?.isLoaded);
   const isSignedIn = auth?.isSignedIn;
   const clerkUser = auth?.clerkUser;
   const clerk = auth?.clerk;
@@ -148,26 +153,87 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
     })();
   }, [s.user, internalDesktop]);
 
+  // Mobile platform initialization & hardware back button handling
+  useEffect(() => {
+    void initializeMobilePlatform();
+
+    const cleanup = registerHardwareBackButton(() => {
+      if (s.showAuthModal) {
+        s.setShowAuthModal(false);
+        return true;
+      }
+      if (s.showHistory) {
+        s.setShowHistory(false);
+        return true;
+      }
+      if (s.isMobileMenuOpen) {
+        s.setIsMobileMenuOpen(false);
+        return true;
+      }
+      if (s.showQuotaModal) {
+        s.setShowQuotaModal(false);
+        s.setQuotaModalInfo(null);
+        return true;
+      }
+      if (s.showUpgradeCTA) {
+        s.setShowUpgradeCTA(false);
+        return true;
+      }
+      if (s.selectedTool) {
+        if (s.isProcessing) {
+          s.addToast({ type: 'info', message: 'Processing is still running. Please wait for it to finish.' });
+          return true;
+        }
+        s.setSelectedTool(null);
+        s.clearBatch();
+        s.setTotalSelectedPages(0);
+        return true;
+      }
+      return false;
+    });
+
+    return cleanup;
+  }, [s.showAuthModal, s.showHistory, s.isMobileMenuOpen, s.showQuotaModal, s.showUpgradeCTA, s.selectedTool, s.isProcessing]);
+
   const [progress, setProgress] = useState(0);
 
-  const handleSelectFiles = useCallback(async () => {
+  const addFilesForSelectedTool = useCallback(async (files: File[]) => {
     if (!s.selectedTool) return;
     const tool = getToolById(s.selectedTool);
     if (!tool) return;
-    const files = await fsProvider.pickFiles(s.selectedTool, tool.allowedFileTypes, tool.maxFiles);
     if (!files.length) return;
-    const valid = files.filter(f => f.size <= MAX_FILE_SIZE);
-    if (valid.length !== files.length) s.addToast({ type: 'warning', message: 'Some files exceed 50MB limit.' });
+
+    const allowed = files.filter((file) => tool.allowedFileTypes.includes(file.type));
+    if (allowed.length !== files.length) {
+      s.addToast({ type: 'warning', message: `Some files are not supported by ${tool.name}.` });
+    }
+    const sized = allowed.filter((file) => file.size <= MAX_FILE_SIZE);
+    if (sized.length !== allowed.length) s.addToast({ type: 'warning', message: 'Some files exceed the 50MB limit.' });
+
+    const remainingSlots = tool.maxFiles > 0 ? Math.max(0, tool.maxFiles - s.batch.length) : Infinity;
+    const valid = sized.slice(0, remainingSlots);
+    if (valid.length !== sized.length) {
+      s.addToast({ type: 'warning', message: `${tool.name} accepts a maximum of ${tool.maxFiles} file${tool.maxFiles === 1 ? '' : 's'}.` });
+    }
+    if (!valid.length) return;
 
     const totalSize = valid.reduce((sum, f) => sum + f.size, 0);
     analytics.trackFilesAdded(s.selectedTool, valid.length, totalSize);
 
     // Count total pages for quota enforcement
     const totalPages = await countTotalPages(valid);
-    s.setTotalSelectedPages(totalPages);
+    s.setTotalSelectedPages(s.totalSelectedPages + totalPages);
 
     s.addFiles(valid);
-  }, [s.selectedTool]);
+  }, [s.selectedTool, s.batch.length, s.totalSelectedPages]);
+
+  const handleSelectFiles = useCallback(async () => {
+    if (!s.selectedTool) return;
+    const tool = getToolById(s.selectedTool);
+    if (!tool) return;
+    const files = await fsProvider.pickFiles(s.selectedTool, tool.allowedFileTypes, tool.maxFiles);
+    await addFilesForSelectedTool(files);
+  }, [s.selectedTool, addFilesForSelectedTool]);
 
   const downloadBlob = useCallback(async (blob: Blob, name: string) => {
     await fsProvider.saveBlob(blob, name);
@@ -203,6 +269,10 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
 
     // ── PRE-FLIGHT: Auth check ─────────────────────────────────
     if (!internalDesktop && !isFreeTool(s.selectedTool) && !s.user) {
+      s.addToast({
+        type: 'info',
+        message: 'Please sign in to use AI-powered document tools (includes free daily pages).',
+      });
       s.setShowAuthModal(true);
       return;
     }
@@ -379,6 +449,22 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
     s.setTotalSelectedPages(0);
   }, []);
 
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const selectToolAndHideModals = useCallback((toolId: string) => {
     s.setSelectedTool(toolId as ToolID);
     s.setShowHistory(false);
@@ -401,8 +487,9 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-50 font-sans">
+    <div className="min-h-screen flex bg-slate-50 dark:bg-[#0B0F19] text-slate-900 dark:text-slate-100 font-sans transition-colors duration-150">
       {!internalDesktop && s.showAuthModal && <AuthModal onClose={() => s.setShowAuthModal(false)} />}
+      {!internalDesktop && s.showUpgradeCTA && <UpgradeModal onClose={() => s.setShowUpgradeCTA(false)} />}
       {!internalDesktop && s.showQuotaModal && s.quotaModalInfo && (
         <QuotaExceededModal
           featureType={s.quotaModalInfo.featureType}
@@ -418,71 +505,168 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
       )}
       {s.isMobileMenuOpen && (
         <div className="fixed inset-0 z-[100] lg:hidden">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => s.setIsMobileMenuOpen(false)} />
-          <div className="absolute left-0 top-0 bottom-0 w-80 bg-white p-8 shadow-2xl">
-            <button onClick={() => s.setIsMobileMenuOpen(false)} className="absolute right-6 top-8 p-2 rounded-xl bg-slate-100"><X className="w-5 h-5" /></button>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => s.setIsMobileMenuOpen(false)} />
+          <div className="absolute left-0 top-0 bottom-0 w-80 bg-white dark:bg-[#0B0F19] p-6 shadow-2xl border-r border-slate-200 dark:border-slate-800 overflow-y-auto">
+            <button onClick={() => s.setIsMobileMenuOpen(false)} aria-label="Close navigation menu" className="absolute right-5 top-7 p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-slate-700"><X className="w-5 h-5" /></button>
             <SidebarContent />
           </div>
         </div>
       )}
-      <nav className="w-72 bg-white border-r border-slate-200 hidden lg:flex flex-col p-8 shadow-sm z-10 sticky top-0 h-screen">
-        <SidebarContent />
-      </nav>
-      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        <header className="h-20 lg:h-24 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-6 lg:px-10 sticky top-0 z-20">
-          <div className="flex items-center gap-4 lg:hidden">
-            <button onClick={() => s.setIsMobileMenuOpen(true)} className="p-3 bg-slate-100 rounded-2xl"><Menu className="w-5 h-5" /></button>
-            <BrandHeader />
-          </div>
-          <div className="flex-1 max-w-2xl relative group hidden sm:block">
-            <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500" />
-            <input type="text" placeholder="Search..." className="w-full bg-slate-100/50 border border-slate-200/50 rounded-2xl py-3 pl-14 pr-6 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:bg-white focus:border-indigo-200" value={s.searchQuery} onChange={e => s.setSearchQuery(e.target.value)} />
-          </div>
-          <div className="flex items-center gap-4 lg:gap-6">
-            {!internalDesktop && s.user && (
-              <button onClick={() => { s.setShowHistory(true); s.setSelectedTool(null); }}
-                className={`w-10 h-10 lg:w-12 lg:h-12 rounded-xl lg:rounded-2xl border flex items-center justify-center ${s.showHistory ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-indigo-50 border-indigo-100 text-indigo-500'}`}>
-                <History className="w-5 h-5 lg:w-6 lg:h-6" />
+
+      {/* ── STITCH FULL-WIDTH TOP-NAVBAR SAAS ARCHITECTURE ── */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen bg-slate-50/50 dark:bg-[#0B0F19]">
+        {/* Skip to main content accessibility link */}
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[250] focus:px-4 focus:py-2 focus:bg-indigo-600 focus:text-white focus:rounded-lg focus:shadow-lg focus:text-xs focus:font-bold focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+          Skip to main content
+        </a>
+
+        <header className="sticky top-0 z-40 w-full bg-white/90 dark:bg-[#0B0F19]/90 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800 shadow-xs">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            {/* Left: Brand Logo */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => s.setIsMobileMenuOpen(true)}
+                aria-label="Open navigation menu"
+                className="p-2 lg:hidden bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+              >
+                <Menu className="w-5 h-5" />
               </button>
-            )}
-            {internalDesktop ? (
-              <span className="text-xs font-bold text-slate-500">Pro [Prism Selected]</span>
-            ) : s.user ? (
-              <div className="flex items-center gap-4">
-                <UsageBadge user={s.user} compact={true} />
-                <div className="w-48">
-                  <AccountPanel user={s.user} onSignOut={() => { s.setUser(null); setClerkUserId(null); }} />
+              <button
+                type="button"
+                onClick={() => { s.setSelectedTool(null); s.setShowHistory(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="flex items-center gap-2 text-left focus:outline-none"
+              >
+                <BrandHeader />
+              </button>
+            </div>
+
+            {/* Center: Top Navigation Mega Menu (hidden on mobile, visible md+) */}
+            <div className="hidden md:flex items-center">
+              <HeaderMegaMenu
+                onSelectTool={(toolId) => {
+                  s.setSelectedTool(toolId as ToolID);
+                  s.setShowHistory(false);
+                }}
+                onNavigatePricing={() => {
+                  if (ct || s.showHistory) {
+                    s.setSelectedTool(null);
+                    s.setShowHistory(false);
+                    setTimeout(() => {
+                      document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
+                    }, 50);
+                  } else {
+                    document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }}
+                onNavigateBankStatement={() => {
+                  s.setSelectedTool('pdf-to-excel');
+                  s.setShowHistory(false);
+                }}
+              />
+            </div>
+
+            {/* Right: Actions & User */}
+            <div className="flex items-center gap-3">
+              {/* Theme Toggle Button */}
+              <button
+                onClick={s.toggleDarkMode}
+                aria-label={s.isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                title={s.isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors"
+              >
+                {s.isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
+              </button>
+
+              {!internalDesktop && s.user && (
+                <button
+                  onClick={() => { s.setShowHistory(true); s.setSelectedTool(null); }}
+                  aria-label="View processing history"
+                  title="History"
+                  className={`p-2 rounded-xl border flex items-center justify-center transition-colors ${
+                    s.showHistory
+                      ? 'bg-indigo-600 border-indigo-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  <History className="w-4 h-4" />
+                </button>
+              )}
+
+              {internalDesktop ? (
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Pro</span>
+              ) : s.user ? (
+                <div className="flex items-center gap-3">
+                  {!s.isPremium && (
+                    <button
+                      onClick={() => s.setShowUpgradeCTA(true)}
+                      className="hidden sm:inline-block px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      Upgrade
+                    </button>
+                  )}
+                  <UsageBadge user={s.user} compact={true} />
+                  <div className="w-40">
+                    <AccountPanel user={s.user} onSignOut={() => { s.setUser(null); setClerkUserId(null); }} />
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <button onClick={() => { s.setShowAuthModal(true); analytics.trackUpgradeClicked('header'); }} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700">Sign In</button>
-            )}
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { s.setAuthModal(true, 'sign-in'); analytics.trackUpgradeClicked('header'); }}
+                    className="px-3.5 py-1.5 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-xs font-semibold rounded-lg transition-colors"
+                  >
+                    Log In
+                  </button>
+                  <button
+                    onClick={() => { s.setAuthModal(true, 'sign-up'); analytics.trackUpgradeClicked('header'); }}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs active:scale-[0.99] transition-all"
+                  >
+                    Sign Up Free
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
-        <div className="flex-1 overflow-y-auto p-6 lg:p-14">
+
+        {/* Main Content Area */}
+        <main id="main-content" className="flex-1 w-full">
           {!internalDesktop && s.showHistory && s.user ? (
-            <div className="max-w-7xl mx-auto pb-20">
+            <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6">
               <HistoryDashboard onBack={() => s.setShowHistory(false)} />
             </div>
           ) : ct ? (
-            <ProcessingView
-              tool={ct}
-              onBack={goBack}
-              onSelectFiles={handleSelectFiles}
-              onDownloadBlob={downloadBlob}
-              onRun={runHero}
-              renderToolIcon={renderToolIcon}
-              progress={progress}
-            />
+            <div className="max-w-5xl mx-auto py-8 px-4 sm:px-6">
+              <ProcessingView
+                tool={ct}
+                onBack={goBack}
+                onSelectFiles={handleSelectFiles}
+                onFilesSelected={addFilesForSelectedTool}
+                onDownloadBlob={downloadBlob}
+                onRun={runHero}
+                renderToolIcon={renderToolIcon}
+                progress={progress}
+              />
+            </div>
           ) : (
-            <>
-              <ToolDashboard onSelectTool={selectToolAndHideModals} />
-              {internalDesktop ? <BugReportForm /> : <PublicAdNotice isPremium={s.isPremium} />}
-            </>
+            <div className="w-full">
+              <ToolDashboard
+                onSelectTool={selectToolAndHideModals}
+                onSelectFilesAndTool={async (toolId: string, files: File[]) => {
+                  s.setSelectedTool(toolId as ToolID);
+                  s.setShowHistory(false);
+                  s.setShowAuthModal(false);
+                  s.setIsMobileMenuOpen(false);
+                  await addFilesForSelectedTool(files);
+                }}
+              />
+              {internalDesktop ? <BugReportForm /> : null}
+            </div>
           )}
-        </div>
-      </main>
-      <div className="fixed bottom-6 right-6 z-[200] flex flex-col gap-3 max-w-sm">
+        </main>
+        <MobileBottomNav />
+      </div>
+      <div role="region" aria-live="polite" aria-label="Notifications" className="fixed bottom-6 right-6 z-[200] flex flex-col gap-3 max-w-sm">
         {s.toasts.map(t => {
           const iconMap = {
             success: <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />,
@@ -491,24 +675,25 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
             info: <Info className="w-4 h-4 text-blue-500 flex-shrink-0" />,
           };
           const styleMap = {
-            success: 'bg-emerald-50 border-emerald-200',
-            error: 'bg-red-50 border-red-200',
-            warning: 'bg-amber-50 border-amber-200',
-            info: 'bg-blue-50 border-blue-200',
+            success: 'bg-emerald-50 border-emerald-200 text-emerald-950',
+            error: 'bg-red-50 border-red-200 text-red-950',
+            warning: 'bg-amber-50 border-amber-200 text-amber-950',
+            info: 'bg-blue-50 border-blue-200 text-blue-950',
           };
           return (
-            <div key={t.id} className={`flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl border animate-toast-in ${styleMap[t.type] || styleMap.info}`}>
+            <div key={t.id} className={`flex items-center gap-3 px-4 py-3 rounded-md shadow-lg border animate-toast-in ${styleMap[t.type] || styleMap.info}`}>
               {iconMap[t.type] || iconMap.info}
-              <div className="flex-1"><p className="text-xs font-black">{t.message}</p></div>
-              <button onClick={() => s.removeToast(t.id)}><X className="w-3 h-3" /></button>
+              <div className="flex-1"><p className="text-xs font-semibold">{t.message}</p></div>
+              <button onClick={() => s.removeToast(t.id)} aria-label="Dismiss notification"><X className="w-3.5 h-3.5" /></button>
             </div>
           );
         })}
       </div>
       {s.isDragging && (
-        <div className="fixed inset-0 z-50 bg-indigo-600/10 backdrop-blur-sm border-4 border-dashed border-indigo-500 m-4 rounded-[32px] flex items-center justify-center"
+        <div className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-black/70 border-2 border-dashed border-slate-700 dark:border-slate-300 m-4 rounded-lg flex flex-col items-center justify-center space-y-3"
           onDragOver={e => e.preventDefault()} onDragLeave={() => s.setIsDragging(false)} onDrop={e => { e.preventDefault(); s.setIsDragging(false); }}>
-          <UploadCloud className="w-20 h-20 text-indigo-600 animate-bounce" />
+          <UploadCloud className="w-12 h-12 text-white" />
+          <p className="text-sm font-bold text-white tracking-wide">Drop files to process locally</p>
         </div>
       )}
     </div>
@@ -516,9 +701,33 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
 };
 
 const PublicAppShell: React.FC = () => {
-  const { isSignedIn, user: clerkUser } = useUser();
-  const { isLoaded } = useAuth();
-  const clerk = useClerk();
+  const [timedOut, setTimedOut] = React.useState(false);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setTimedOut(true);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, []);
+
+  let isSignedIn = false;
+  let clerkUser = null;
+  let clerk: any = null;
+  let clerkLoaded = false;
+
+  try {
+    const userHook = useUser();
+    const authHook = useAuth();
+    clerk = useClerk();
+    isSignedIn = Boolean(userHook?.isSignedIn);
+    clerkUser = userHook?.user ?? null;
+    clerkLoaded = Boolean(authHook?.isLoaded);
+  } catch {
+    clerkLoaded = true;
+  }
+
+  const isLoaded = clerkLoaded || timedOut;
+
   return <AppShell auth={{ isLoaded, isSignedIn, clerkUser, clerk }} internalDesktop={false} />;
 };
 
