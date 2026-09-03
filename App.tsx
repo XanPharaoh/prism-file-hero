@@ -738,6 +738,16 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/" element={<Navigate to="/app" replace />} />
           <Route path="/app" element={isInternalDesktopDistribution ? <InternalActivationGate><AppShell auth={null} internalDesktop /></InternalActivationGate> : <PublicAppShell />} />
+          <Route path="/merge-pdf" element={<ToolLandingView defaultTool="merge" />} />
+          <Route path="/split-pdf" element={<ToolLandingView defaultTool="split" />} />
+          <Route path="/compress-pdf" element={<ToolLandingView defaultTool="compress" />} />
+          <Route path="/pdf-to-word" element={<ToolLandingView defaultTool="pdf-to-word" />} />
+          <Route path="/pdf-to-excel" element={<ToolLandingView defaultTool="pdf-to-excel" />} />
+          <Route path="/bank-statement-to-excel" element={<ToolLandingView defaultTool="pdf-to-excel" isBankStatement />} />
+          <Route path="/jpg-to-pdf" element={<ToolLandingView defaultTool="jpg-to-pdf" />} />
+          <Route path="/pdf-to-jpg" element={<ToolLandingView defaultTool="pdf-to-jpg" />} />
+          <Route path="/redact-pdf" element={<ToolLandingView defaultTool="redact" />} />
+          <Route path="/ocr-pdf" element={<ToolLandingView defaultTool="ocr" />} />
           <Route path="/tools/:toolId" element={<ToolLandingView />} />
         </Routes>
       </BrowserRouter>
