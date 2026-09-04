@@ -66,8 +66,8 @@ const ALL_TOP_TOOLS: RelatedToolItem[] = [
   { slug: 'pdf-to-excel', id: 'pdf-to-excel', name: 'PDF to Excel', desc: 'Extract data tables into spreadsheets', icon: Table, badgeColor: 'bg-[#10B981] text-white' },
   { slug: 'jpg-to-pdf', id: 'jpg-to-pdf', name: 'JPG to PDF', desc: 'Convert image files to PDF', icon: FileType2, badgeColor: 'bg-amber-500 text-white' },
   { slug: 'pdf-to-jpg', id: 'pdf-to-jpg', name: 'PDF to JPG', desc: 'Extract PDF pages as high-res images', icon: FileType2, badgeColor: 'bg-orange-500 text-white' },
-  { slug: 'redact-pdf', id: 'redact', name: 'Redact PDF', desc: 'Permanently remove sensitive confidential data', icon: ShieldCheck, badgeColor: 'bg-[#E667E6] text-white' },
-  { slug: 'ocr-pdf', id: 'ocr', name: 'OCR PDF', desc: 'Make scanned documents selectable and searchable', icon: FileText, badgeColor: 'bg-indigo-500 text-white' },
+  { slug: 'redact-pdf', id: 'redact', name: 'Redact PDF', desc: 'Permanently remove sensitive confidential data', icon: ShieldCheck, badgeColor: 'bg-[#E667E6] text-white', isPro: true },
+  { slug: 'ocr-pdf', id: 'ocr', name: 'OCR PDF', desc: 'Make scanned documents selectable and searchable', icon: FileText, badgeColor: 'bg-indigo-500 text-white', isPro: true },
 ];
 
 export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {

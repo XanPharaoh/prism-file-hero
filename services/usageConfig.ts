@@ -97,6 +97,7 @@ export function getCurrentMonthKey(date: Date = new Date()): string {
 export function isAiTool(toolId: string): boolean { return TOOL_COSTS[toolId]?.category === 'ai'; }
 export function isFreeTool(toolId: string): boolean { return TOOL_COSTS[toolId]?.category === 'free'; }
 export function isProTool(toolId: string): boolean {
+  if (toolId === 'protect' || toolId === 'unlock-pdf') return true;
   const cost = TOOL_COSTS[toolId];
   if (!cost) return false;
   return cost.category === 'ai' || cost.featureType === 'ai';

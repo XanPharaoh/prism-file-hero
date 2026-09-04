@@ -72,10 +72,10 @@ const TOOL_COLUMNS: MegaMenuCategory[] = [
     icon: Shield,
     tools: [
       { id: 'compress', name: 'Compress PDF', desc: 'Reduce file size cleanly', icon: Zap, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60' },
-      { id: 'redact', name: 'Redact PDF', desc: 'Permanently remove sensitive info', icon: Eraser, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/60' },
-      { id: 'protect', name: 'Protect PDF', desc: 'Add password encryption', icon: Lock, color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/60' },
-      { id: 'unlock-pdf', name: 'Unlock PDF', desc: 'Remove password restrictions', icon: KeyRound, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950/60' },
-      { id: 'ocr', name: 'OCR Searchable PDF', desc: 'Make scanned text selectable', icon: Sparkles, color: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60' },
+      { id: 'redact', name: 'Redact PDF', desc: 'Permanently remove sensitive info', icon: Eraser, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/60', isPro: true },
+      { id: 'protect', name: 'Protect PDF', desc: 'Add password encryption', icon: Lock, color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/60', isPro: true },
+      { id: 'unlock-pdf', name: 'Unlock PDF', desc: 'Remove password restrictions', icon: KeyRound, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950/60', isPro: true },
+      { id: 'ocr', name: 'OCR Searchable PDF', desc: 'Make scanned text selectable', icon: Sparkles, color: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60', isPro: true },
     ],
   },
   {

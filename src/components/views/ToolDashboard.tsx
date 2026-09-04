@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
 import { getToolsByCategory } from '../../registry/toolRegistry';
-import { isAiTool } from '../../../services/usageConfig';
+import { isAiTool, isProTool } from '../../../services/usageConfig';
 import type { ToolHandler, ToolCategory, ToolID } from '../../types';
 import PopularToolsGrid from '../home/PopularToolsGrid';
 import FeatureShowcase from '../home/FeatureShowcase';
@@ -485,6 +485,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     {categoryTools.map((tool: ToolHandler) => {
                       const isAi = isAiTool(tool.id);
+                      const isPro = isProTool(tool.id);
 
                       return (
                         <button
@@ -503,11 +504,15 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                                   {tool.category}
                                 </span>
                               </div>
-                              {isAi && (
+                              {isPro ? (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200/80 dark:border-indigo-900">
+                                  {isAi ? 'Pro • AI' : 'Pro'}
+                                </span>
+                              ) : isAi ? (
                                 <span className="px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-900">
                                   AI Assisted
                                 </span>
-                              )}
+                              ) : null}
                             </div>
 
                             <span className="block text-xs font-bold text-slate-900 dark:text-[#fafafa] group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
@@ -519,7 +524,11 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                           </div>
 
                           <div className="mt-3 flex items-center justify-between border-t border-slate-100 dark:border-slate-800/80 pt-2 text-[10px] text-slate-400">
-                            <span className="font-mono">Client-side</span>
+                            {isPro ? (
+                              <span className="font-mono text-indigo-600 dark:text-indigo-400 font-semibold">Pro Feature</span>
+                            ) : (
+                              <span className="font-mono">Client-side</span>
+                            )}
                             <span className="font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5">
                               <span>Open</span>
                               <ArrowUpRight className="w-3 h-3" />

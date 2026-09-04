@@ -37,6 +37,9 @@ describe('Tool Tier Classification', () => {
   it('provides isProTool helper identifying pro and ai tools', () => {
     expect(isProTool('pdf-to-excel')).toBe(true);
     expect(isProTool('ocr')).toBe(true);
+    expect(isProTool('redact')).toBe(true);
+    expect(isProTool('protect')).toBe(true);
+    expect(isProTool('unlock-pdf')).toBe(true);
     expect(isProTool('merge')).toBe(false);
   });
 });
