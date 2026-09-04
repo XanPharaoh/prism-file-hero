@@ -22,6 +22,7 @@ import type { ToolID } from '../../types';
 import { SEOHelmet } from '../seo/SEOHelmet';
 import { useAppStore } from '../../store/appStore';
 import { BrandHeader } from '../ui/Brand';
+import { Icon } from '../ui/Icon';
 
 export interface ToolLandingViewProps {
   defaultTool?: ToolID | string;
@@ -52,20 +53,21 @@ interface RelatedToolItem {
   name: string;
   desc: string;
   icon: React.ComponentType<{ className?: string }>;
+  badgeColor: string;
   isPro?: boolean;
 }
 
 const ALL_TOP_TOOLS: RelatedToolItem[] = [
-  { slug: 'bank-statement-to-excel', id: 'pdf-to-excel', name: 'Bank Statement to Excel', desc: 'Reconciled SA & global statements', icon: FileSpreadsheet, isPro: true },
-  { slug: 'merge-pdf', id: 'merge', name: 'Merge PDF', desc: 'Combine multiple PDFs into one unified file', icon: Layers },
-  { slug: 'split-pdf', id: 'split', name: 'Split PDF', desc: 'Separate or extract PDF pages cleanly', icon: Scissors },
-  { slug: 'compress-pdf', id: 'compress', name: 'Compress PDF', desc: 'Reduce file size without quality loss', icon: Zap },
-  { slug: 'pdf-to-word', id: 'pdf-to-word', name: 'PDF to Word', desc: 'Convert PDFs to editable documents', icon: FileType2 },
-  { slug: 'pdf-to-excel', id: 'pdf-to-excel', name: 'PDF to Excel', desc: 'Extract data tables into spreadsheets', icon: Table },
-  { slug: 'jpg-to-pdf', id: 'jpg-to-pdf', name: 'JPG to PDF', desc: 'Convert image files to PDF', icon: FileType2 },
-  { slug: 'pdf-to-jpg', id: 'pdf-to-jpg', name: 'PDF to JPG', desc: 'Extract PDF pages as high-res images', icon: FileType2 },
-  { slug: 'redact-pdf', id: 'redact', name: 'Redact PDF', desc: 'Permanently remove sensitive confidential data', icon: ShieldCheck },
-  { slug: 'ocr-pdf', id: 'ocr', name: 'OCR PDF', desc: 'Make scanned documents selectable and searchable', icon: FileText },
+  { slug: 'bank-statement-to-excel', id: 'pdf-to-excel', name: 'Bank Statement to Excel', desc: 'Reconciled SA & global statements', icon: FileSpreadsheet, badgeColor: 'bg-[#4F46E5] text-white', isPro: true },
+  { slug: 'merge-pdf', id: 'merge', name: 'Merge PDF', desc: 'Combine multiple PDFs into one unified file', icon: Layers, badgeColor: 'bg-[#7961F2] text-white' },
+  { slug: 'split-pdf', id: 'split', name: 'Split PDF', desc: 'Separate or extract PDF pages cleanly', icon: Scissors, badgeColor: 'bg-cyan-500 text-white' },
+  { slug: 'compress-pdf', id: 'compress', name: 'Compress PDF', desc: 'Reduce file size without quality loss', icon: Zap, badgeColor: 'bg-[#F23030] text-white' },
+  { slug: 'pdf-to-word', id: 'pdf-to-word', name: 'PDF to Word', desc: 'Convert PDFs to editable documents', icon: FileType2, badgeColor: 'bg-[#3D99F5] text-white' },
+  { slug: 'pdf-to-excel', id: 'pdf-to-excel', name: 'PDF to Excel', desc: 'Extract data tables into spreadsheets', icon: Table, badgeColor: 'bg-[#10B981] text-white' },
+  { slug: 'jpg-to-pdf', id: 'jpg-to-pdf', name: 'JPG to PDF', desc: 'Convert image files to PDF', icon: FileType2, badgeColor: 'bg-amber-500 text-white' },
+  { slug: 'pdf-to-jpg', id: 'pdf-to-jpg', name: 'PDF to JPG', desc: 'Extract PDF pages as high-res images', icon: FileType2, badgeColor: 'bg-orange-500 text-white' },
+  { slug: 'redact-pdf', id: 'redact', name: 'Redact PDF', desc: 'Permanently remove sensitive confidential data', icon: ShieldCheck, badgeColor: 'bg-[#E667E6] text-white' },
+  { slug: 'ocr-pdf', id: 'ocr', name: 'OCR PDF', desc: 'Make scanned documents selectable and searchable', icon: FileText, badgeColor: 'bg-indigo-500 text-white' },
 ];
 
 export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
@@ -327,8 +329,11 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
                   className="hidden"
                 />
 
-                <div className="relative w-16 h-16 rounded-2xl bg-white dark:bg-[#111622] shadow-sm border border-slate-100 dark:border-slate-800 flex items-center justify-center mb-4 text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform">
-                  <Upload className="w-7 h-7" aria-hidden="true" />
+                <div className={`relative w-16 h-16 rounded-2xl ${tool.color || 'bg-indigo-600'} text-white shadow-md flex items-center justify-center mb-4 group-hover:scale-105 transition-transform`}>
+                  <Icon name={tool.icon} size={28} className="text-white" />
+                  <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-white dark:bg-[#111622] border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 shadow-xs">
+                    <Upload className="w-3.5 h-3.5" aria-hidden="true" />
+                  </div>
                 </div>
 
                 <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
@@ -464,7 +469,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
                   >
                     <div>
                       <div className="flex items-center justify-between mb-3">
-                        <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                        <div className={`w-9 h-9 rounded-xl ${rel.badgeColor} flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform`}>
                           <IconComp className="w-4 h-4" />
                         </div>
                         {rel.isPro && (

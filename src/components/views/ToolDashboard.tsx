@@ -28,6 +28,7 @@ import type { ToolHandler, ToolCategory, ToolID } from '../../types';
 import PopularToolsGrid from '../home/PopularToolsGrid';
 import FeatureShowcase from '../home/FeatureShowcase';
 import PricingPreview from '../home/PricingPreview';
+import { Icon } from '../ui/Icon';
 
 interface ToolDashboardProps {
   onSelectTool: (toolId: string) => void;
@@ -56,18 +57,26 @@ const SECURITY_PILLARS = [
   {
     title: '100% In-Browser Execution',
     desc: 'Your documents and financial statements are parsed locally with client-side WebAssembly. Sensitive records never leave your browser.',
+    icon: Zap,
+    color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/60 border-amber-200/60 dark:border-amber-900/40',
   },
   {
     title: 'Zero Document Retention',
     desc: 'No cloud storage, no server databases, and zero tracking of account numbers or transaction narratives.',
+    icon: Lock,
+    color: 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border-indigo-200/60 dark:border-indigo-900/40',
   },
   {
     title: 'POPIA & GDPR Aligned',
     desc: 'Engineered for strict compliance with the South African Protection of Personal Information Act and international privacy standards.',
+    icon: ShieldCheck,
+    color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200/60 dark:border-emerald-900/40',
   },
   {
     title: 'Complete 37-Tool Arsenal',
     desc: 'Beyond statements, get full client-side tools to merge, split, compress, redact PII, stamp, and protect files.',
+    icon: Layers,
+    color: 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 border-purple-200/60 dark:border-purple-900/40',
   },
 ];
 
@@ -429,6 +438,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                           : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                       }`}
                     >
+                      <category.icon className="w-3.5 h-3.5 shrink-0" />
                       <span>{category.label}</span>
                       <span className="text-[10px] opacity-75">({count})</span>
                     </button>
@@ -484,12 +494,17 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                           className="group flex flex-col justify-between rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-[#111622] p-4 text-left hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-sm transition-all min-h-[125px]"
                         >
                           <div>
-                            <div className="mb-2 flex items-center justify-between">
-                              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
-                                {tool.category}
-                              </span>
+                            <div className="mb-2.5 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-white shrink-0 shadow-2xs group-hover:scale-105 transition-transform ${tool.color || 'bg-indigo-600'}`}>
+                                  <Icon name={tool.icon} size={14} className="text-white" />
+                                </div>
+                                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                                  {tool.category}
+                                </span>
+                              </div>
                               {isAi && (
-                                <span className="px-1.5 py-0.2 text-[9px] font-mono font-bold uppercase rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-900">
+                                <span className="px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-900">
                                   AI Assisted
                                 </span>
                               )}
@@ -553,20 +568,23 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {SECURITY_PILLARS.map((p, idx) => (
-              <div
-                key={idx}
-                className="bg-white dark:bg-[#111622] rounded-xl p-4 border border-slate-200/60 dark:border-slate-800 shadow-2xs space-y-2"
-              >
-                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-                  <ShieldCheck className="w-4 h-4" />
+            {SECURITY_PILLARS.map((p, idx) => {
+              const PillarIcon = p.icon;
+              return (
+                <div
+                  key={idx}
+                  className="bg-white dark:bg-[#111622] rounded-xl p-4 border border-slate-200/60 dark:border-slate-800 shadow-2xs space-y-2"
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${p.color}`}>
+                    <PillarIcon className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-[#fafafa]">{p.title}</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-[#d4d4d8] leading-relaxed">
+                    {p.desc}
+                  </p>
                 </div>
-                <h3 className="text-xs font-bold text-slate-900 dark:text-[#fafafa]">{p.title}</h3>
-                <p className="text-[11px] text-slate-500 dark:text-[#d4d4d8] leading-relaxed">
-                  {p.desc}
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
