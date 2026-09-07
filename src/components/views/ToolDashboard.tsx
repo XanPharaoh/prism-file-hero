@@ -26,9 +26,9 @@ import { getToolsByCategory } from '../../registry/toolRegistry';
 import { isAiTool, isProTool } from '../../../services/usageConfig';
 import type { ToolHandler, ToolCategory, ToolID } from '../../types';
 import PopularToolsGrid from '../home/PopularToolsGrid';
-import FeatureShowcase from '../home/FeatureShowcase';
 import PricingPreview from '../home/PricingPreview';
 import { Icon } from '../ui/Icon';
+import GlitterWrap from '../originkit/GlitterWrap';
 
 interface ToolDashboardProps {
   onSelectTool: (toolId: string) => void;
@@ -214,8 +214,29 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
   return (
     <div className="w-full space-y-16 pb-20">
       {/* ── 1. CLEAN SMALLPDF-INSPIRED HERO SECTION ── */}
-      <section className="relative w-full overflow-hidden pt-6 sm:pt-10 pb-4">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 flex flex-col items-center text-center">
+      <section className="relative w-full overflow-hidden pt-6 sm:pt-10 pb-6">
+        {/* Soft atmospheric gradients providing light refraction for glassmorphism */}
+        <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[720px] h-[360px] bg-gradient-to-b from-indigo-500/15 via-purple-500/10 to-transparent blur-3xl rounded-full pointer-events-none -z-0" aria-hidden="true" />
+        <div className="absolute top-1/3 -left-20 w-[420px] h-[320px] bg-gradient-to-tr from-cyan-400/10 via-indigo-400/10 to-transparent blur-3xl rounded-full pointer-events-none -z-0" aria-hidden="true" />
+        <div className="absolute top-1/3 -right-20 w-[420px] h-[320px] bg-gradient-to-tl from-purple-400/10 via-indigo-400/10 to-transparent blur-3xl rounded-full pointer-events-none -z-0" aria-hidden="true" />
+
+        {/* OriginKit GlitterWrap ambient backdrop */}
+        <div className="absolute inset-0 pointer-events-none opacity-35 dark:opacity-55 overflow-hidden" aria-hidden="true">
+          <GlitterWrap
+            particleCount={140}
+            speed={2.8}
+            density={80}
+            focalDepth={14}
+            starSize={13}
+            brightness={90}
+            glitterIntensity={4.5}
+            color1="#6366f1"
+            color2="#818cf8"
+            color3="#c7d2fe"
+          />
+        </div>
+
+        <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 flex flex-col items-center text-center">
           {/* Smallpdf-style Headline */}
           <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-[#fafafa] max-w-3xl leading-tight">
             We make document work simple.
@@ -231,7 +252,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
             <button
               type="button"
               onClick={scrollToWorkbench}
-              className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-bold shadow-md shadow-indigo-600/20 active:scale-[0.99] transition-all flex items-center gap-2"
+              className="px-6 py-3 rounded-xl bg-indigo-600/90 hover:bg-indigo-600 text-white text-xs sm:text-sm font-bold shadow-lg shadow-indigo-600/25 border border-indigo-400/30 backdrop-blur-md active:scale-[0.99] transition-all flex items-center gap-2"
             >
               <span>Try it Free</span>
               <ArrowRight className="w-4 h-4" />
@@ -239,7 +260,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
             <button
               type="button"
               onClick={handleExploreTools}
-              className="px-6 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#111622] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-bold shadow-xs transition-colors"
+              className="px-6 py-3 rounded-xl border border-white/60 dark:border-white/10 bg-white/70 dark:bg-white/5 hover:bg-white/90 dark:hover:bg-white/10 backdrop-blur-xl text-slate-800 dark:text-slate-200 text-xs sm:text-sm font-bold shadow-sm transition-all"
             >
               Explore All 37 Tools
             </button>
@@ -248,17 +269,17 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
           {/* ── Central Interactive Workbench Card ── */}
           <div
             id="workbench"
-            className="w-full max-w-3xl mt-10 bg-white dark:bg-[#111622] rounded-2xl shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-200 dark:border-slate-800 overflow-hidden text-left transition-all scroll-mt-24"
+            className="w-full max-w-3xl mt-10 bg-white/70 dark:bg-[#0B0F19]/65 backdrop-blur-2xl rounded-2xl shadow-2xl shadow-indigo-500/5 dark:shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/60 dark:border-white/10 overflow-hidden text-left transition-all scroll-mt-24"
           >
             {/* Top Switcher Tabs */}
-            <div className="bg-slate-50/80 dark:bg-[#0B0F19] p-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar border-b border-slate-100 dark:border-slate-800">
+            <div className="bg-slate-100/50 dark:bg-slate-950/40 backdrop-blur-md p-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar border-b border-slate-200/50 dark:border-white/5">
               <button
                 type="button"
                 onClick={() => setActiveTab('statement')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all duration-150 ${
                   activeTab === 'statement'
-                    ? 'bg-white dark:bg-[#111622] text-indigo-600 dark:text-indigo-400 shadow-sm border border-slate-200/60 dark:border-slate-700'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-white/90 dark:bg-white/10 text-indigo-600 dark:text-indigo-400 shadow-sm border border-white/70 dark:border-white/15 backdrop-blur-md'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/5'
                 }`}
               >
                 <FileSpreadsheet className="w-4 h-4" />
@@ -270,8 +291,8 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                 onClick={() => setActiveTab('merge')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all duration-150 ${
                   activeTab === 'merge'
-                    ? 'bg-white dark:bg-[#111622] text-indigo-600 dark:text-indigo-400 shadow-sm border border-slate-200/60 dark:border-slate-700'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-white/90 dark:bg-white/10 text-indigo-600 dark:text-indigo-400 shadow-sm border border-white/70 dark:border-white/15 backdrop-blur-md'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/5'
                 }`}
               >
                 <Layers className="w-4 h-4" />
@@ -283,8 +304,8 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                 onClick={() => setActiveTab('split')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all duration-150 ${
                   activeTab === 'split'
-                    ? 'bg-white dark:bg-[#111622] text-indigo-600 dark:text-indigo-400 shadow-sm border border-slate-200/60 dark:border-slate-700'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-white/90 dark:bg-white/10 text-indigo-600 dark:text-indigo-400 shadow-sm border border-white/70 dark:border-white/15 backdrop-blur-md'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/5'
                 }`}
               >
                 <Scissors className="w-4 h-4" />
@@ -296,8 +317,8 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                 onClick={() => setActiveTab('edit')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all duration-150 ${
                   activeTab === 'edit'
-                    ? 'bg-white dark:bg-[#111622] text-indigo-600 dark:text-indigo-400 shadow-sm border border-slate-200/60 dark:border-slate-700'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/60'
+                    ? 'bg-white/90 dark:bg-white/10 text-indigo-600 dark:text-indigo-400 shadow-sm border border-white/70 dark:border-white/15 backdrop-blur-md'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/5'
                 }`}
               >
                 <FileText className="w-4 h-4" />
@@ -323,8 +344,8 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                 onClick={() => fileInputRef.current?.click()}
                 className={`relative group rounded-2xl p-8 sm:p-12 flex flex-col items-center justify-center text-center cursor-pointer border-2 border-dashed transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
                   isDragOver
-                    ? 'border-indigo-600 bg-indigo-50/60 dark:border-indigo-400 dark:bg-indigo-950/30'
-                    : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-[#0B0F19]/50 hover:bg-slate-100/50 dark:hover:bg-[#0B0F19] hover:border-indigo-300'
+                    ? 'border-indigo-600 bg-indigo-50/60 dark:border-indigo-400 dark:bg-indigo-950/40 backdrop-blur-md'
+                    : 'border-indigo-200/70 dark:border-indigo-500/25 bg-white/40 dark:bg-[#080d19]/40 backdrop-blur-md hover:bg-white/60 dark:hover:bg-[#080d19]/60 hover:border-indigo-400'
                 }`}
               >
                 <input
@@ -335,7 +356,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                   className="hidden"
                 />
 
-                <div className="relative w-16 h-16 rounded-2xl bg-white dark:bg-[#111622] shadow-sm border border-slate-100 dark:border-slate-800 flex items-center justify-center mb-4 text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform">
+                <div className="relative w-16 h-16 rounded-2xl bg-white/90 dark:bg-white/10 backdrop-blur-md shadow-sm border border-white/70 dark:border-white/15 flex items-center justify-center mb-4 text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform">
                   <Upload className="w-7 h-7" aria-hidden="true" />
                 </div>
 
@@ -349,7 +370,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                   or <span className="text-indigo-600 dark:text-indigo-400 font-semibold underline underline-offset-2">choose a file</span> from your computer
                 </p>
 
-                <div className="mt-4 inline-flex items-center gap-2 bg-white dark:bg-[#111622] px-3.5 py-1 rounded-full border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                <div className="mt-4 inline-flex items-center gap-2 bg-white/80 dark:bg-white/5 backdrop-blur-md px-3.5 py-1 rounded-full border border-white/60 dark:border-white/10 text-[11px] text-slate-500 dark:text-slate-400 font-mono shadow-2xs">
                   <FileText className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
                   <span>PDF documents • Up to 50&nbsp;MB • 100% In-Browser</span>
                 </div>
@@ -364,7 +385,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs">
                 <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
                   <span className="font-medium">Format:</span>
-                  <span className="inline-flex items-center gap-1 font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md">
+                  <span className="inline-flex items-center gap-1 font-semibold text-slate-800 dark:text-slate-200 bg-white/70 dark:bg-white/5 backdrop-blur-md border border-slate-200/60 dark:border-white/10 px-2.5 py-1 rounded-md shadow-2xs">
                     <Table className="w-3 h-3 text-emerald-600" />
                     Excel (.xlsx) / CSV / PDF
                   </span>
@@ -545,26 +566,13 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
         </section>
       )}
 
-      {/* ── 4. MODULAR FEATURE SHOWCASE WITH ENCLOSING SECTION LANDMARK ── */}
-      <section id="features" aria-labelledby="features-heading" className="max-w-5xl mx-auto px-4 sm:px-6 space-y-12">
-        <div className="text-center max-w-xl mx-auto space-y-2">
-          <h2 id="features-heading" className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-[#fafafa]">
-            Everything you need to work with PDFs
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-[#d4d4d8]">
-            Fast, private tools designed to simplify your document workflow without leaving your browser.
-          </p>
-        </div>
-        <FeatureShowcase onSelectTool={onSelectTool} />
-      </section>
-
-      {/* ── 5. MODULAR PRICING PREVIEW (CLEAN 2-CARD MATRIX) ── */}
+      {/* ── 4. MODULAR PRICING PREVIEW (CLEAN 2-CARD MATRIX) ── */}
       <PricingPreview
         onUpgrade={() => s.setShowUpgradeCTA(true)}
         onSelectFree={scrollToWorkbench}
       />
 
-      {/* ── 6. 4-PILLAR TRUST & COMPLIANCE GRID ── */}
+      {/* ── 5. 4-PILLAR TRUST & COMPLIANCE GRID ── */}
       <section className="max-w-5xl mx-auto px-4 sm:px-6 space-y-8 pt-4">
         <div className="bg-slate-50/70 dark:bg-[#0B0F19] rounded-2xl p-8 border border-slate-200/80 dark:border-slate-800 space-y-6">
           <div className="text-center max-w-xl mx-auto space-y-2">
@@ -582,7 +590,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
               return (
                 <div
                   key={idx}
-                  className="bg-white dark:bg-[#111622] rounded-xl p-4 border border-slate-200/60 dark:border-slate-800 shadow-2xs space-y-2"
+                  className="bg-white/70 dark:bg-[#111622]/60 backdrop-blur-xl rounded-xl p-4 border border-slate-200/60 dark:border-white/10 shadow-xs hover:shadow-md hover:border-indigo-400/50 dark:hover:border-indigo-500/40 transition-all space-y-2"
                 >
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${p.color}`}>
                     <PillarIcon className="w-4 h-4" />
@@ -598,7 +606,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
         </div>
       </section>
 
-      {/* ── 7. FREQUENTLY ASKED QUESTIONS (FAQ) SECTION ── */}
+      {/* ── 6. FREQUENTLY ASKED QUESTIONS (FAQ) SECTION ── */}
       <section id="faq" className="max-w-3xl mx-auto px-4 sm:px-6 space-y-6 pt-4 scroll-mt-20">
         <div className="text-center space-y-2">
           <h2 className="text-2xl font-bold text-slate-900 dark:text-[#fafafa] text-balance">
@@ -612,7 +620,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
             return (
               <div
                 key={idx}
-                className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111622] overflow-hidden"
+                className="rounded-xl border border-slate-200/70 dark:border-white/10 bg-white/70 dark:bg-[#111622]/60 backdrop-blur-xl overflow-hidden shadow-2xs transition-all"
               >
                 <button
                   type="button"
@@ -631,7 +639,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                 {isOpen && (
                   <div
                     id={`faq-answer-${idx}`}
-                    className="px-5 pb-4 text-xs text-slate-500 dark:text-[#d4d4d8] leading-relaxed border-t border-slate-100 dark:border-slate-800 pt-3"
+                    className="px-5 pb-4 text-xs text-slate-600 dark:text-[#d4d4d8] leading-relaxed border-t border-slate-100 dark:border-white/5 pt-3"
                   >
                     {faq.a}
                   </div>
@@ -642,7 +650,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
         </div>
       </section>
 
-      {/* ── 8. HIGH-CONVERSION FINAL CALL TO ACTION ── */}
+      {/* ── 7. HIGH-CONVERSION FINAL CALL TO ACTION ── */}
       <section className="max-w-5xl mx-auto px-4 sm:px-6">
         <div className="bg-slate-900 dark:bg-[#111622] rounded-3xl p-8 sm:p-12 text-center text-white space-y-6 border border-slate-800 shadow-xl">
           <div className="max-w-2xl mx-auto space-y-3">
@@ -680,7 +688,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
         </div>
       </section>
 
-      {/* ── 9. FOOTER ── */}
+      {/* ── 8. FOOTER ── */}
       <footer className="w-full bg-white dark:bg-[#111622] border-t border-slate-200/80 dark:border-slate-800 pt-10 pb-12 mt-16">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 space-y-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-5 pb-6 border-b border-slate-100 dark:border-slate-800">

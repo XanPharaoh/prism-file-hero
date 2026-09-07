@@ -130,13 +130,13 @@ export default function HeaderMegaMenu({ onSelectTool, onNavigatePricing, onNavi
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-[820px] -translate-x-14 bg-white dark:bg-[#111622] rounded-2xl shadow-2xl border border-slate-200/80 dark:border-slate-800 p-6 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className="absolute top-full left-0 mt-2 w-[820px] -translate-x-14 bg-white/85 dark:bg-[#0B0F19]/85 backdrop-blur-2xl rounded-2xl shadow-2xl border border-white/60 dark:border-white/10 p-6 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
           <div className="grid grid-cols-4 gap-5">
             {TOOL_COLUMNS.map((col) => {
               const IconComp = col.icon;
               return (
                 <div key={col.category} className="space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 pb-1.5 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 pb-1.5 border-b border-slate-100/80 dark:border-white/5">
                     <IconComp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                     <span>{col.category}</span>
                   </div>
@@ -148,7 +148,7 @@ export default function HeaderMegaMenu({ onSelectTool, onNavigatePricing, onNavi
                           <button
                             type="button"
                             onClick={() => { setIsOpen(false); onSelectTool(t.id); }}
-                            className="w-full text-left group flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                            className="w-full text-left group flex items-start gap-2.5 p-2 rounded-xl hover:bg-white/80 dark:hover:bg-white/5 transition-colors"
                           >
                             <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 shadow-2xs group-hover:scale-105 transition-transform ${t.color}`}>
                               <ItemIcon className="w-3.5 h-3.5" />

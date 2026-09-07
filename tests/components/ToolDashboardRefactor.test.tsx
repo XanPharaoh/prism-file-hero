@@ -26,10 +26,11 @@ describe('ToolDashboard Revamp', () => {
     expect(screen.queryByText(/0 row errors in 18 months/i)).toBeNull();
   });
 
-  it('mounts FeatureShowcase with enclosing section landmark', () => {
+  it('does not render the removed FeatureShowcase section', () => {
     render(<ToolDashboard onSelectTool={vi.fn()} />);
-    expect(screen.getByText(/Assemble and organize in seconds/i)).toBeDefined();
-    expect(screen.getByText(/Bank statements that actually balance/i)).toBeDefined();
+    expect(screen.queryByText(/Assemble and organize in seconds/i)).toBeNull();
+    expect(screen.queryByText(/Bank statements that actually balance/i)).toBeNull();
+    expect(screen.queryByText(/Everything you need to work with PDFs/i)).toBeNull();
   });
 
   it('mounts PricingPreview with upgrade and free options', () => {

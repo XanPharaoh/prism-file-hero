@@ -520,7 +520,7 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
           Skip to main content
         </a>
 
-        <header className="sticky top-0 z-40 w-full bg-white/90 dark:bg-[#0B0F19]/90 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800 shadow-xs">
+        <header className="sticky top-0 z-40 w-full bg-white/80 dark:bg-[#0B0F19]/80 backdrop-blur-2xl border-b border-slate-200/60 dark:border-white/10 shadow-2xs">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             {/* Left: Brand Logo */}
             <div className="flex items-center gap-3">

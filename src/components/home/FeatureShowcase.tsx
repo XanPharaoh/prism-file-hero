@@ -25,17 +25,17 @@ export default function FeatureShowcase({ onSelectTool }: { onSelectTool: (id: s
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
-        <div className="bg-slate-50 dark:bg-[#0B0F19] rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 space-y-3 font-mono text-xs">
-          <div className="flex items-center justify-between text-slate-400 border-b border-slate-200 dark:border-slate-800 pb-2">
+        <div className="bg-white/75 dark:bg-[#111622]/65 backdrop-blur-xl rounded-2xl p-6 border border-slate-200/60 dark:border-white/10 shadow-sm space-y-3 font-mono text-xs">
+          <div className="flex items-center justify-between text-slate-400 border-b border-slate-200/60 dark:border-white/10 pb-2">
             <span>Document Assembly</span>
             <span className="text-emerald-600 font-semibold">100% Client-Side</span>
           </div>
           <div className="space-y-2 text-slate-700 dark:text-slate-300">
-            <div className="flex items-center justify-between bg-white dark:bg-[#111622] p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
+            <div className="flex items-center justify-between bg-white/80 dark:bg-white/5 backdrop-blur-md p-2.5 rounded-lg border border-slate-200/50 dark:border-white/10">
               <span>Section_1_Intro.pdf</span>
               <span className="text-slate-400 text-[11px]">Pages 1–4</span>
             </div>
-            <div className="flex items-center justify-between bg-white dark:bg-[#111622] p-2.5 rounded-lg border border-slate-200/60 dark:border-slate-800">
+            <div className="flex items-center justify-between bg-white/80 dark:bg-white/5 backdrop-blur-md p-2.5 rounded-lg border border-slate-200/50 dark:border-white/10">
               <span>Section_2_Financials.pdf</span>
               <span className="text-slate-400 text-[11px]">Pages 5–12</span>
             </div>
@@ -45,10 +45,10 @@ export default function FeatureShowcase({ onSelectTool }: { onSelectTool: (id: s
 
       {/* Row 2: The Sharp Blade - Bank Statements */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
-        <div className="order-2 md:order-1 bg-white dark:bg-[#111622] rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-3 font-mono text-xs">
-          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+        <div className="order-2 md:order-1 bg-white/75 dark:bg-[#111622]/65 backdrop-blur-xl rounded-2xl p-6 border border-slate-200/60 dark:border-white/10 shadow-sm space-y-3 font-mono text-xs">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/10 pb-2">
             <span className="font-bold text-slate-900 dark:text-[#fafafa]">Reconciled Excel Export</span>
-            <span className="bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded">
+            <span className="bg-emerald-50/80 dark:bg-emerald-950/80 backdrop-blur-sm text-emerald-700 dark:text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-200/50 dark:border-emerald-900/50">
               Math Verified ✓
             </span>
           </div>
@@ -111,7 +111,7 @@ export default function FeatureShowcase({ onSelectTool }: { onSelectTool: (id: s
             </span>
           </div>
         </div>
-        <div className="bg-slate-50 dark:bg-[#0B0F19] rounded-2xl p-8 border border-slate-200/80 dark:border-slate-800 text-center space-y-3">
+        <div className="bg-white/75 dark:bg-[#111622]/65 backdrop-blur-xl rounded-2xl p-8 border border-slate-200/60 dark:border-white/10 text-center space-y-3 shadow-sm">
           <div className="inline-flex p-3 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
             <ShieldCheck className="w-8 h-8" />
           </div>

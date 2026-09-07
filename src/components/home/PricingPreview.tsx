@@ -20,7 +20,7 @@ export default function PricingPreview({ onUpgrade, onSelectFree }: PricingPrevi
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
         {/* Free Plan */}
-        <div className="bg-white dark:bg-[#111622] rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between shadow-xs">
+        <div className="bg-white/75 dark:bg-[#111622]/65 backdrop-blur-2xl rounded-2xl p-6 border border-slate-200/70 dark:border-white/10 flex flex-col justify-between shadow-xs">
           <div className="space-y-4">
             <div>
               <h3 className="text-base font-bold text-slate-900 dark:text-[#fafafa]">Free Tier</h3>
@@ -32,7 +32,7 @@ export default function PricingPreview({ onUpgrade, onSelectFree }: PricingPrevi
               <span className="text-3xl font-extrabold text-slate-900 dark:text-white">R 0</span>
               <span className="text-xs text-slate-400 ml-1.5">forever</span>
             </div>
-            <ul className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <ul className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300 pt-3 border-t border-slate-100/80 dark:border-white/5">
               <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-600" /> 1 free task with zero sign-up</li>
               <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-600" /> 3 free tasks per day (signed in)</li>
               <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-600" /> All standard PDF tools included</li>
@@ -42,14 +42,14 @@ export default function PricingPreview({ onUpgrade, onSelectFree }: PricingPrevi
           <button
             type="button"
             onClick={onSelectFree}
-            className="w-full mt-6 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 transition-colors"
+            className="w-full mt-6 py-2.5 rounded-xl border border-slate-300/80 dark:border-slate-700/80 bg-white/60 dark:bg-white/5 backdrop-blur-md hover:bg-white dark:hover:bg-white/10 text-xs font-bold text-slate-800 dark:text-slate-200 transition-colors"
           >
             Start Free
           </button>
         </div>
 
         {/* Pro Plan */}
-        <div className="relative bg-white dark:bg-[#111622] rounded-2xl p-6 border-2 border-indigo-600 dark:border-indigo-500 flex flex-col justify-between shadow-lg shadow-indigo-600/10">
+        <div className="relative bg-white/80 dark:bg-[#111622]/75 backdrop-blur-2xl rounded-2xl p-6 border-2 border-indigo-600/90 dark:border-indigo-500/90 flex flex-col justify-between shadow-xl shadow-indigo-600/15">
           <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wider px-3 py-0.5 rounded-full">
             Most Popular
           </span>
@@ -64,7 +64,7 @@ export default function PricingPreview({ onUpgrade, onSelectFree }: PricingPrevi
               <span className="text-3xl font-extrabold text-slate-900 dark:text-white">R 239</span>
               <span className="text-xs text-slate-400 ml-1.5">/ month</span>
             </div>
-            <ul className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <ul className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300 pt-3 border-t border-slate-100/80 dark:border-white/5">
               <li className="flex items-center gap-2 font-semibold text-slate-900 dark:text-white"><Check className="w-4 h-4 text-indigo-600" /> Unlimited bank statement conversions</li>
               <li className="flex items-center gap-2"><Check className="w-4 h-4 text-indigo-600" /> Unlimited daily operations</li>
               <li className="flex items-center gap-2"><Check className="w-4 h-4 text-indigo-600" /> Advanced OCR for scanned statements</li>
@@ -74,7 +74,7 @@ export default function PricingPreview({ onUpgrade, onSelectFree }: PricingPrevi
           <button
             type="button"
             onClick={onUpgrade}
-            className="w-full mt-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-colors flex items-center justify-center gap-2"
+            className="w-full mt-6 py-2.5 rounded-xl bg-indigo-600/95 hover:bg-indigo-600 text-white text-xs font-bold shadow-lg shadow-indigo-600/25 border border-indigo-400/30 backdrop-blur-md transition-colors flex items-center justify-center gap-2"
           >
             <span>Upgrade to Pro</span>
             <ArrowRight className="w-4 h-4" />

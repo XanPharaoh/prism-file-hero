@@ -87,7 +87,7 @@ export default function PopularToolsGrid({
               key={tool.name + idx}
               type="button"
               onClick={() => onSelectTool(tool.id)}
-              className="group relative bg-white dark:bg-[#111622] rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 text-left hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all flex flex-col justify-between min-h-[140px]"
+              className="group relative bg-white/75 dark:bg-[#111622]/65 backdrop-blur-xl rounded-2xl p-5 border border-slate-200/60 dark:border-white/10 text-left hover:border-indigo-400/80 dark:hover:border-indigo-500/80 hover:shadow-xl hover:shadow-indigo-500/10 transition-all flex flex-col justify-between min-h-[140px]"
             >
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -95,7 +95,7 @@ export default function PopularToolsGrid({
                     <IconComp className="w-5 h-5" />
                   </div>
                   {tool.isPro ? (
-                    <span className="text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200/80 dark:border-indigo-900 px-2 py-0.5 rounded-md">
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-indigo-50/80 dark:bg-indigo-950/80 backdrop-blur-sm text-indigo-600 dark:text-indigo-400 border border-indigo-200/80 dark:border-indigo-800/80 px-2 py-0.5 rounded-md">
                       Pro
                     </span>
                   ) : (
@@ -111,7 +111,7 @@ export default function PopularToolsGrid({
                 </p>
               </div>
 
-              <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-[11px] font-medium text-slate-400 flex items-center justify-between">
+              <div className="mt-3 pt-2 border-t border-slate-100/80 dark:border-white/5 text-[11px] font-medium text-slate-400 flex items-center justify-between">
                 <span>In-browser tool</span>
                 <span className="text-indigo-600 dark:text-indigo-400 font-semibold group-hover:underline">Open →</span>
               </div>
@@ -124,7 +124,7 @@ export default function PopularToolsGrid({
         <button
           type="button"
           onClick={onToggleAllTools}
-          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#111622] hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 shadow-xs transition-colors"
+          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl border border-slate-200/70 dark:border-white/10 bg-white/80 dark:bg-white/5 hover:bg-white dark:hover:bg-white/10 backdrop-blur-xl text-xs font-bold text-slate-800 dark:text-slate-200 shadow-xs transition-all hover:scale-[1.01]"
         >
           <span>{isAllToolsOpen ? 'Hide Full Directory' : 'See All 37 PDF Tools'}</span>
           {isAllToolsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
