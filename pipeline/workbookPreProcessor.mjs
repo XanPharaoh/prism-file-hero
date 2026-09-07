@@ -150,7 +150,7 @@ export async function preProcessWorkbook(xlsxPath) {
     businessType = 'Transport & Logistics';
   } else if (combinedText.includes('retail') || combinedText.includes('shop') || combinedText.includes('store') || combinedText.includes('supermarket')) {
     businessType = 'Retail & Wholesale';
-  } else if (combinedText.includes('engineer') || combinedText.includes('consulting') || combinedText.includes('legal') || combinedText.includes('accounting')) {
+  } else if (combinedText.includes('engineer') || combinedText.includes('consult') || combinedText.includes('legal') || combinedText.includes('account') || combinedText.includes('advisory')) {
     businessType = 'Professional Services';
   } else if (combinedText.includes('construct') || combinedText.includes('building') || combinedText.includes('civils')) {
     businessType = 'Construction';
