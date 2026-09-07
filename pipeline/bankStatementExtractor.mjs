@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import { promisify } from 'node:util';
 import { ollamaVision } from './ollamaVision.mjs';
+import { extractPageBBoxes } from './pdfBboxExtractor.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -43,7 +44,7 @@ Each transaction object must have these exact keys:
 If a row is a balance-brought-forward or opening balance, include it with description "Opening Balance" or similar.
 If you cannot determine debit vs credit, put the amount in "debit" for negative values and "credit" for positive values.`;
 
-const EXTRACTION_PROMPT = `Extract ALL transactions from this bank statement page and return a JSON array of transaction objects. 
+const EXTRACTION_PROMPT = `${EXTRACTION_SYSTEM}\n\nExtract ALL transactions from this bank statement page and return a JSON array of transaction objects. 
 Include every single row visible. Do not omit any. Return raw JSON only, no markdown.`;
 
 // ─── PDF to Images ────────────────────────────────────────────────────────────
@@ -192,8 +193,13 @@ export async function extractBankStatement(pdfPath, opts = {}) {
     console.log(`[bankStatementExtractor] Page ${pageNum}/${total}…`);
 
     try {
-      const raw = await ollamaVision(EXTRACTION_PROMPT, [images[i]], {
-        options: { temperature: 0, num_ctx: 8192 },
+      const bboxesText = await extractPageBBoxes(pdfPath, pageNum);
+      const promptWithLayout = bboxesText
+        ? `${EXTRACTION_PROMPT}\n\n[AGENTIC STRUCTURAL AWARENESS]\nHere is the exact layout of text elements and their bounding boxes [xMin, yMin, xMax, yMax] on this page to help you precisely orient tables:\n${bboxesText}`
+        : EXTRACTION_PROMPT;
+        
+      const raw = await ollamaVision(promptWithLayout, [images[i]], {
+        options: { temperature: 0, num_ctx: 16384 },
       });
 
       rawResponses.push(raw);
