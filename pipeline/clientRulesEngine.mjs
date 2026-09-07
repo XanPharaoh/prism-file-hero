@@ -167,7 +167,25 @@ function mergeRules(existing, incoming) {
   for (const rule of incoming) {
     const key = rule.pattern?.toUpperCase();
     if (!key) continue;
-    if (!map.has(key) || (rule.confidence ?? 0) > (map.get(key).confidence ?? 0)) {
+    
+    if (map.has(key)) {
+      const existingRule = map.get(key);
+      if (existingRule.account !== rule.account) {
+        // Surface conflict for accountant to resolve
+        map.set(key, {
+          ...existingRule, // keep the template rule as base
+          hasConflict: true,
+          conflictDetails: {
+            oldAccount: existingRule.account,
+            oldAccountName: existingRule.accountName,
+            newAccount: rule.account,
+            newAccountName: rule.accountName
+          }
+        });
+      } else if ((rule.confidence ?? 0) > (existingRule.confidence ?? 0)) {
+        map.set(key, rule);
+      }
+    } else {
       map.set(key, rule);
     }
   }
@@ -210,3 +228,34 @@ export async function listClientsWithRules() {
     return [];
   }
 }
+
+// ─── Industry Template Bootstrap ──────────────────────────────────────────────
+
+/**
+ * Bootstrap client rules from an industry template instead of a workbook.
+ * Useful when no historical workbook is available but the business type is known.
+ *
+ * @param {string} clientId   - Fiscal Fox client UUID
+ * @param {string} clientName - Human-readable client name
+ * @param {string} businessType - e.g. 'Transport & Logistics'
+ * @returns {Promise<object>} The merged rules object that was saved
+ */
+export async function bootstrapIndustryTemplate(clientId, clientName, businessType) {
+  const { buildIndustryTemplate } = await import('./workbookPreProcessor.mjs');
+  const template = buildIndustryTemplate(businessType);
+  const existing = await loadClientRules(clientId);
+  const merged = {
+    ...existing,
+    clientId,
+    clientName,
+    businessType: template.businessType,
+    vatRegistered: false,
+    vatNumber: '',
+    rules: mergeRules(existing.rules, template.suggestedRules),
+    isTemplate: true,
+  };
+  await saveClientRules(clientId, merged);
+  console.log(`[clientRulesEngine] Industry template bootstrap: ${merged.rules.length} rules for ${businessType}`);
+  return merged;
+}
+

@@ -155,9 +155,18 @@ export function writeStagingTransactions(financialYearId, clientId, categorizedT
   let inserted = 0, skipped = 0, duplicates = 0;
 
   const doInserts = db.transaction(() => {
+    // Get FY boundaries for date filtering
+    const fy = db.prepare('SELECT year_start, year_end FROM financial_years WHERE id = ?').get(financialYearId);
+
     for (const tx of categorizedTx) {
       // Skip rows without a valid date
       if (!tx.date) { skipped++; continue; }
+      
+      // Auto-split: skip transactions outside the financial year boundaries
+      if (fy && (tx.date < fy.year_start || tx.date > fy.year_end)) {
+        skipped++;
+        continue;
+      }
 
       // Amount: negative for debits (money out), positive for credits
       const debitAmt  = parseFloat(tx.debit)  || 0;
@@ -226,7 +235,7 @@ export async function notifyReviewRequired(clientName, financialYearLabel, stats
     type: 'staging-review-required',
     clientName,
     financialYearLabel,
-    message: `${stats.inserted} transactions imported from bank statement and require accountant review.`,
+    message: `${stats.inserted} transactions imported from bank statement and require accountant review.` + (stats.skipped > 0 ? ` (${stats.skipped} out-of-period transactions were skipped/auto-split)` : ''),
     stats,
     status: 'unread',
   };

@@ -37,6 +37,7 @@ import { extractBankStatement } from './bankStatementExtractor.mjs';
 import {
   loadClientRules,
   bootstrapFromWorkbook,
+  bootstrapIndustryTemplate,
   addManualRule,
   listClientsWithRules,
 } from './clientRulesEngine.mjs';
@@ -57,6 +58,7 @@ const { values: args } = parseArgs({
     fy:            { type: 'string' },
     'bank-account':{ type: 'string' },
     bootstrap:     { type: 'string' },
+    industry:      { type: 'string' },   // e.g. "Transport & Logistics"
     'dry-run':     { type: 'boolean', default: false },
     output:        { type: 'string' },
     dpi:           { type: 'string', default: '180' },
@@ -207,11 +209,30 @@ async function runPipeline() {
     }
   }
 
+  // ── Industry template bootstrap (no workbook required) ────────────────────
+  if (args.industry) {
+    if (!args.client) {
+      console.error('❌  --client=<clientId> is required when using --industry');
+      process.exit(1);
+    }
+    banner(`Industry Template Bootstrap: ${args.industry}`);
+    const rules = await bootstrapIndustryTemplate(args.client, args.client, args.industry);
+    console.log(`  ✅  ${rules.rules.length} template rules applied for business type: ${args.industry}`);
+
+    // If no statement is provided, we are done!
+    if (!args.statement) {
+      banner('Industry Template Bootstrap Complete');
+      console.log(`  Rules saved for client: ${args.client} (${args.industry})`);
+      process.exit(0);
+    }
+  }
+
   // ── Validate statement if not in bootstrap-only mode ───────────────────────
   if (!args.statement) {
-    console.error('❌  --statement=<path.pdf> or --bootstrap=<path.xlsx> is required');
+    console.error('❌  --statement=<path.pdf>, --bootstrap=<path.xlsx>, or --industry=<type> is required');
     process.exit(1);
   }
+
 
   const statementPath = resolve(args.statement);
   await fs.access(statementPath); // throws if not found
