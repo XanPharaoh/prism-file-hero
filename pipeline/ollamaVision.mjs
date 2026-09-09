@@ -4,7 +4,7 @@
  * Handles retries, timeouts, and streaming.
  */
 
-export const OLLAMA_BASE = process.env.OLLAMA_URL || 'http://localhost:11434';
+export const OLLAMA_BASE = process.env.OLLAMA_URL || process.env.OLLAMA_HOST || 'http://100.75.214.23:11434';
 export const VISION_MODEL = process.env.OLLAMA_VISION_MODEL || 'qwen2.5vl:7b';
 export const EMBED_MODEL  = process.env.OLLAMA_EMBED_MODEL  || 'nomic-embed-text:latest';
 
