@@ -257,6 +257,75 @@
     });
   }
 
+  /* ---------------- hero demo window ---------------- */
+  function mountDemo() {
+    var win = document.getElementById("demo-window");
+    if (!win || typeof gsap === "undefined") return;
+    var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var scenes = Array.prototype.slice.call(win.querySelectorAll(".demo-scene"));
+    var tabs = Array.prototype.slice.call(win.querySelectorAll(".demo-tab[data-scene]"));
+    if (!scenes.length) return;
+
+    if (reduced) { scenes[0].classList.add("is-live"); return; }
+
+    var index = 0, timer = null, tl = null;
+
+    function park(scene) {
+      var q = function (sel) { return Array.prototype.slice.call(scene.querySelectorAll(sel)); };
+      gsap.set(q(".demo-chip"), { x: 0, opacity: 1 });
+      gsap.set(q(".demo-badge, .demo-out, .demo-line"), { clearProps: "transform,opacity,scale,x,y" });
+      gsap.set(q(".demo-redact"), { scaleX: 1, transformOrigin: "left center" });
+      gsap.set(scene.querySelector(".demo-proc-bar"), { width: 0 });
+    }
+
+    function playScene(scene) {
+      if (tl) tl.kill();
+      var q = function (sel) { return Array.prototype.slice.call(scene.querySelectorAll(sel)); };
+      // park everything at its end state first, so a mid-flight kill() can never strand content invisible
+      park(scene);
+      tl = gsap.timeline();
+      tl.fromTo(scene, { opacity: 0, visibility: "visible" }, { opacity: 1, duration: 0.3, ease: "power2.out" })
+        .fromTo(q(".demo-chip"), { x: -24, opacity: 0 }, { x: 0, opacity: 1, duration: 0.4, stagger: 0.12, ease: "power3.out" }, "-=0.1")
+        .to(scene.querySelector(".demo-proc-bar"), { width: "100%", duration: 0.9, ease: "power1.inOut" })
+        .fromTo(q(".demo-badge"), { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: "back.out(2.4)" })
+        .fromTo(q(".demo-out"), { y: 16, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" }, "-=0.15")
+        .fromTo(q(".demo-line"), { opacity: 0 }, { opacity: 1, duration: 0.25, stagger: 0.05 }, "<")
+        .fromTo(q(".demo-redact"), { scaleX: 0 }, { scaleX: 1, duration: 0.3, stagger: 0.18, ease: "power2.out", transformOrigin: "left center" }, "-=0.2");
+    }
+
+    function show(i) {
+      index = i;
+      scenes.forEach(function (s, k) {
+        if (k === i) return;
+        park(s);
+        gsap.to(s, { opacity: 0, visibility: "hidden", duration: 0.25 });
+      });
+      tabs.forEach(function (t, k) { t.setAttribute("aria-selected", k === i ? "true" : "false"); });
+      playScene(scenes[i]);
+    }
+
+    function schedule() {
+      stop();
+      timer = setInterval(function () { show((index + 1) % scenes.length); }, 5200);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; } }
+
+    tabs.forEach(function (t, k) {
+      t.addEventListener("click", function () { show(k); schedule(); });
+    });
+    win.addEventListener("mouseenter", stop);
+    win.addEventListener("mouseleave", schedule);
+    document.addEventListener("visibilitychange", function () { document.hidden ? stop() : schedule(); });
+
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { e.isIntersecting ? schedule() : stop(); });
+    });
+    io.observe(win);
+
+    show(0);
+    schedule();
+  }
+
   /* ---------------- motion (guarded per element) ---------------- */
   function motion() {
     var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -328,7 +397,7 @@
 
   /* ---------------- boot ---------------- */
   function boot() {
-    mountNav(); mountFooter(); mountTicker(); mountTools(); mountFinBand(); mountBilling(); motion();
+    mountNav(); mountFooter(); mountTicker(); mountTools(); mountFinBand(); mountBilling(); mountDemo(); motion();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();

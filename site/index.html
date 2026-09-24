@@ -21,7 +21,7 @@
       <img src="assets/img/hero-documents.svg" alt="" class="h-full w-full object-cover opacity-60">
       <div class="absolute inset-0" style="background:radial-gradient(120% 90% at 50% 0%, rgba(11,15,22,.12) 0%, rgba(11,15,22,.84) 60%, #0b0f16 100%);"></div>
     </div>
-    <div class="mx-auto max-w-6xl px-6 pt-40 pb-28 md:pt-52 md:pb-36 text-center">
+    <div class="mx-auto max-w-6xl px-6 pt-36 pb-24 md:pt-44 md:pb-28 text-center">
       <h1 class="hero-in font-display font-bold tracking-tighter leading-[1.03] mx-auto max-w-5xl" style="font-size:clamp(2.7rem,5.8vw,5.2rem);">
         Every document job,<br>handled in seconds.
       </h1>
@@ -29,8 +29,129 @@
         Merge, split, compress, redact, OCR, convert, compare, summarise &mdash; thirty-seven local-first tools for the PDFs you touch every day. And when the work is serious, a financial engine that proves its own numbers.
       </p>
       <div class="hero-in mt-12 flex flex-wrap items-center justify-center gap-4">
-        <a href="tools.html" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Browse all 37 tools</a>
-        <a href="financial.html" class="rounded-full border px-8 py-4 font-display font-medium text-base transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">See the financial engine</a>
+        <a href="https://prismfilehero.com" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Open the app free</a>
+        <a href="tools.html" class="rounded-full border px-8 py-4 font-display font-medium text-base transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">Browse all 37 tools</a>
+      </div>
+      <p class="hero-in mt-6 text-sm" style="color:#8b95a3;">Runs client-side &middot; your files never leave this device &middot; no sign-up for your first job</p>
+      <div class="hero-in mt-10 flex flex-wrap items-center justify-center gap-2.5">
+        <span class="font-mono text-[11px] uppercase tracking-[0.16em]" style="color:#8b95a3;">Popular jobs</span>
+        <a href="https://prismfilehero.com" class="job-chip rounded-full border px-4 py-2 text-sm font-medium">Merge PDFs</a>
+        <a href="https://prismfilehero.com" class="job-chip rounded-full border px-4 py-2 text-sm font-medium">Compress a fat PDF</a>
+        <a href="https://prismfilehero.com" class="job-chip rounded-full border px-4 py-2 text-sm font-medium">Bank statement &rarr; Excel</a>
+        <a href="https://prismfilehero.com" class="job-chip rounded-full border px-4 py-2 text-sm font-medium">Redact PII</a>
+        <a href="https://prismfilehero.com" class="job-chip rounded-full border px-4 py-2 text-sm font-medium">OCR a scan</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIVE DEMO WINDOW: the product, running before you sign up -->
+  <section class="bg-ground relative z-10" aria-label="Product demo">
+    <div class="mx-auto max-w-6xl px-6 -mt-12 md:-mt-16 pb-24 md:pb-32">
+      <div id="demo-window" class="demo-window overflow-hidden">
+        <div class="demo-titlebar flex items-center gap-4 px-4 py-3">
+          <span class="flex gap-1.5 shrink-0" aria-hidden="true">
+            <span class="w-2.5 h-2.5 rounded-full" style="background:#ff5f57;"></span>
+            <span class="w-2.5 h-2.5 rounded-full" style="background:#febc2e;"></span>
+            <span class="w-2.5 h-2.5 rounded-full" style="background:#28c840;"></span>
+          </span>
+          <div class="demo-tabs flex gap-1 overflow-x-auto" role="tablist" aria-label="Demo jobs">
+            <button type="button" class="demo-tab" data-scene="merge" aria-selected="true">Merge PDF</button>
+            <button type="button" class="demo-tab" data-scene="bank" aria-selected="false">Statement &rarr; Excel</button>
+            <button type="button" class="demo-tab" data-scene="redact" aria-selected="false">Redact PII</button>
+            <button type="button" class="demo-tab" aria-selected="false" tabindex="-1">OCR</button>
+            <button type="button" class="demo-tab" aria-selected="false" tabindex="-1">Compress</button>
+            <button type="button" class="demo-tab" aria-selected="false" tabindex="-1">Compare</button>
+          </div>
+          <span class="ml-auto hidden sm:block font-mono text-[10px] shrink-0" style="color:#67717f;">37 tools</span>
+        </div>
+
+        <div class="demo-body relative min-h-[520px] md:min-h-0 md:h-[340px]">
+          <!-- SCENE: MERGE -->
+          <div class="demo-scene absolute inset-0 grid grid-cols-1 md:grid-cols-5" data-scene="merge">
+            <div class="md:col-span-2 p-5 md:p-6 flex flex-col gap-2.5" style="border-right:1px solid var(--slab-line);">
+              <p class="font-mono text-[10px] uppercase tracking-[0.16em]" style="color:#67717f;">Drop files in</p>
+              <div class="demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:rgba(255,255,255,.04);border:1px solid var(--slab-line);"><span class="demo-chip-ext shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5" style="background:rgba(200,16,46,.18);color:#ff5266;">PDF</span><span class="text-xs" style="color:#c3cad4;">invoice-march.pdf</span><span class="ml-auto font-mono text-[10px]" style="color:#67717f;">4 pp</span></div>
+              <div class="demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:rgba(255,255,255,.04);border:1px solid var(--slab-line);"><span class="demo-chip-ext shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5" style="background:rgba(200,16,46,.18);color:#ff5266;">PDF</span><span class="text-xs" style="color:#c3cad4;">quote-771.pdf</span><span class="ml-auto font-mono text-[10px]" style="color:#67717f;">2 pp</span></div>
+              <div class="demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:rgba(255,255,255,.04);border:1px solid var(--slab-line);"><span class="demo-chip-ext shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5" style="background:rgba(200,16,46,.18);color:#ff5266;">PDF</span><span class="text-xs" style="color:#c3cad4;">delivery-note.pdf</span><span class="ml-auto font-mono text-[10px]" style="color:#67717f;">6 pp</span></div>
+              <div class="demo-proc mt-auto h-1 rounded-full overflow-hidden" style="background:rgba(255,255,255,.08);"><span class="demo-proc-bar block h-full w-0 rounded-full" style="background:var(--accent);"></span></div>
+            </div>
+            <div class="md:col-span-3 demo-result p-5 md:p-6 flex items-center gap-6">
+              <div class="relative shrink-0" style="width:92px;height:120px;">
+                <span class="absolute inset-0 rounded-md" style="background:#dfe3e9;transform:rotate(-8deg) translate(-6px,6px);"></span>
+                <span class="absolute inset-0 rounded-md" style="background:#eef0f4;transform:rotate(4deg) translate(4px,3px);"></span>
+                <span class="demo-out absolute inset-0 rounded-md grid place-items-center" style="background:#fff;">
+                  <span class="font-mono text-[10px] font-semibold" style="color:var(--accent);">12 pp</span>
+                </span>
+              </div>
+              <div>
+                <p class="demo-badge inline-flex items-center gap-2 rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em]" style="background:rgba(65,192,127,.14);color:#41c07f;">Done &middot; 1.2 s</p>
+                <p class="mt-3 font-display font-semibold text-base tracking-tight" style="color:var(--slab-ink);">combined.pdf</p>
+                <p class="mt-1 text-xs" style="color:#9aa4b2;">Three files, one document &mdash; processed on this device.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- SCENE: BANK -->
+          <div class="demo-scene absolute inset-0 grid grid-cols-1 md:grid-cols-5" data-scene="bank">
+            <div class="md:col-span-2 p-5 md:p-6 flex flex-col gap-2.5" style="border-right:1px solid var(--slab-line);">
+              <p class="font-mono text-[10px] uppercase tracking-[0.16em]" style="color:#67717f;">Drop files in</p>
+              <div class="demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:rgba(255,255,255,.04);border:1px solid var(--slab-line);"><span class="demo-chip-ext shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5" style="background:rgba(200,16,46,.18);color:#ff5266;">PDF</span><span class="text-xs" style="color:#c3cad4;">capitee-statement-mar.pdf</span></div>
+              <div class="demo-lines mt-2 flex flex-col gap-2">
+                <span class="demo-line h-2 rounded-full" style="background:rgba(255,255,255,.12);width:88%;"></span>
+                <span class="demo-line h-2 rounded-full" style="background:rgba(255,255,255,.12);width:64%;"></span>
+                <span class="demo-line h-2 rounded-full" style="background:rgba(255,255,255,.12);width:78%;"></span>
+                <span class="demo-line h-2 rounded-full" style="background:rgba(255,255,255,.12);width:56%;"></span>
+                <span class="demo-line h-2 rounded-full" style="background:rgba(255,255,255,.12);width:70%;"></span>
+              </div>
+              <div class="demo-proc mt-auto h-1 rounded-full overflow-hidden" style="background:rgba(255,255,255,.08);"><span class="demo-proc-bar block h-full w-0 rounded-full" style="background:var(--accent);"></span></div>
+            </div>
+            <div class="md:col-span-3 demo-result p-5 md:p-6">
+              <p class="demo-badge inline-flex items-center gap-2 rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em]" style="background:rgba(65,192,127,.14);color:#41c07f;">Balanced &middot; variance 0,00</p>
+              <div class="demo-out mt-4 overflow-hidden rounded-lg" style="border:1px solid var(--slab-line);">
+                <div class="grid font-mono text-[10px]" style="grid-template-columns:56px 1fr 78px;background:rgba(255,255,255,.05);color:#9aa4b2;">
+                  <span class="px-2.5 py-2">DATE</span><span class="px-2.5 py-2">DESCRIPTION</span><span class="px-2.5 py-2 text-right">AMOUNT</span>
+                </div>
+                <div class="grid font-mono text-[10px]" style="grid-template-columns:56px 1fr 78px;color:#c3cad4;">
+                  <span class="px-2.5 py-2">03/03</span><span class="px-2.5 py-2">WOOLWORTHS 442</span><span class="px-2.5 py-2 text-right">-842,10</span>
+                </div>
+                <div class="grid font-mono text-[10px]" style="grid-template-columns:56px 1fr 78px;color:#c3cad4;background:rgba(255,255,255,.03);">
+                  <span class="px-2.5 py-2">05/03</span><span class="px-2.5 py-2">SALARY ACME CC</span><span class="px-2.5 py-2 text-right" style="color:#41c07f;">28 500,00</span>
+                </div>
+                <div class="grid font-mono text-[10px]" style="grid-template-columns:56px 1fr 78px;color:#c3cad4;">
+                  <span class="px-2.5 py-2">07/03</span><span class="px-2.5 py-2">ESKOM 7651</span><span class="px-2.5 py-2 text-right">-1 204,55</span>
+                </div>
+                <div class="grid font-mono text-[10px] font-semibold" style="grid-template-columns:56px 1fr 78px;color:#e8eaee;background:rgba(255,255,255,.05);">
+                  <span class="px-2.5 py-2">31/03</span><span class="px-2.5 py-2">CLOSING BALANCE</span><span class="px-2.5 py-2 text-right">14 382,76</span>
+                </div>
+              </div>
+              <p class="mt-3 text-xs" style="color:#9aa4b2;">statement.xlsx &mdash; nine SARS VAT columns, every total re-added.</p>
+            </div>
+          </div>
+
+          <!-- SCENE: REDACT -->
+          <div class="demo-scene absolute inset-0 grid grid-cols-1 md:grid-cols-5" data-scene="redact">
+            <div class="md:col-span-2 p-5 md:p-6 flex flex-col gap-2.5" style="border-right:1px solid var(--slab-line);">
+              <p class="font-mono text-[10px] uppercase tracking-[0.16em]" style="color:#67717f;">Drop files in</p>
+              <div class="demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:rgba(255,255,255,.04);border:1px solid var(--slab-line);"><span class="demo-chip-ext shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5" style="background:rgba(200,16,46,.18);color:#ff5266;">PDF</span><span class="text-xs" style="color:#c3cad4;">contract-signed.pdf</span></div>
+              <div class="demo-proc mt-auto h-1 rounded-full overflow-hidden" style="background:rgba(255,255,255,.08);"><span class="demo-proc-bar block h-full w-0 rounded-full" style="background:var(--accent);"></span></div>
+            </div>
+            <div class="md:col-span-3 demo-result p-5 md:p-6">
+              <p class="demo-badge inline-flex items-center gap-2 rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em]" style="background:rgba(65,192,127,.14);color:#41c07f;">3 fields gone &middot; permanent</p>
+              <div class="demo-out mt-4 rounded-lg p-4" style="background:#f2f3f6;">
+                <div class="flex flex-col gap-2.5">
+                  <span class="h-2 rounded-full" style="background:#c9cdd4;width:72%;"></span>
+                  <span class="demo-redact h-2 rounded-full" style="background:#12161c;width:46%;"></span>
+                  <span class="h-2 rounded-full" style="background:#c9cdd4;width:88%;"></span>
+                  <span class="h-2 rounded-full" style="background:#c9cdd4;width:60%;"></span>
+                  <span class="demo-redact h-2 rounded-full" style="background:#12161c;width:38%;"></span>
+                  <span class="h-2 rounded-full" style="background:#c9cdd4;width:80%;"></span>
+                  <span class="demo-redact h-2 rounded-full" style="background:#12161c;width:52%;"></span>
+                </div>
+              </div>
+              <p class="mt-3 text-xs" style="color:#9aa4b2;">ID number, account number and address &mdash; deleted from the file, not just covered.</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
