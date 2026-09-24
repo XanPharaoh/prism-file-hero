@@ -225,6 +225,24 @@
           scrollTrigger: { trigger: "#band", start: "top bottom", end: "center center", scrub: true } });
     }
 
+    var guard = document.querySelector(".guard-cards");
+    if (guard) {
+      gsap.from(guard.children, { y: 42, opacity: 0, duration: 0.7, stagger: 0.09, ease: "power3.out",
+        scrollTrigger: { trigger: guard, start: "top 84%" } });
+      var v = document.getElementById("variance");
+      if (v) {
+        var state = { val: 12480.14 };
+        gsap.to(state, {
+          val: 0, duration: 1.6, ease: "power2.inOut",
+          scrollTrigger: { trigger: v, start: "top 90%" },
+          onUpdate: function () {
+            v.textContent = state.val.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+          },
+          onComplete: function () { v.textContent = "0,00"; },
+        });
+      }
+    }
+
     var p = document.getElementById("scrub");
     if (p) {
       var nodes = Array.prototype.slice.call(p.childNodes), words = [];

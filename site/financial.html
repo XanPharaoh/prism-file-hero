@@ -98,15 +98,79 @@
   <!-- LEDGER GUARD -->
   <section class="relative isolate overflow-hidden" style="background:var(--slab);color:var(--slab-ink);">
     <div class="absolute inset-0 -z-10" style="background:radial-gradient(80% 90% at 15% 0%, rgba(200,16,46,.18) 0%, rgba(11,15,22,0) 55%);"></div>
+    <div class="absolute inset-0 -z-10" style="background:repeating-linear-gradient(0deg, transparent 0 71px, rgba(242,244,248,.045) 71px 72px);"></div>
     <div class="mx-auto max-w-6xl px-6 py-32 md:py-44">
       <h2 class="rise font-display font-bold tracking-tighter leading-[1.05] max-w-3xl" style="font-size:clamp(2.2rem,4.6vw,4rem);">Five deterministic layers between your numbers and a wrong total.</h2>
       <p class="rise mt-6 max-w-2xl text-lg" style="color:#b6bfcb;">Reconciliation here is not an AI guess. Each layer is pure arithmetic that recomputes the ledger and refuses to export when a single check fails.</p>
-      <div class="rise mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div class="rounded-2xl p-7" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);"><p class="font-mono text-[11px] tracking-[0.16em]" style="color:#ff5266;">BALANCE RECOMPUTE</p><h3 class="mt-3 font-display font-semibold text-lg tracking-tight">Opening to closing, re-added</h3><p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">Each line&rsquo;s balance is recomputed from the last. If it doesn&rsquo;t match the bank, the row is flagged before it reaches the sheet.</p></div>
-        <div class="rounded-2xl p-7" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);"><p class="font-mono text-[11px] tracking-[0.16em]" style="color:#ff5266;">DEBIT / CREDIT ISOLATION</p><h3 class="mt-3 font-display font-semibold text-lg tracking-tight">Never both, never neither</h3><p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">A transaction gets exactly one side, cross-checked against the balance movement.</p></div>
-        <div class="rounded-2xl p-7" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);"><p class="font-mono text-[11px] tracking-[0.16em]" style="color:#ff5266;">OUTLIER DETECTION</p><h3 class="mt-3 font-display font-semibold text-lg tracking-tight">The R10k sanity net</h3><p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">An amount far outside a row&rsquo;s context is surfaced for review instead of silently categorised.</p></div>
-        <div class="rounded-2xl p-7" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);"><p class="font-mono text-[11px] tracking-[0.16em]" style="color:#ff5266;">DUPLICATE PREVENTION</p><h3 class="mt-3 font-display font-semibold text-lg tracking-tight">Same line, counted once</h3><p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">Re-imports and overlapping pages are fingerprinted so a single debit never doubles the expense.</p></div>
-        <div class="rounded-2xl p-7 sm:col-span-2" style="border:1px solid rgba(65,192,127,.4);background:rgba(65,192,127,.08);"><p class="font-mono text-[11px] tracking-[0.16em]" style="color:#41c07f;">CLOSING PROOF</p><h3 class="mt-3 font-display font-semibold text-lg tracking-tight">It will not ship a number it can&rsquo;t re-derive</h3><p class="mt-2 text-sm leading-relaxed" style="color:#c3cad4;">The whole ledger must balance from opening to closing before export &mdash; the check that makes output filing-grade.</p></div>
+
+      <div class="guard-cards mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 auto-rows-[minmax(0,auto)] grid-flow-dense gap-4">
+
+        <!-- Featured: balance recompute, 2x2 -->
+        <div class="rounded-2xl p-7 lg:col-span-2 lg:row-span-2 flex flex-col justify-between" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);">
+          <div>
+            <h3 class="font-display font-semibold text-xl tracking-tight">Opening to closing, re-added</h3>
+            <p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">Each line&rsquo;s balance is recomputed from the last. If it doesn&rsquo;t match the bank, the row is flagged before it reaches the sheet.</p>
+          </div>
+          <div class="mt-8 font-mono text-[13px] num" aria-hidden="true">
+            <div class="flex items-center justify-between py-2.5" style="border-bottom:1px solid rgba(242,244,248,.08);"><span style="color:#9aa4b2;">+ 48 200,00</span><span>112 480,14</span><span style="color:#41c07f;">&#10003;</span></div>
+            <div class="flex items-center justify-between py-2.5" style="border-bottom:1px solid rgba(242,244,248,.08);"><span style="color:#9aa4b2;">&minus; 1 240,50</span><span>111 239,64</span><span style="color:#41c07f;">&#10003;</span></div>
+            <div class="flex items-center justify-between py-2.5" style="border-bottom:1px solid rgba(242,244,248,.08);"><span style="color:#9aa4b2;">&minus; 14 500,00</span><span style="text-decoration:line-through;text-decoration-color:rgba(255,82,102,.6);">96 739,65</span><span style="color:#ff5266;">&#10007;</span></div>
+            <div class="flex items-center justify-between py-2.5"><span style="color:#9aa4b2;">&minus; 14 500,00</span><span style="color:#ff5266;">96 739,64</span><span style="font-size:10px;letter-spacing:.12em;color:#ff5266;">FLAGGED</span></div>
+          </div>
+        </div>
+
+        <!-- Debit / credit isolation, 2x1 -->
+        <div class="rounded-2xl p-7 lg:col-span-2" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);">
+          <h3 class="font-display font-semibold text-lg tracking-tight">Never both, never neither</h3>
+          <p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">A transaction gets exactly one side, cross-checked against the balance movement.</p>
+          <div class="mt-6 flex items-center gap-3 font-mono text-[13px] num" aria-hidden="true">
+            <span class="px-3 py-1.5 rounded-lg" style="background:rgba(255,82,102,.12);color:#ff5266;">1 240,50</span>
+            <span class="px-3 py-1.5 rounded-lg" style="background:rgba(242,244,248,.05);color:#5b6472;">&mdash;</span>
+            <svg width="52" height="24" viewBox="0 0 52 24" fill="none" style="margin-left:auto;"><path d="M2 12h34m0 0-6-6m6 6-6 6" stroke="#41c07f" stroke-width="1.5" stroke-linecap="round"/><text x="42" y="16" font-size="11" fill="#41c07f" font-family="monospace">&#8721;</text></svg>
+          </div>
+        </div>
+
+        <!-- Outlier detection with ring-outlier dot plot, 2x1 -->
+        <div class="rounded-2xl p-7 lg:col-span-2" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);">
+          <h3 class="font-display font-semibold text-lg tracking-tight">The R10k sanity net</h3>
+          <p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">An amount far outside a row&rsquo;s context is surfaced for review instead of silently categorised.</p>
+          <svg class="mt-6" width="100%" height="56" viewBox="0 0 260 56" fill="none" aria-hidden="true">
+            <line x1="0" y1="44" x2="260" y2="44" stroke="rgba(242,244,248,.12)"/>
+            <circle cx="30" cy="38" r="4" fill="#9aa4b2"/><circle cx="72" cy="40" r="4" fill="#9aa4b2"/>
+            <circle cx="114" cy="37" r="4" fill="#9aa4b2"/><circle cx="156" cy="41" r="4" fill="#9aa4b2"/>
+            <circle cx="196" cy="10" r="5" fill="#ff5266"/>
+            <circle cx="196" cy="10" r="11" stroke="#ff5266" stroke-width="1.5" opacity=".55"/>
+            <text x="214" y="14" font-size="10" fill="#ff5266" font-family="monospace">review</text>
+          </svg>
+        </div>
+
+        <!-- Duplicate prevention with fan-pages, 2x1 -->
+        <div class="rounded-2xl p-7 lg:col-span-2" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);">
+          <h3 class="font-display font-semibold text-lg tracking-tight">Same line, counted once</h3>
+          <p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">Re-imports and overlapping pages are fingerprinted so a single debit never doubles the expense.</p>
+          <div class="mt-6 flex items-center gap-4" aria-hidden="true">
+            <svg width="64" height="52" viewBox="0 0 64 52" fill="none">
+              <rect x="2" y="6" width="30" height="40" rx="3" transform="rotate(-8 17 26)" stroke="#9aa4b2" stroke-width="1.5"/>
+              <rect x="14" y="6" width="30" height="40" rx="3" transform="rotate(6 29 26)" stroke="#ff5266" stroke-width="1.5"/>
+            </svg>
+            <span class="font-mono text-[11px]" style="color:#5b6472;">sha&middot;9f2c&hellip;</span>
+            <svg width="34" height="20" viewBox="0 0 34 20" fill="none"><path d="M2 10h20m0 0-5-5m5 5-5 5" stroke="#ff5266" stroke-width="1.5" stroke-linecap="round"/><path d="M27 3 33 17M33 3 27 17" stroke="#ff5266" stroke-width="0" /></svg>
+            <span class="font-mono text-[11px] tracking-wide" style="color:#ff5266;">collapsed</span>
+          </div>
+        </div>
+
+        <!-- Closing proof with variance countdown, 2x1 -->
+        <div class="rounded-2xl p-7 lg:col-span-2 flex flex-col justify-between" style="border:1px solid rgba(65,192,127,.4);background:rgba(65,192,127,.08);">
+          <div>
+            <h3 class="font-display font-semibold text-lg tracking-tight">It will not ship a number it can&rsquo;t re-derive</h3>
+            <p class="mt-2 text-sm leading-relaxed" style="color:#c3cad4;">The whole ledger must balance from opening to closing before export &mdash; the check that makes output filing-grade.</p>
+          </div>
+          <div class="mt-6 flex items-end justify-between gap-4" aria-hidden="true">
+            <p class="font-mono text-[10px] tracking-[0.14em]" style="color:#41c07f;">VARIANCE &middot; PROVED</p>
+            <p id="variance" class="font-mono text-3xl num" style="color:#41c07f;">0,00</p>
+          </div>
+        </div>
+
       </div>
     </div>
   </section>
