@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1200" role="img" aria-label="Illustration of a skewed scanned bank statement with a red correction mark">
+  <defs>
+    <clipPath id="paper">
+      <rect x="150" y="140" width="640" height="900" rx="10" transform="rotate(-4 470 590)"/>
+    </clipPath>
+    <g id="row">
+      <rect width="120" height="14" rx="3" fill="#9aa4b2"/>
+      <rect x="150" width="300" height="14" rx="3" fill="#b3bcc9"/>
+      <rect x="490" width="90" height="14" rx="3" fill="#8a94a3"/>
+    </g>
+  </defs>
+  <g transform="rotate(-4 470 590)">
+    <rect x="150" y="140" width="640" height="900" rx="10" fill="#eef1f5"/>
+    <rect x="150" y="140" width="640" height="96" rx="10" fill="#dde3ea"/>
+    <rect x="190" y="176" width="180" height="24" rx="4" fill="#8a94a3"/>
+    <rect x="640" y="176" width="110" height="24" rx="4" fill="#a6afbc"/>
+    <g>
+      <use href="#row" x="190" y="290"/>
+      <use href="#row" x="190" y="346"/>
+      <use href="#row" x="190" y="402"/>
+      <use href="#row" x="190" y="458"/>
+      <use href="#row" x="190" y="514"/>
+      <use href="#row" x="190" y="570"/>
+      <use href="#row" x="190" y="626"/>
+      <use href="#row" x="190" y="682"/>
+      <use href="#row" x="190" y="738"/>
+      <use href="#row" x="190" y="794"/>
+      <use href="#row" x="190" y="850"/>
+    </g>
+    <g stroke="#c9d1db" stroke-width="2">
+      <line x1="170" y1="322" x2="810" y2="322"/>
+      <line x1="170" y1="378" x2="810" y2="378"/>
+      <line x1="170" y1="434" x2="810" y2="434"/>
+      <line x1="170" y1="490" x2="810" y2="490"/>
+      <line x1="170" y1="546" x2="810" y2="546"/>
+      <line x1="170" y1="602" x2="810" y2="602"/>
+      <line x1="170" y1="658" x2="810" y2="658"/>
+      <line x1="170" y1="714" x2="810" y2="714"/>
+      <line x1="170" y1="770" x2="810" y2="770"/>
+      <line x1="170" y1="826" x2="810" y2="826"/>
+      <line x1="170" y1="882" x2="810" y2="882"/>
+    </g>
+    <rect x="640" y="920" width="150" height="34" rx="4" fill="#c8102e" opacity="0.85"/>
+  </g>
+  <g clip-path="url(#paper)" stroke="#c8102e" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.8">
+    <path d="M 220 800 C 380 700 420 850 560 760 S 740 800 830 720"/>
+  </g>
+</svg>

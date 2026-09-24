@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="Illustration of documents fanned across a desk">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="0%" r="95%">
+      <stop offset="0%" stop-color="#1b2432"/>
+      <stop offset="55%" stop-color="#10161f"/>
+      <stop offset="100%" stop-color="#0b0f16"/>
+    </radialGradient>
+    <g id="page">
+      <rect width="200" height="276" rx="4" fill="#d7dde6"/>
+      <rect x="18" y="20" width="96" height="10" rx="2" fill="#8a94a3"/>
+      <g fill="#a6afbc">
+        <rect x="18" y="48" width="164" height="6" rx="2"/>
+        <rect x="18" y="64" width="148" height="6" rx="2"/>
+        <rect x="18" y="80" width="164" height="6" rx="2"/>
+        <rect x="18" y="96" width="132" height="6" rx="2"/>
+        <rect x="18" y="112" width="156" height="6" rx="2"/>
+        <rect x="18" y="128" width="140" height="6" rx="2"/>
+        <rect x="18" y="144" width="164" height="6" rx="2"/>
+        <rect x="18" y="160" width="120" height="6" rx="2"/>
+      </g>
+      <g fill="#7d8896">
+        <rect x="128" y="196" width="54" height="6" rx="2"/>
+        <rect x="128" y="212" width="54" height="6" rx="2"/>
+      </g>
+      <rect x="18" y="196" width="88" height="6" rx="2" fill="#a6afbc"/>
+      <rect x="18" y="212" width="64" height="6" rx="2" fill="#a6afbc"/>
+    </g>
+  </defs>
+  <rect width="1600" height="900" fill="url(#glow)"/>
+  <g opacity="0.5">
+    <use href="#page" transform="translate(150 560) rotate(-18)"/>
+    <use href="#page" transform="translate(330 590) rotate(-8)"/>
+    <use href="#page" transform="translate(520 545) rotate(4)"/>
+    <use href="#page" transform="translate(710 600) rotate(13)"/>
+    <use href="#page" transform="translate(905 555) rotate(-5)"/>
+    <use href="#page" transform="translate(1090 595) rotate(9)"/>
+    <use href="#page" transform="translate(1270 550) rotate(-14)"/>
+  </g>
+  <line x1="0" y1="672" x2="1600" y2="672" stroke="#f2f4f8" stroke-opacity="0.05"/>
+</svg>
