@@ -1,0 +1,82 @@
+/* Prism File Hero — shared design system. Light is the bare :root; dark redefines in both gates. */
+:root{
+  --ground:#f4f5f7;
+  --surface:#ffffff;
+  --sunken:#e9ebef;
+  --ink:#12161c;
+  --muted:#5b6472;
+  --line:rgba(18,22,28,.14);
+  --accent:#c8102e;
+  --credit:#177245;
+  --slab:#0b0f16;
+  --slab-ink:#f2f4f8;
+  --slab-muted:#9aa4b2;
+  --slab-line:rgba(242,244,248,.16);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0b0e13;
+    --surface:#131720;
+    --sunken:#0e1118;
+    --ink:#edeff3;
+    --muted:#98a1ae;
+    --line:rgba(237,239,243,.15);
+    --accent:#ff5266;
+    --credit:#41c07f;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0b0e13;
+  --surface:#131720;
+  --sunken:#0e1118;
+  --ink:#edeff3;
+  --muted:#98a1ae;
+  --line:rgba(237,239,243,.15);
+  --accent:#ff5266;
+  --credit:#41c07f;
+}
+
+body{background:var(--ground);}
+h1,h2,h3{text-wrap:balance;}
+.num{font-variant-numeric:tabular-nums;}
+
+/* capability / bank ticker */
+.marquee{position:relative;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);}
+.marquee-track{display:flex;width:max-content;animation:marquee var(--marquee-dur,38s) linear infinite;}
+.marquee:hover .marquee-track{animation-play-state:paused;}
+@keyframes marquee{to{transform:translateX(-50%);}}
+@media (prefers-reduced-motion: reduce){
+  .marquee-track{animation:none;flex-wrap:wrap;width:auto;justify-content:center;}
+}
+
+/* nav active link */
+.nav-link{position:relative;transition:color .2s ease;}
+.nav-link:hover{color:#fff;}
+.nav-link[aria-current="page"]{color:#fff;}
+.nav-link[aria-current="page"]::after{content:"";position:absolute;left:0;right:0;bottom:-6px;height:2px;border-radius:2px;background:var(--accent);}
+
+/* keyboard focus */
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px;}
+
+/* anchor navigation clears the fixed pill nav */
+@media (prefers-reduced-motion: no-preference){ html{scroll-behavior:smooth;} }
+section[id]{scroll-margin-top:96px;}
+
+/* tool filter */
+.filter-btn{transition:background .2s ease,color .2s ease,border-color .2s ease;}
+.filter-btn[aria-pressed="true"]{background:var(--ink);color:var(--ground);border-color:var(--ink);}
+.tool-card{transition:opacity .28s ease,transform .28s ease;}
+.tool-card[data-hidden="true"]{display:none;}
+
+/* billing toggle */
+.bill-switch{transition:background .2s ease,color .2s ease;}
+.bill-switch[aria-pressed="true"]{background:var(--surface);color:var(--ink);}
+
+/* faq */
+details summary::-webkit-details-marker{display:none;}
+details[open] .faq-plus{transform:rotate(45deg);}
+.faq-plus{transition:transform .2s ease;}
+
+/* bank monogram chip */
+.bank-chip{display:flex;align-items:center;gap:.75rem;border:1px solid var(--line);background:var(--surface);border-radius:.9rem;padding:.85rem 1rem;}
+.bank-mono{display:grid;place-items:center;width:2.5rem;height:2.5rem;border-radius:.6rem;background:var(--sunken);font-family:'Geist Mono',ui-monospace,monospace;font-size:.8rem;font-weight:600;color:var(--ink);letter-spacing:.02em;}
