@@ -65,7 +65,10 @@ section[id]{scroll-margin-top:96px;}
 /* tool filter */
 .filter-btn{transition:background .2s ease,color .2s ease,border-color .2s ease;}
 .filter-btn[aria-pressed="true"]{background:var(--ink);color:var(--ground);border-color:var(--ink);}
-.tool-card{transition:opacity .28s ease,transform .28s ease;}
+.tool-card{position:relative;transition:transform .3s ease,box-shadow .3s ease;}
+.tool-card::after{content:"";position:absolute;left:1.25rem;right:1.25rem;bottom:.9rem;height:2px;border-radius:2px;background:var(--accent);transform:scaleX(0);transform-origin:left;transition:transform .35s ease;}
+.tool-card:hover{transform:translateY(-3px);box-shadow:0 14px 34px -18px rgba(11,15,22,.35);}
+.tool-card:hover::after{transform:scaleX(1);}
 .tool-card[data-hidden="true"]{display:none;}
 
 /* billing toggle */

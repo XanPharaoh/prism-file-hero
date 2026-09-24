@@ -142,26 +142,78 @@
     track.innerHTML = set + set; // two identical halves for a seamless -50% loop
   }
 
-  /* ---------------- tool grid ---------------- */
+  /* ---------------- tool grid: five category chapters, gapless 6-col rows ---------------- */
+  var FEATURED = { Organize: "Merge PDF", Convert: "PDF to Excel", Optimize: "Compress PDF", Security: "Redact PDF", "AI Labs": "PDF Q&A Assistant" };
+
   function mountTools() {
-    var grid = document.getElementById("tool-grid");
-    if (!grid) return;
-    grid.innerHTML = TOOLS.map(function (t) {
-      return '<article class="tool-card rounded-2xl border border-line bg-surface p-6" data-cat="' + t.c + '">' +
-          '<h3 class="font-display font-semibold text-base tracking-tight text-ink">' + t.n + "</h3>" +
-          '<p class="mt-1.5 text-sm text-muted">' + t.d + "</p>" +
+    var root = document.getElementById("tool-groups");
+    if (!root) return;
+    var cats = [];
+    TOOLS.forEach(function (t) { if (cats.indexOf(t.c) < 0) cats.push(t.c); });
+
+    function card(t, featured) {
+      if (featured) {
+        return '<article class="tool-card group relative overflow-hidden rounded-2xl border border-line bg-surface p-7 col-span-full lg:col-span-3" data-cat="' + t.c + '">' +
+            '<span class="absolute -right-3 -bottom-12 font-display font-extrabold leading-none pointer-events-none select-none" style="font-size:9rem;color:var(--ink);opacity:.07;" aria-hidden="true">' + t.c.charAt(0) + "</span>" +
+            '<h3 class="font-display font-bold text-2xl tracking-tight text-ink">' + t.n + "</h3>" +
+            '<p class="mt-2 text-sm leading-relaxed text-muted max-w-sm">' + t.d + "</p>" +
+          "</article>";
+      }
+      return '<article class="tool-card rounded-2xl border border-line bg-surface p-5 lg:col-span-2" data-cat="' + t.c + '">' +
+          '<h3 class="font-display font-semibold text-[15px] tracking-tight text-ink">' + t.n + "</h3>" +
         "</article>";
-    }).join("");
+    }
+
+    function group(cat, items, chrome) {
+      var feat = items.find(function (t) { return t.n === FEATURED[cat]; });
+      var rest = items.filter(function (t) { return t !== feat; });
+      var cells = [];
+      if (chrome) {
+        cells.push({ s: 3, h: '<div class="rounded-2xl p-7 col-span-full lg:col-span-3 flex flex-col justify-end" style="background:var(--sunken);">' +
+            '<p class="font-display font-extrabold leading-[0.9] tracking-tighter text-ink" style="font-size:clamp(3rem,5vw,4.6rem);opacity:.14;">' + cat + "</p>" +
+          "</div>" });
+      }
+      if (feat) cells.push({ s: 3, h: card(feat, true) });
+      if (!chrome && feat) {
+        cells.push({ s: 3, h: '<div class="rounded-2xl col-span-full lg:col-span-3 grid place-items-center" style="border:1px dashed var(--line);">' +
+            '<p class="font-mono text-xs text-muted">every tool, unlimited on Pro &mdash; see pricing</p></div>' });
+      }
+      rest.forEach(function (t) { cells.push({ s: 2, h: card(t, false) }); });
+      if (chrome) {
+        cells.push({ s: 2, h: '<div class="rounded-2xl p-5 grid place-items-center lg:col-span-2" style="background:var(--surface);border:1px dashed var(--line);" aria-hidden="true">' +
+            '<span class="font-display font-extrabold text-4xl num text-ink">' + items.length + "</span></div>" });
+      }
+      var sum = cells.reduce(function (s, c) { return s + c.s; }, 0);
+      var pad = (6 - (sum % 6)) % 6;
+      if (pad) {
+        cells.push({ s: pad, h: '<div class="rounded-2xl col-span-full px-4 py-5 lg:col-span-' + pad + ' grid place-items-center text-center" style="border:1px dashed var(--line);">' +
+            '<p class="font-mono text-xs text-muted">every tool, unlimited on Pro &mdash; see pricing</p></div>' });
+      }
+      return '<section class="tool-group" data-cat="' + cat + '">' +
+          '<div class="mt-20 mb-6 flex items-baseline justify-between gap-4">' +
+            '<h2 class="font-display font-bold tracking-tight text-ink" style="font-size:clamp(1.5rem,2.4vw,2.1rem);">' + cat + "</h2>" +
+            '<p class="font-mono text-xs text-muted num">' + items.length + " tools</p>" +
+          "</div>" +
+          '<div class="grid grid-cols-2 lg:grid-cols-6 grid-flow-dense gap-4">' + cells.map(function (c) { return c.h; }).join("") + "</div>" +
+        "</section>";
+    }
+
+    root.innerHTML = cats.map(function (c) { return group(c, TOOLS.filter(function (t) { return t.c === c; }), true); }).join("");
 
     var buttons = Array.prototype.slice.call(document.querySelectorAll(".filter-btn"));
     function apply(cat) {
-      Array.prototype.forEach.call(grid.children, function (card) {
-        var show = cat === "all" || card.getAttribute("data-cat") === cat;
-        card.setAttribute("data-hidden", show ? "false" : "true");
-      });
+      root.innerHTML = (cat === "all" ? cats : [cat]).map(function (c) {
+        return group(c, TOOLS.filter(function (t) { return t.c === c; }), cat === "all");
+      }).join("");
       buttons.forEach(function (b) {
         b.setAttribute("aria-pressed", b.getAttribute("data-filter") === cat ? "true" : "false");
       });
+      if (window.gsap) {
+        gsap.utils.toArray(".tool-group").forEach(function (node) {
+          gsap.from(node, { y: 30, opacity: 0, duration: 0.6, ease: "power3.out",
+            scrollTrigger: { trigger: node, start: "top 92%" } });
+        });
+      }
     }
     buttons.forEach(function (b) {
       b.addEventListener("click", function () { apply(b.getAttribute("data-filter")); });
@@ -224,6 +276,11 @@
         { scale: 1, opacity: 0.9, ease: "none",
           scrollTrigger: { trigger: "#band", start: "top bottom", end: "center center", scrub: true } });
     }
+
+    gsap.utils.toArray(".tool-group").forEach(function (node) {
+      gsap.from(node, { y: 30, opacity: 0, duration: 0.6, ease: "power3.out",
+        scrollTrigger: { trigger: node, start: "top 92%" } });
+    });
 
     var guard = document.querySelector(".guard-cards");
     if (guard) {
