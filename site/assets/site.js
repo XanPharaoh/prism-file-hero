@@ -90,6 +90,7 @@
       return '<a href="' + l.href + '" class="nav-link" data-nav="' + l.k + '"' + cur + ">" + l.t + "</a>";
     }).join("");
     root.innerHTML =
+      '<a href="#main" class="skip-link">Skip to content</a>' +
       '<header class="fixed top-4 inset-x-0 z-50 px-4 pointer-events-none">' +
         '<nav class="pointer-events-auto mx-auto max-w-5xl flex items-center justify-between gap-4 rounded-full border px-5 py-2.5 backdrop-blur-md shadow-lg shadow-black/20" ' +
           'style="border-color:rgba(242,244,248,.16);background:rgba(11,15,22,.85);color:#f2f4f8;">' +
