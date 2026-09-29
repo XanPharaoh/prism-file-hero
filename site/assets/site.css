@@ -96,8 +96,24 @@ details[open] .faq-plus{transform:rotate(45deg);}
 .demo-tab[aria-selected="true"]{color:#fff;background:rgba(255,255,255,.07);border-color:var(--slab-line);}
 .demo-scene{opacity:0;visibility:hidden;}
 .demo-scene.is-live{opacity:1;visibility:visible;}
+#drop-zone{cursor:pointer;transition:background .25s ease;}
+#drop-zone:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+.drop-frame{border:1.5px dashed var(--slab-line);transition:border-color .25s ease,background .25s ease;}
+#drop-zone.is-drop .drop-frame{border-color:var(--accent);background:rgba(200,16,46,.07);}
+/* idle invite: breathing dashed frame + bobbing icon, only while empty */
+.demo-scene[data-scene="merge"]:not(.has-files):not(.is-magic) .drop-frame{animation:dropPulse 2.8s ease-in-out infinite;}
+.demo-scene[data-scene="merge"]:not(.has-files):not(.is-magic) .drop-icon{animation:dropBob 2.8s ease-in-out infinite;}
+@keyframes dropPulse{0%,100%{border-color:var(--slab-line);}50%{border-color:rgba(255,82,102,.55);}}
+@keyframes dropBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
+#drop-list{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent;}
+/* magic: shimmer sweep across the output page while merging */
+.magic-shine{position:relative;}
+.magic-shine::after{content:"";position:absolute;top:-10%;left:-60%;width:45%;height:120%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.65),transparent);transform:skewX(-18deg);opacity:0;}
+.demo-scene[data-scene="merge"].is-magic .magic-shine::after{animation:shine 1.1s ease-in-out infinite;opacity:1;}
+@keyframes shine{to{left:130%;}}
 @media (prefers-reduced-motion: reduce){
   .demo-scene{opacity:1;visibility:visible;position:relative;}
   .demo-scene + .demo-scene{margin-top:2rem;}
   .demo-body{height:auto !important;}
+  .drop-frame,.drop-icon,.magic-shine::after{animation:none !important;}
 }

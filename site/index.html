@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Prism File Hero &mdash; every document job, in one honest app</title>
+<title>Prism File Hero: every document job, in one honest app</title>
 <meta name="description" content="A local-first document suite: 37 tools for every PDF you touch, plus a South African financial engine that reads statements and exports reconciled, VAT-ready workbooks.">
 <link rel="stylesheet" href="assets/fonts.css" integrity="sha384-YiRFjtFUpF14QV1s++pYX1JHYg0RF9mdJisd5Xb62y4JNjMvYQOWlMU0HtFH9E6Z" crossorigin="anonymous">
 <script src="assets/vendor/tailwind-jit.js" integrity="sha384-r6SdLxFNrT+/0GxNHTD+RxE7wK3cZsdzxOJp1T7+PN1TNyyrDk6jn1RDdlObV95f" crossorigin="anonymous"></script>
@@ -26,7 +26,7 @@
         Every document job,<br>handled in seconds.
       </h1>
       <p class="hero-in mt-8 mx-auto max-w-2xl text-lg md:text-xl leading-relaxed" style="color:#b6bfcb;">
-        Merge, split, compress, redact, OCR, convert, compare, summarise &mdash; thirty-seven local-first tools for the PDFs you touch every day. And when the work is serious, a financial engine that proves its own numbers.
+        Merge, split, compress, redact, OCR, convert, compare, summarise: thirty-seven local-first tools for the PDFs you touch every day. And when the work is serious, a financial engine that proves its own numbers.
       </p>
       <div class="hero-in mt-12 flex flex-wrap items-center justify-center gap-4">
         <a href="https://prismfilehero.com" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Open the app free</a>
@@ -58,35 +58,42 @@
             <button type="button" class="demo-tab" data-scene="merge" aria-selected="true">Merge PDF</button>
             <button type="button" class="demo-tab" data-scene="bank" aria-selected="false">Statement &rarr; Excel</button>
             <button type="button" class="demo-tab" data-scene="redact" aria-selected="false">Redact PII</button>
-            <button type="button" class="demo-tab" aria-selected="false" tabindex="-1">OCR</button>
-            <button type="button" class="demo-tab" aria-selected="false" tabindex="-1">Compress</button>
-            <button type="button" class="demo-tab" aria-selected="false" tabindex="-1">Compare</button>
+            <a href="tools.html" class="demo-tab no-underline" tabindex="0">+ 34 more</a>
           </div>
           <span class="ml-auto hidden sm:block font-mono text-[10px] shrink-0" style="color:#67717f;">37 tools</span>
         </div>
 
         <div class="demo-body relative min-h-[520px] md:min-h-0 md:h-[340px]">
-          <!-- SCENE: MERGE -->
+          <!-- SCENE: MERGE (live: real drag-drop, real client-side merge) -->
           <div class="demo-scene absolute inset-0 grid grid-cols-1 md:grid-cols-5" data-scene="merge">
-            <div class="md:col-span-2 p-5 md:p-6 flex flex-col gap-2.5" style="border-right:1px solid var(--slab-line);">
-              <p class="font-mono text-[10px] uppercase tracking-[0.16em]" style="color:#67717f;">Drop files in</p>
-              <div class="demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:rgba(255,255,255,.04);border:1px solid var(--slab-line);"><span class="demo-chip-ext shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5" style="background:rgba(200,16,46,.18);color:#ff5266;">PDF</span><span class="text-xs" style="color:#c3cad4;">invoice-march.pdf</span><span class="ml-auto font-mono text-[10px]" style="color:#67717f;">4 pp</span></div>
-              <div class="demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:rgba(255,255,255,.04);border:1px solid var(--slab-line);"><span class="demo-chip-ext shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5" style="background:rgba(200,16,46,.18);color:#ff5266;">PDF</span><span class="text-xs" style="color:#c3cad4;">quote-771.pdf</span><span class="ml-auto font-mono text-[10px]" style="color:#67717f;">2 pp</span></div>
-              <div class="demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:rgba(255,255,255,.04);border:1px solid var(--slab-line);"><span class="demo-chip-ext shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5" style="background:rgba(200,16,46,.18);color:#ff5266;">PDF</span><span class="text-xs" style="color:#c3cad4;">delivery-note.pdf</span><span class="ml-auto font-mono text-[10px]" style="color:#67717f;">6 pp</span></div>
-              <div class="demo-proc mt-auto h-1 rounded-full overflow-hidden" style="background:rgba(255,255,255,.08);"><span class="demo-proc-bar block h-full w-0 rounded-full" style="background:var(--accent);"></span></div>
+            <div id="drop-zone" class="md:col-span-2 p-4 md:p-5 flex flex-col" role="button" tabindex="0" aria-label="Drop PDFs here, or click to choose files" style="border-right:1px solid var(--slab-line);">
+              <div class="drop-frame relative flex-1 rounded-xl overflow-hidden">
+                <div id="drop-idle" class="absolute inset-0 grid place-items-center text-center p-4 transition-opacity duration-300">
+                  <div class="flex flex-col items-center gap-2 pointer-events-none">
+                    <svg class="drop-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8b95a3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+                    <p class="font-display font-semibold text-base tracking-tight" style="color:var(--slab-ink);">Drop PDFs here</p>
+                    <p class="text-xs" style="color:#8b95a3;">or click to choose files</p>
+                    <p class="mt-1 font-mono text-[10px]" style="color:#67717f;">in this browser &middot; nothing uploads</p>
+                  </div>
+                </div>
+                <div id="drop-list" class="absolute inset-0 flex flex-col gap-2 p-3 overflow-y-auto" style="visibility:hidden;"></div>
+              </div>
+              <input type="file" id="pdf-input" accept=".pdf,application/pdf" multiple class="hidden" tabindex="-1">
+              <div class="demo-proc mt-3 h-1 rounded-full overflow-hidden" style="background:rgba(255,255,255,.08);"><span class="demo-proc-bar block h-full w-0 rounded-full" style="background:var(--accent);"></span></div>
             </div>
             <div class="md:col-span-3 demo-result p-5 md:p-6 flex items-center gap-6">
               <div class="relative shrink-0" style="width:92px;height:120px;">
                 <span class="absolute inset-0 rounded-md" style="background:#dfe3e9;transform:rotate(-8deg) translate(-6px,6px);"></span>
                 <span class="absolute inset-0 rounded-md" style="background:#eef0f4;transform:rotate(4deg) translate(4px,3px);"></span>
-                <span class="demo-out absolute inset-0 rounded-md grid place-items-center" style="background:#fff;">
-                  <span class="font-mono text-[10px] font-semibold" style="color:var(--accent);">12 pp</span>
+                <span class="demo-out magic-shine absolute inset-0 rounded-md grid place-items-center" style="background:#fff;">
+                  <span id="out-count" class="font-mono text-[10px] font-semibold" style="color:var(--accent);">PDF</span>
                 </span>
               </div>
               <div>
-                <p class="demo-badge inline-flex items-center gap-2 rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em]" style="background:rgba(65,192,127,.14);color:#41c07f;">Done &middot; 1.2 s</p>
+                <p id="merge-badge" class="demo-badge inline-flex items-center gap-2 rounded-full px-3 py-1 font-mono text-[10px]" style="background:rgba(255,255,255,.06);color:#8b95a3;">Awaiting files</p>
                 <p class="mt-3 font-display font-semibold text-base tracking-tight" style="color:var(--slab-ink);">combined.pdf</p>
-                <p class="mt-1 text-xs" style="color:#9aa4b2;">Three files, one document &mdash; processed on this device.</p>
+                <p id="merge-note" class="mt-1 text-xs" style="color:#9aa4b2;">Drop files and we&rsquo;ll do the magic, right on this device.</p>
+                <a id="merge-dl" href="#" class="hidden mt-4 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 font-display font-semibold text-sm transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Download combined.pdf</a>
               </div>
             </div>
           </div>
@@ -94,7 +101,7 @@
           <!-- SCENE: BANK -->
           <div class="demo-scene absolute inset-0 grid grid-cols-1 md:grid-cols-5" data-scene="bank">
             <div class="md:col-span-2 p-5 md:p-6 flex flex-col gap-2.5" style="border-right:1px solid var(--slab-line);">
-              <p class="font-mono text-[10px] uppercase tracking-[0.16em]" style="color:#67717f;">Drop files in</p>
+              <p class="font-mono text-[10px]" style="color:#67717f;">Drop files in</p>
               <div class="demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:rgba(255,255,255,.04);border:1px solid var(--slab-line);"><span class="demo-chip-ext shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5" style="background:rgba(200,16,46,.18);color:#ff5266;">PDF</span><span class="text-xs" style="color:#c3cad4;">capitee-statement-mar.pdf</span></div>
               <div class="demo-lines mt-2 flex flex-col gap-2">
                 <span class="demo-line h-2 rounded-full" style="background:rgba(255,255,255,.12);width:88%;"></span>
@@ -124,14 +131,14 @@
                   <span class="px-2.5 py-2">31/03</span><span class="px-2.5 py-2">CLOSING BALANCE</span><span class="px-2.5 py-2 text-right">14 382,76</span>
                 </div>
               </div>
-              <p class="mt-3 text-xs" style="color:#9aa4b2;">statement.xlsx &mdash; nine SARS VAT columns, every total re-added.</p>
+              <p class="mt-3 text-xs" style="color:#9aa4b2;">statement.xlsx: nine SARS VAT columns, every total re-added.</p>
             </div>
           </div>
 
           <!-- SCENE: REDACT -->
           <div class="demo-scene absolute inset-0 grid grid-cols-1 md:grid-cols-5" data-scene="redact">
             <div class="md:col-span-2 p-5 md:p-6 flex flex-col gap-2.5" style="border-right:1px solid var(--slab-line);">
-              <p class="font-mono text-[10px] uppercase tracking-[0.16em]" style="color:#67717f;">Drop files in</p>
+              <p class="font-mono text-[10px]" style="color:#67717f;">Drop files in</p>
               <div class="demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:rgba(255,255,255,.04);border:1px solid var(--slab-line);"><span class="demo-chip-ext shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5" style="background:rgba(200,16,46,.18);color:#ff5266;">PDF</span><span class="text-xs" style="color:#c3cad4;">contract-signed.pdf</span></div>
               <div class="demo-proc mt-auto h-1 rounded-full overflow-hidden" style="background:rgba(255,255,255,.08);"><span class="demo-proc-bar block h-full w-0 rounded-full" style="background:var(--accent);"></span></div>
             </div>
@@ -148,7 +155,7 @@
                   <span class="demo-redact h-2 rounded-full" style="background:#12161c;width:52%;"></span>
                 </div>
               </div>
-              <p class="mt-3 text-xs" style="color:#9aa4b2;">ID number, account number and address &mdash; deleted from the file, not just covered.</p>
+              <p class="mt-3 text-xs" style="color:#9aa4b2;">ID number, account number and address: deleted from the file, not just covered.</p>
             </div>
           </div>
         </div>
@@ -176,7 +183,7 @@
     <h2 class="font-display font-bold tracking-tight text-ink leading-tight max-w-2xl" style="font-size:clamp(2rem,3.6vw,3.25rem);">
       One app for the whole paperwork day.
     </h2>
-    <p class="mt-5 max-w-2xl text-muted">Most teams keep five browser tabs for five document chores. Prism is the honest replacement &mdash; the everyday toolbox and the heavy financial work, together.</p>
+    <p class="mt-5 max-w-2xl text-muted">Most teams keep five browser tabs for five document chores. Prism is the honest replacement: the everyday toolbox and the heavy financial work, together.</p>
 
     <!-- 2 cols x 2 rows = 4 tiles; one is an image tile. gapless by construction. -->
     <div class="mt-14 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -186,7 +193,7 @@
         <div class="absolute inset-0" style="background:linear-gradient(to top, rgba(11,15,22,.9) 6%, rgba(11,15,22,.15) 55%);"></div>
         <div class="absolute bottom-0 p-8 text-white">
           <h3 class="font-display font-semibold text-2xl tracking-tight">For every file that fights back</h3>
-          <p class="mt-2 text-sm leading-relaxed" style="color:#c3cad4;">Skewed photos, corrupted streams, locked tables, password walls. Repair it, rotate it, redact it, turn it into data &mdash; the toolbox absorbs all of it.</p>
+          <p class="mt-2 text-sm leading-relaxed" style="color:#c3cad4;">Skewed photos, corrupted streams, locked tables, password walls. Repair it, rotate it, redact it, turn it into data. The toolbox absorbs all of it.</p>
           <p class="mt-4 font-mono text-[11px] uppercase tracking-[0.16em] text-accent">Browse the toolbox &rarr;</p>
         </div>
       </a>
@@ -206,7 +213,7 @@
       <a href="financial.html" class="rise rounded-2xl p-7 block transition-transform duration-500 hover:-translate-y-1" style="border:1px solid var(--accent);background:var(--surface);">
         <p class="text-[10px] uppercase tracking-[0.16em] font-semibold text-accent">Flagship</p>
         <h3 class="mt-1 font-display font-semibold text-xl tracking-tight text-ink">A financial engine that proves itself</h3>
-        <p class="mt-2 text-sm leading-relaxed text-muted">Bank statements become reconciled, VAT-ready workbooks &mdash; with five deterministic checks that refuse to ship a number they can&rsquo;t re-derive.</p>
+        <p class="mt-2 text-sm leading-relaxed text-muted">Bank statements become reconciled, VAT-ready workbooks, with five deterministic checks that refuse to ship a number they can&rsquo;t re-derive.</p>
         <p class="mt-4 font-mono text-[11px] uppercase tracking-[0.16em] text-muted">Meet the engine &rarr;</p>
       </a>
     </div>
@@ -222,7 +229,7 @@
         <div class="rounded-2xl border border-line bg-surface p-6"><p class="font-mono text-[11px] tracking-[0.16em] text-accent">ANDROID</p><h3 class="mt-2 font-display font-semibold text-base tracking-tight text-ink">Scan on the go</h3><p class="mt-1.5 text-sm text-muted">On-device document scanner, share-sheet and camera capture.</p></div>
         <div class="rounded-2xl border border-line bg-surface p-6"><p class="font-mono text-[11px] tracking-[0.16em] text-accent">OFFLINE</p><h3 class="mt-2 font-display font-semibold text-base tracking-tight text-ink">Document Suite</h3><p class="mt-1.5 text-sm text-muted">A 29-tool offline engine with local OCR for no-network work.</p></div>
       </div>
-      <p class="mt-8 text-sm text-muted">Multi-model AI with automatic failover &mdash; or keep it entirely local. Private by default, POPIA-aligned.</p>
+      <p class="mt-8 text-sm text-muted">Multi-model AI with automatic failover, or keep it entirely local. Private by default, POPIA-aligned.</p>
     </div>
   </section>
 

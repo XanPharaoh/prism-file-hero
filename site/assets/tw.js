@@ -1,4 +1,4 @@
-/* Prism File Hero — shared Tailwind Play CDN theme. Loaded after the CDN script. */
+/* Prism File Hero: shared Tailwind Play CDN theme. Loaded after the CDN script. */
 tailwind.config = {
   theme: {
     extend: {

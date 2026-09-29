@@ -1,4 +1,4 @@
-/* Prism File Hero — shared shell: nav/footer, tool data, ticker, filters, billing, motion.
+/* Prism File Hero: shared shell: nav/footer, tool data, ticker, filters, billing, motion.
    Each page sets <body data-page="home|tools|financial|pricing"> and provides mount points. */
 (function () {
   "use strict";
@@ -10,7 +10,7 @@
     // Organize (11)
     { n: "Merge PDF", d: "Combine multiple PDFs into one document.", c: "Organize" },
     { n: "Split PDF", d: "Extract pages into separate files, zipped.", c: "Organize" },
-    { n: "Rotate PDF", d: "Fix orientation — 90°, 180° or 270°.", c: "Organize" },
+    { n: "Rotate PDF", d: "Fix orientation: 90°, 180° or 270°.", c: "Organize" },
     { n: "Auto-Rotate Pages", d: "Standardise mixed landscape and portrait.", c: "Organize" },
     { n: "Delete Pages", d: "Remove unwanted pages or ranges.", c: "Organize" },
     { n: "Extract Pages", d: "Pull specific pages into a new PDF.", c: "Organize" },
@@ -176,7 +176,7 @@
       if (feat) cells.push({ s: 3, h: card(feat, true) });
       if (!chrome && feat) {
         cells.push({ s: 3, h: '<div class="rounded-2xl col-span-full lg:col-span-3 grid place-items-center" style="border:1px dashed var(--line);">' +
-            '<p class="font-mono text-xs text-muted">every tool, unlimited on Pro &mdash; see pricing</p></div>' });
+            '<p class="font-mono text-xs text-muted">every tool, unlimited on Pro &middot; see pricing</p></div>' });
       }
       rest.forEach(function (t) { cells.push({ s: 2, h: card(t, false) }); });
       if (chrome) {
@@ -187,7 +187,7 @@
       var pad = (6 - (sum % 6)) % 6;
       if (pad) {
         cells.push({ s: pad, h: '<div class="rounded-2xl col-span-full px-4 py-5 lg:col-span-' + pad + ' grid place-items-center text-center" style="border:1px dashed var(--line);">' +
-            '<p class="font-mono text-xs text-muted">every tool, unlimited on Pro &mdash; see pricing</p></div>' });
+            '<p class="font-mono text-xs text-muted">every tool, unlimited on Pro &middot; see pricing</p></div>' });
       }
       return '<section class="tool-group" data-cat="' + cat + '">' +
           '<div class="mt-20 mb-6 flex items-baseline justify-between gap-4">' +
@@ -258,19 +258,33 @@
   }
 
   /* ---------------- hero demo window ---------------- */
+  var libQueue = null;
+  function ensureLib(cb) {
+    if (window.PDFLib) return cb(window.PDFLib);
+    if (libQueue) { libQueue.push(cb); return; }
+    libQueue = [cb];
+    var s = document.createElement("script");
+    s.src = "assets/vendor/pdf-lib.min.js";
+    s.integrity = "sha384-weMABwrltA6jWR8DDe9Jp5blk+tZQh7ugpCsF3JwSA53WZM9/14PjS5LAJNHNjAI";
+    s.crossOrigin = "anonymous";
+    s.onload = function () { var q = libQueue; libQueue = null; q.forEach(function (f) { f(window.PDFLib); }); };
+    s.onerror = function () { var q = libQueue; libQueue = null; q.forEach(function (f) { f(null); }); };
+    document.head.appendChild(s);
+  }
+
   function mountDemo() {
     var win = document.getElementById("demo-window");
-    if (!win || typeof gsap === "undefined") return;
+    if (!win) return;
+    var hasGsap = typeof gsap !== "undefined";
     var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     var scenes = Array.prototype.slice.call(win.querySelectorAll(".demo-scene"));
     var tabs = Array.prototype.slice.call(win.querySelectorAll(".demo-tab[data-scene]"));
     if (!scenes.length) return;
 
-    if (reduced) { scenes[0].classList.add("is-live"); return; }
-
-    var index = 0, timer = null, tl = null;
+    var index = 0, timer = null, tl = null, takeover = false;
 
     function park(scene) {
+      if (!hasGsap) return;
       var q = function (sel) { return Array.prototype.slice.call(scene.querySelectorAll(sel)); };
       gsap.set(q(".demo-chip"), { x: 0, opacity: 1 });
       gsap.set(q(".demo-badge, .demo-out, .demo-line"), { clearProps: "transform,opacity,scale,x,y" });
@@ -285,9 +299,12 @@
       park(scene);
       tl = gsap.timeline();
       tl.fromTo(scene, { opacity: 0, visibility: "visible" }, { opacity: 1, duration: 0.3, ease: "power2.out" })
-        .fromTo(q(".demo-chip"), { x: -24, opacity: 0 }, { x: 0, opacity: 1, duration: 0.4, stagger: 0.12, ease: "power3.out" }, "-=0.1")
-        .to(scene.querySelector(".demo-proc-bar"), { width: "100%", duration: 0.9, ease: "power1.inOut" })
-        .fromTo(q(".demo-badge"), { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: "back.out(2.4)" })
+        .fromTo(q(".demo-chip"), { x: -24, opacity: 0 }, { x: 0, opacity: 1, duration: 0.4, stagger: 0.12, ease: "power3.out" }, "-=0.1");
+      // merge is a live tool, not a scripted demo: its bar stays empty until real files land
+      var bar = scene.querySelector(".demo-proc-bar");
+      if (scene.dataset.scene === "merge") { if (bar) gsap.set(bar, { width: 0 }); }
+      else if (bar) { tl.to(bar, { width: "100%", duration: 0.9, ease: "power1.inOut" }); }
+      tl.fromTo(q(".demo-badge"), { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: "back.out(2.4)" })
         .fromTo(q(".demo-out"), { y: 16, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" }, "-=0.15")
         .fromTo(q(".demo-line"), { opacity: 0 }, { opacity: 1, duration: 0.25, stagger: 0.05 }, "<")
         .fromTo(q(".demo-redact"), { scaleX: 0 }, { scaleX: 1, duration: 0.3, stagger: 0.18, ease: "power2.out", transformOrigin: "left center" }, "-=0.2");
@@ -295,12 +312,16 @@
 
     function show(i) {
       index = i;
+      tabs.forEach(function (t, k) { t.setAttribute("aria-selected", k === i ? "true" : "false"); });
+      if (!hasGsap) {
+        scenes.forEach(function (s, k) { s.classList.toggle("is-live", k === i); });
+        return;
+      }
       scenes.forEach(function (s, k) {
         if (k === i) return;
         park(s);
         gsap.to(s, { opacity: 0, visibility: "hidden", duration: 0.25 });
       });
-      tabs.forEach(function (t, k) { t.setAttribute("aria-selected", k === i ? "true" : "false"); });
       playScene(scenes[i]);
     }
 
@@ -310,15 +331,159 @@
     }
     function stop() { if (timer) { clearInterval(timer); timer = null; } }
 
+    /* live merge: real files, real pdf-lib, all client-side */
+    function wireDrop() {
+      var zone = win.querySelector("#drop-zone");
+      if (!zone) return;
+      var input = zone.querySelector("#pdf-input");
+      var list = zone.querySelector("#drop-list");
+      var idle = zone.querySelector("#drop-idle");
+      var bar = zone.querySelector(".demo-proc-bar");
+      var badge = win.querySelector("#merge-badge");
+      var note = win.querySelector("#merge-note");
+      var dl = win.querySelector("#merge-dl");
+      var out = win.querySelector("#out-count");
+      var scene = win.querySelector('.demo-scene[data-scene="merge"]');
+      var docs = [], pending = 0, magicStart = 0;
+
+      zone.addEventListener("click", function () { input.click(); });
+      zone.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+      zone.addEventListener("dragover", function (e) { e.preventDefault(); zone.classList.add("is-drop"); });
+      zone.addEventListener("dragleave", function (e) { if (!zone.contains(e.relatedTarget)) zone.classList.remove("is-drop"); });
+      zone.addEventListener("drop", function (e) {
+        e.preventDefault();
+        zone.classList.remove("is-drop");
+        handleFiles(e.dataTransfer && e.dataTransfer.files);
+      });
+      input.addEventListener("change", function () { handleFiles(input.files); input.value = ""; });
+
+      function handleFiles(files) {
+        var pdfs = Array.prototype.filter.call(files, function (f) { return /\.pdf$/i.test(f.name) || f.type === "application/pdf"; });
+        if (!pdfs.length) return;
+        takeover = true;
+        stop();
+        show(0);
+        if (!docs.length) { list.textContent = ""; if (idle) { idle.style.opacity = "0"; idle.style.visibility = "hidden"; } list.style.visibility = "visible"; scene.classList.add("has-files"); }
+        setMagic(true);
+        pdfs.slice(0, Math.max(0, 12 - docs.length)).forEach(addFile);
+      }
+
+      function setMagic(on) {
+        if (!scene) return;
+        scene.classList.toggle("is-magic", on);
+        if (on) {
+          magicStart = Date.now();
+          if (badge) { badge.textContent = "Working our magic\u2026"; badge.style.background = "rgba(200,16,46,.16)"; badge.style.color = "#ff5266"; }
+          if (out) out.textContent = "pdf";
+        }
+      }
+
+      function addFile(file) {
+        var chip = document.createElement("div");
+        chip.className = "demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5";
+        chip.style.cssText = "background:rgba(255,255,255,.04);border:1px solid var(--slab-line);";
+        var tag = document.createElement("span");
+        tag.className = "shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5";
+        tag.style.cssText = "background:rgba(200,16,46,.18);color:#ff5266;";
+        tag.textContent = "PDF";
+        var nm = document.createElement("span");
+        nm.className = "text-xs truncate";
+        nm.style.color = "#c3cad4";
+        nm.textContent = file.name;
+        nm.title = file.name;
+        var pg = document.createElement("span");
+        pg.className = "ml-auto shrink-0 font-mono text-[10px]";
+        pg.style.color = "#67717f";
+        pg.textContent = "…";
+        chip.appendChild(tag); chip.appendChild(nm); chip.appendChild(pg);
+        list.appendChild(chip);
+
+        var entry = { doc: null, pages: 0 };
+        docs.push(entry);
+        pending++;
+
+        if (file.size > 30 * 1024 * 1024) { pg.textContent = "too big"; pending--; finish(); return; }
+        ensureLib(function (PDFLib) {
+          if (!PDFLib) { pg.textContent = "n/a"; pending--; finish(); return; }
+          file.arrayBuffer().then(function (buf) {
+            return PDFLib.PDFDocument.load(buf, { ignoreEncryption: true });
+          }).then(function (d) {
+            entry.doc = d; entry.pages = d.getPageCount();
+            pg.textContent = entry.pages + " pp";
+          }).catch(function () {
+            pg.textContent = "unreadable";
+          }).then(function () { pending--; finish(); });
+        });
+      }
+
+      function finish() {
+        if (pending > 0) return;
+        var ok = docs.filter(function (d) { return d.doc; });
+        var pages = ok.reduce(function (s, d) { return s + d.pages; }, 0);
+        if (bar) {
+          bar.style.transition = "none"; bar.style.width = "0";
+          requestAnimationFrame(function () { bar.style.transition = "width .9s ease-in-out"; bar.style.width = "100%"; });
+        }
+        var dwell = Math.max(0, 1200 - (Date.now() - magicStart));
+        setTimeout(function () {
+          setMagic(false);
+          if (out) out.textContent = pages ? pages + " pp" : "PDF";
+          if (badge) {
+            if (ok.length) { badge.textContent = "Merged " + ok.length + (ok.length === 1 ? " file" : " files"); badge.style.background = "rgba(65,192,127,.14)"; badge.style.color = "#41c07f"; }
+            else { badge.textContent = "No valid PDFs"; badge.style.background = "rgba(255,255,255,.06)"; badge.style.color = "#8b95a3"; }
+          }
+          if (note) note.textContent = ok.length
+            ? ok.length + " files, " + pages + " pages combined in this browser. Nothing uploaded."
+            : "Those files could not be read. Any valid PDF will do.";
+          if (dl) {
+            dl.classList.toggle("hidden", !ok.length);
+            if (ok.length) buildDownload();
+          }
+        }, 900 + dwell);
+      }
+
+      var lastUrl = null, building = false;
+      function buildDownload() {
+        if (!dl || building) return;
+        building = true;
+        dl.removeAttribute("href");
+        dl.textContent = "Preparing download…";
+        ensureLib(function (PDFLib) {
+          if (!PDFLib) { dl.textContent = "Download combined.pdf"; building = false; return; }
+          PDFLib.PDFDocument.create().then(function (outDoc) {
+            var jobs = docs.filter(function (d) { return d.doc; }).map(function (d) {
+              return outDoc.copyPages(d.doc, d.doc.getPageIndices()).then(function (pages) {
+                pages.forEach(function (p) { outDoc.addPage(p); });
+              });
+            });
+            return Promise.all(jobs).then(function () { return outDoc.save(); });
+          }).then(function (bytes) {
+            if (lastUrl) URL.revokeObjectURL(lastUrl);
+            lastUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+            dl.href = lastUrl;
+            dl.setAttribute("download", "combined.pdf");
+            dl.textContent = "Download combined.pdf";
+            building = false;
+          }).catch(function () {
+            dl.textContent = "Could not combine";
+            building = false;
+          });
+        });
+      }
+    }
+
+    wireDrop();
+    if (reduced || !hasGsap) { show(0); return; }
+
     tabs.forEach(function (t, k) {
-      t.addEventListener("click", function () { show(k); schedule(); });
+      t.addEventListener("click", function () { show(k); if (!takeover) schedule(); });
     });
     win.addEventListener("mouseenter", stop);
-    win.addEventListener("mouseleave", schedule);
-    document.addEventListener("visibilitychange", function () { document.hidden ? stop() : schedule(); });
+    win.addEventListener("mouseleave", function () { if (!takeover) schedule(); });
+    document.addEventListener("visibilitychange", function () { document.hidden || takeover ? stop() : schedule(); });
 
     var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) { e.isIntersecting ? schedule() : stop(); });
+      entries.forEach(function (e) { (e.isIntersecting && !takeover) ? schedule() : stop(); });
     });
     io.observe(win);
 
