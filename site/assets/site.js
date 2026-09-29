@@ -114,7 +114,7 @@
           '<div class="flex flex-col md:flex-row md:items-start justify-between gap-10">' +
             "<div>" +
               '<p class="font-display font-semibold tracking-tight text-lg">Prism File Hero</p>' +
-              '<p class="mt-2 text-sm max-w-xs" style="color:#9aa4b2;">Local-first document suite and a South African financial engine that proves its own numbers.</p>' +
+              '<p class="mt-2 text-sm max-w-xs" style="color:#9aa4b2;">Local-first document suite, plus a South African financial engine that has to balance before it exports.</p>' +
             "</div>" +
             '<div class="grid grid-cols-2 gap-x-16 gap-y-2 text-sm" style="color:#9aa4b2;">' +
               '<a href="tools.html" class="hover:text-white transition-colors">Tools</a>' +
