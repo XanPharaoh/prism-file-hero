@@ -1,0 +1,9 @@
+Photography credits - all images self-hosted, Pexels license (free for commercial use, no attribution required).
+
+hero-documents.webp  https://www.pexels.com/photo/17869840/
+hero-ledger.webp     https://www.pexels.com/photo/6538574/
+scan-rescue.webp     https://www.pexels.com/photo/9301887/
+receipt.webp         https://www.pexels.com/photo/19224085/ (crop of line-items band)
+tools-archive.webp   https://www.pexels.com/photo/11176866/
+
+Processed with ImageMagick: centre-cropped to slot aspect, webp q74-82.
