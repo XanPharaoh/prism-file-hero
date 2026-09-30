@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Financial Engine: reconciled, VAT-ready workbooks | Prism File Hero</title>
+<meta name="description" content="The Prism financial engine: 14 bank profiles, one canonical schema, a six-strategy self-healing chain, five deterministic reconciliation layers and SARS VAT-ready output in English and Afrikaans.">
+<link rel="stylesheet" href="assets/fonts.css" integrity="sha384-YiRFjtFUpF14QV1s++pYX1JHYg0RF9mdJisd5Xb62y4JNjMvYQOWlMU0HtFH9E6Z" crossorigin="anonymous">
+<script src="assets/vendor/tailwind-jit.js" integrity="sha384-r6SdLxFNrT+/0GxNHTD+RxE7wK3cZsdzxOJp1T7+PN1TNyyrDk6jn1RDdlObV95f" crossorigin="anonymous"></script>
+<script src="assets/tw.js"></script>
+<link rel="stylesheet" href="assets/site.css">
+<link rel="icon" href="assets/img/brand/favicon.svg" type="image/svg+xml">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/brand/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/img/brand/favicon-16x16.png">
+<link rel="apple-touch-icon" href="assets/img/brand/apple-touch-icon.png">
+<link rel="manifest" href="assets/site.webmanifest">
+<meta name="theme-color" content="#0b0f16">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Prism File Hero">
+<meta property="og:title" content="Financial Engine: reconciled, VAT-ready workbooks | Prism File Hero">
+<meta property="og:description" content="The Prism financial engine: 14 bank profiles, one canonical schema, a six-strategy self-healing chain, five deterministic reconciliation layers and SARS VAT-ready output in English and Afrikaans.">
+<meta property="og:image" content="assets/img/brand/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Financial Engine: reconciled, VAT-ready workbooks | Prism File Hero">
+<meta name="twitter:description" content="The Prism financial engine: 14 bank profiles, one canonical schema, a six-strategy self-healing chain, five deterministic reconciliation layers and SARS VAT-ready output in English and Afrikaans.">
+<meta name="twitter:image" content="assets/img/brand/og-image.png">
+</head>
+<body data-page="financial">
+<div id="nav-root"></div>
+
+<main id="main" class="overflow-x-hidden w-full max-w-full bg-ground text-ink font-body antialiased">
+
+  <!-- HERO -->
+  <section id="top" class="relative isolate overflow-hidden" style="background:var(--slab);color:var(--slab-ink);">
+    <div class="absolute inset-0 -z-10">
+      <img src="assets/img/hero-ledger.webp" alt="" class="h-full w-full object-cover opacity-55 grayscale contrast-125">
+      <div class="absolute inset-0" style="background:radial-gradient(120% 90% at 50% 0%, rgba(11,15,22,.12) 0%, rgba(11,15,22,.84) 60%, #0b0f16 100%);"></div>
+    </div>
+    <div class="mx-auto max-w-6xl px-6 pt-44 pb-24 md:pt-56 md:pb-32 text-center">
+      <h1 class="hero-in font-display font-bold tracking-tighter leading-[1.03] mx-auto max-w-5xl" style="font-size:clamp(2.6rem,5.6vw,5rem);">
+        Numbers you can hand<br>to the revenue service.
+      </h1>
+      <p class="hero-in mt-8 mx-auto max-w-2xl text-lg md:text-xl leading-relaxed" style="color:#b6bfcb;">
+        The financial engine reads bank and portfolio statements, rebuilds every transaction into one canonical schema, and refuses to export a ledger that doesn&rsquo;t reconcile. Filing-grade, not best-effort.
+      </p>
+      <div class="hero-in mt-12 flex flex-wrap items-center justify-center gap-4">
+        <a href="pricing.html" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Start with the engine</a>
+        <a href="tools.html" class="rounded-full border px-8 py-4 font-display font-medium text-base transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">Back to all tools</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ONE SCHEMA -->
+  <section class="mx-auto max-w-6xl px-6 pt-28 md:pt-36">
+    <h2 class="font-display font-bold tracking-tight text-ink leading-tight max-w-2xl" style="font-size:clamp(2rem,3.6vw,3.25rem);">Same columns, whatever the bank.</h2>
+    <p class="mt-5 max-w-2xl text-lg leading-relaxed text-muted">A Capitee statement and an Investec one look nothing alike going in. What comes out is the same six columns every time: date, description, category, debit, credit, running balance.</p>
+    <div class="rise mt-12 rounded-2xl border border-line bg-surface p-7 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[640px] text-sm font-mono num">
+          <thead>
+            <tr class="text-left text-[11px] uppercase tracking-[0.14em] text-muted">
+              <th class="py-2 pr-4 font-medium">Date</th><th class="py-2 pr-4 font-medium">Description</th><th class="py-2 pr-4 font-medium">Category</th>
+              <th class="py-2 pr-4 font-medium text-right">Debit</th><th class="py-2 pr-4 font-medium text-right">Credit</th><th class="py-2 font-medium text-right">Balance</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y text-ink" style="border-color:var(--line);">
+            <tr><td class="py-2.5 pr-4 text-muted">01 Sep</td><td class="py-2.5 pr-4">Salary &middot; client retainer</td><td class="py-2.5 pr-4 text-muted">Income</td><td class="py-2.5 pr-4 text-right text-muted">-</td><td class="py-2.5 pr-4 text-right text-credit">48 200,00</td><td class="py-2.5 text-right">112 480,14</td></tr>
+            <tr><td class="py-2.5 pr-4 text-muted">03 Sep</td><td class="py-2.5 pr-4">Card &middot; Shoprite</td><td class="py-2.5 pr-4 text-muted">Debits &amp; Expenses</td><td class="py-2.5 pr-4 text-right text-accent">1 240,50</td><td class="py-2.5 pr-4 text-right text-muted">-</td><td class="py-2.5 text-right">111 239,64</td></tr>
+            <tr><td class="py-2.5 pr-4 text-muted">05 Sep</td><td class="py-2.5 pr-4">Debit order &middot; rent</td><td class="py-2.5 pr-4 text-muted">Debits &amp; Expenses</td><td class="py-2.5 pr-4 text-right text-accent">14 500,00</td><td class="py-2.5 pr-4 text-right text-muted">-</td><td class="py-2.5 text-right">96 739,64</td></tr>
+            <tr><td class="py-2.5 pr-4 text-muted">07 Sep</td><td class="py-2.5 pr-4">Bank charges &middot; VAT 15%</td><td class="py-2.5 pr-4 text-muted">Bank Charges &amp; Taxes</td><td class="py-2.5 pr-4 text-right text-accent">46,00</td><td class="py-2.5 pr-4 text-right text-muted">-</td><td class="py-2.5 text-right">96 693,64</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- PINNED PIPELINE -->
+  <section id="pipe" class="relative mx-auto max-w-6xl px-6 py-28 md:py-36 lg:min-h-[240vh]">
+    <div id="pipe-left" class="lg:absolute lg:top-0 lg:left-6 lg:bottom-0 lg:flex lg:w-[42%] lg:items-center">
+      <div class="max-w-md">
+        <h2 class="font-display font-bold tracking-tight text-ink leading-tight" style="font-size:clamp(2rem,3.6vw,3.25rem);">How a statement becomes proof.</h2>
+        <p id="scrub" class="mt-6 text-lg leading-relaxed text-muted">
+          From a skewed photo of a statement
+          <span class="inline-block w-20 h-9 rounded-full align-middle bg-cover bg-center mx-1.5 border border-line grayscale-[.35]" style="background-image:url(assets/img/receipt.webp);" role="img" aria-label="A printed till receipt"></span>
+          to a reconciled workbook, every file runs the same disciplined route. Nothing is guessed twice, and every balance is checked on the way out.
+        </p>
+      </div>
+    </div>
+    <div class="mt-16 lg:mt-0 lg:ml-auto lg:w-[52%] lg:py-32 flex flex-col gap-6">
+      <article class="rise rounded-2xl border border-line bg-surface p-8 transition-transform duration-500 hover:-translate-y-1">
+        <h3 class="font-display font-semibold text-xl tracking-tight text-ink">Repair the file first</h3>
+        <p class="mt-2 text-sm leading-relaxed text-muted">Broken flate streams and corrupted compression are re-encoded with pdf-lib before parsing begins. A readable file in, every time.</p>
+        <p class="mt-5 font-mono text-[11px] tracking-wide text-muted"><span class="text-accent line-through">flate stream broken</span> &nbsp;&rarr;&nbsp; re-encoded &middot; opened clean</p>
+      </article>
+      <article class="rise rounded-2xl border border-line bg-surface p-8 transition-transform duration-500 hover:-translate-y-1">
+        <h3 class="font-display font-semibold text-xl tracking-tight text-ink">Name the bank, fall through six strategies</h3>
+        <p class="mt-2 text-sm leading-relaxed text-muted">Fourteen signatures are matched against headers and footers and scored. Then the file drops through a self-healing chain until it reconciles.</p>
+        <p class="mt-4 font-mono text-[11px] leading-loose tracking-wide text-muted uppercase">Text layer <span class="text-accent">&rarr;</span> OCR <span class="text-accent">&rarr;</span> Normalized AI <span class="text-accent">&rarr;</span> Vision AI <span class="text-accent">&rarr;</span> Hybrid <span class="text-accent">&rarr;</span> Spatial rescue</p>
+      </article>
+      <article class="rise rounded-2xl border border-line bg-surface p-8 transition-transform duration-500 hover:-translate-y-1">
+        <h3 class="font-display font-semibold text-xl tracking-tight text-ink">Pull every line</h3>
+        <p class="mt-2 text-sm leading-relaxed text-muted">Dedicated extractors for the major banks; spatial-alignment rescue rebuilds tables from coordinates when the text layer lies.</p>
+        <p class="mt-5 font-mono text-[11px] text-muted num">x 112.4 &middot; y 480.9 &nbsp;&rarr;&nbsp; row 41 of 87 rebuilt from coordinates</p>
+      </article>
+      <article class="rise rounded-2xl border border-line bg-surface p-8 transition-transform duration-500 hover:-translate-y-1">
+        <h3 class="font-display font-semibold text-xl tracking-tight text-ink">Prove the numbers</h3>
+        <p class="mt-2 text-sm leading-relaxed text-muted">Rows become canonical transactions, and the running balance is re-derived line by line. If it does not reconcile, it is flagged, never silently shipped.</p>
+        <p class="mt-5 font-mono text-[11px] text-muted num">&Sigma; running balance = closing balance &nbsp;<span style="color:var(--credit)">verified</span></p>
+      </article>
+    </div>
+  </section>
+
+  <!-- LEDGER GUARD -->
+  <section class="relative isolate overflow-hidden" style="background:var(--slab);color:var(--slab-ink);">
+    <div class="absolute inset-0 -z-10" style="background:radial-gradient(80% 90% at 15% 0%, rgba(200,16,46,.18) 0%, rgba(11,15,22,0) 55%);"></div>
+    <div class="absolute inset-0 -z-10" style="background:repeating-linear-gradient(0deg, transparent 0 71px, rgba(242,244,248,.045) 71px 72px);"></div>
+    <div class="mx-auto max-w-6xl px-6 py-32 md:py-44">
+      <h2 class="rise font-display font-bold tracking-tighter leading-[1.05] max-w-3xl" style="font-size:clamp(2.2rem,4.6vw,4rem);">Five deterministic layers between your numbers and a wrong total.</h2>
+      <p class="rise mt-6 max-w-2xl text-lg" style="color:#b6bfcb;">Reconciliation here isn&rsquo;t a model guessing. Each layer is plain arithmetic that re-adds the ledger and blocks the export when a single check fails.</p>
+
+      <div class="guard-cards mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 auto-rows-[minmax(0,auto)] grid-flow-dense gap-4">
+
+        <!-- Featured: balance recompute, 2x2 -->
+        <div class="rounded-2xl p-7 lg:col-span-2 lg:row-span-2 flex flex-col justify-between" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);">
+          <div>
+            <h3 class="font-display font-semibold text-xl tracking-tight">Opening to closing, re-added</h3>
+            <p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">Each line&rsquo;s balance is recomputed from the last. If it doesn&rsquo;t match the bank, the row is flagged before it reaches the sheet.</p>
+          </div>
+          <div class="mt-8 font-mono text-[13px] num" aria-hidden="true">
+            <div class="flex items-center justify-between py-2.5" style="border-bottom:1px solid rgba(242,244,248,.08);"><span style="color:#9aa4b2;">+ 48 200,00</span><span>112 480,14</span><span style="color:#41c07f;">&#10003;</span></div>
+            <div class="flex items-center justify-between py-2.5" style="border-bottom:1px solid rgba(242,244,248,.08);"><span style="color:#9aa4b2;">&minus; 1 240,50</span><span>111 239,64</span><span style="color:#41c07f;">&#10003;</span></div>
+            <div class="flex items-center justify-between py-2.5" style="border-bottom:1px solid rgba(242,244,248,.08);"><span style="color:#9aa4b2;">&minus; 14 500,00</span><span style="text-decoration:line-through;text-decoration-color:rgba(255,82,102,.6);">96 739,65</span><span style="color:#ff5266;">&#10007;</span></div>
+            <div class="flex items-center justify-between py-2.5"><span style="color:#9aa4b2;">&minus; 14 500,00</span><span style="color:#ff5266;">96 739,64</span><span style="font-size:10px;letter-spacing:.12em;color:#ff5266;">FLAGGED</span></div>
+          </div>
+        </div>
+
+        <!-- Debit / credit isolation, 2x1 -->
+        <div class="rounded-2xl p-7 lg:col-span-2" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);">
+          <h3 class="font-display font-semibold text-lg tracking-tight">Never both, never neither</h3>
+          <p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">A transaction gets exactly one side, cross-checked against the balance movement.</p>
+          <div class="mt-6 flex items-center gap-3 font-mono text-[13px] num" aria-hidden="true">
+            <span class="px-3 py-1.5 rounded-lg" style="background:rgba(255,82,102,.12);color:#ff5266;">1 240,50</span>
+            <span class="px-3 py-1.5 rounded-lg" style="background:rgba(242,244,248,.05);color:#5b6472;">-</span>
+            <svg width="52" height="24" viewBox="0 0 52 24" fill="none" style="margin-left:auto;"><path d="M2 12h34m0 0-6-6m6 6-6 6" stroke="#41c07f" stroke-width="1.5" stroke-linecap="round"/><text x="42" y="16" font-size="11" fill="#41c07f" font-family="monospace">&#8721;</text></svg>
+          </div>
+        </div>
+
+        <!-- Outlier detection with ring-outlier dot plot, 2x1 -->
+        <div class="rounded-2xl p-7 lg:col-span-2" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);">
+          <h3 class="font-display font-semibold text-lg tracking-tight">The R10k sanity net</h3>
+          <p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">An amount far outside a row&rsquo;s context is surfaced for review instead of silently categorised.</p>
+          <svg class="mt-6" width="100%" height="56" viewBox="0 0 260 56" fill="none" aria-hidden="true">
+            <line x1="0" y1="44" x2="260" y2="44" stroke="rgba(242,244,248,.12)"/>
+            <circle cx="30" cy="38" r="4" fill="#9aa4b2"/><circle cx="72" cy="40" r="4" fill="#9aa4b2"/>
+            <circle cx="114" cy="37" r="4" fill="#9aa4b2"/><circle cx="156" cy="41" r="4" fill="#9aa4b2"/>
+            <circle cx="196" cy="10" r="5" fill="#ff5266"/>
+            <circle cx="196" cy="10" r="11" stroke="#ff5266" stroke-width="1.5" opacity=".55"/>
+            <text x="214" y="14" font-size="10" fill="#ff5266" font-family="monospace">review</text>
+          </svg>
+        </div>
+
+        <!-- Duplicate prevention with fan-pages, 2x1 -->
+        <div class="rounded-2xl p-7 lg:col-span-2" style="border:1px solid rgba(242,244,248,.14);background:rgba(255,255,255,.03);">
+          <h3 class="font-display font-semibold text-lg tracking-tight">Same line, counted once</h3>
+          <p class="mt-2 text-sm leading-relaxed" style="color:#b6bfcb;">Re-imports and overlapping pages are fingerprinted so a single debit never doubles the expense.</p>
+          <div class="mt-6 flex items-center gap-4" aria-hidden="true">
+            <svg width="64" height="52" viewBox="0 0 64 52" fill="none">
+              <rect x="2" y="6" width="30" height="40" rx="3" transform="rotate(-8 17 26)" stroke="#9aa4b2" stroke-width="1.5"/>
+              <rect x="14" y="6" width="30" height="40" rx="3" transform="rotate(6 29 26)" stroke="#ff5266" stroke-width="1.5"/>
+            </svg>
+            <span class="font-mono text-[11px]" style="color:#5b6472;">sha&middot;9f2c&hellip;</span>
+            <svg width="34" height="20" viewBox="0 0 34 20" fill="none"><path d="M2 10h20m0 0-5-5m5 5-5 5" stroke="#ff5266" stroke-width="1.5" stroke-linecap="round"/><path d="M27 3 33 17M33 3 27 17" stroke="#ff5266" stroke-width="0" /></svg>
+            <span class="font-mono text-[11px] tracking-wide" style="color:#ff5266;">collapsed</span>
+          </div>
+        </div>
+
+        <!-- Closing proof with variance countdown, 2x1 -->
+        <div class="rounded-2xl p-7 lg:col-span-2 flex flex-col justify-between" style="border:1px solid rgba(65,192,127,.4);background:rgba(65,192,127,.08);">
+          <div>
+            <h3 class="font-display font-semibold text-lg tracking-tight">It will not ship a number it can&rsquo;t re-derive</h3>
+            <p class="mt-2 text-sm leading-relaxed" style="color:#c3cad4;">The whole ledger must balance from opening to closing before export, the check that makes output filing-grade.</p>
+          </div>
+          <div class="mt-6 flex items-end justify-between gap-4" aria-hidden="true">
+            <p class="font-mono text-[10px] tracking-[0.14em]" style="color:#41c07f;">VARIANCE &middot; PROVED</p>
+            <p id="variance" class="font-mono text-3xl num" style="color:#41c07f;">0,00</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- VAT & SARS -->
+  <section class="mx-auto max-w-6xl px-6 py-32 md:py-44">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+      <div class="lg:col-span-5">
+        <h2 class="font-display font-bold tracking-tight text-ink leading-tight" style="font-size:clamp(2rem,3.6vw,3.25rem);">Built around SARS VAT 501.</h2>
+        <p class="mt-6 text-lg leading-relaxed text-muted">Over a hundred and twenty categorisation rules run in English and Afrikaans. They match how a line really reads on a local statement, <span style="color:var(--ink)">BANKKOSTE</span> and all, and land it in the right box.</p>
+        <p class="mt-4 text-sm leading-relaxed text-muted">Anything it can&rsquo;t match goes to a human to review, not a guess. And each client&rsquo;s rules stay separate, so one book can&rsquo;t quietly change another.</p>
+      </div>
+      <div class="lg:col-span-7 grid grid-cols-2 gap-4">
+        <div class="rise col-span-2 rounded-2xl border border-line bg-surface p-7"><h3 class="font-display font-semibold text-lg tracking-tight text-ink">Nine-column VAT schema</h3><div class="mt-4 flex flex-wrap gap-2"><span class="rounded-lg px-3 py-1.5 text-xs font-mono" style="background:var(--sunken);">Standard supplies</span><span class="rounded-lg px-3 py-1.5 text-xs font-mono" style="background:var(--sunken);">Zero-rated</span><span class="rounded-lg px-3 py-1.5 text-xs font-mono" style="background:var(--sunken);">Exempt</span><span class="rounded-lg px-3 py-1.5 text-xs font-mono" style="background:var(--sunken);">Non-purchases</span><span class="rounded-lg px-3 py-1.5 text-xs font-mono" style="background:var(--sunken);">Imports VAT</span><span class="rounded-lg px-3 py-1.5 text-xs font-mono" style="background:var(--sunken);">Adjustments</span></div></div>
+        <div class="rise rounded-2xl border border-line bg-surface p-6"><p class="font-display font-bold num text-3xl">15%</p><p class="mt-1 text-sm text-muted">Output &amp; input VAT, with the 115 registration gate handled.</p></div>
+        <div class="rise rounded-2xl border border-line bg-surface p-6"><p class="font-display font-bold num text-3xl">R7&nbsp;000</p><p class="mt-1 text-sm text-muted">De minimis asset rule; below it, immediate write-off logic.</p></div>
+        <div class="rise rounded-2xl border border-line bg-surface p-6"><p class="font-display font-bold text-lg tracking-tight text-ink">PAYE &middot; UIF</p><p class="mt-1 text-sm text-muted">Payroll lines recognised alongside salary templates.</p></div>
+        <div class="rise rounded-2xl border border-line bg-surface p-6"><p class="font-display font-bold text-lg tracking-tight text-ink">Eskom &rarr; Santam</p><p class="mt-1 text-sm text-muted">Local merchants, vendors and debit-order patterns pre-known.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BANKS GRID -->
+  <section class="border-t border-line bg-ground">
+    <div class="mx-auto max-w-6xl px-6 py-24 md:py-32">
+      <h2 class="rise font-display font-bold tracking-tight text-ink leading-tight max-w-2xl" style="font-size:clamp(1.9rem,3.2vw,2.75rem);">It already knows fourteen banks.</h2>
+      <p class="rise mt-4 text-muted max-w-2xl">A phone photo of a statement reads as cleanly as a pristine PDF. These are the banks and fund managers the engine knows by signature.</p>
+      <div class="rise mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div class="bank-chip"><span class="bank-mono">FN</span><div><p class="text-sm font-semibold text-ink">FNB</p><p class="text-xs text-muted">Transactional &amp; business</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">CA</span><div><p class="text-sm font-semibold text-ink">Capitec</p><p class="text-xs text-muted">Transactional</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">NE</span><div><p class="text-sm font-semibold text-ink">Nedbank</p><p class="text-xs text-muted">Transactional &amp; business</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">AB</span><div><p class="text-sm font-semibold text-ink">ABSA</p><p class="text-xs text-muted">Transactional &amp; business</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">SB</span><div><p class="text-sm font-semibold text-ink">Standard Bank</p><p class="text-xs text-muted">Transactional &amp; business</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">TY</span><div><p class="text-sm font-semibold text-ink">TymeBank</p><p class="text-xs text-muted">Transactional</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">DI</span><div><p class="text-sm font-semibold text-ink">Discovery Bank</p><p class="text-xs text-muted">Transactional</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">IN</span><div><p class="text-sm font-semibold text-ink">Investec</p><p class="text-xs text-muted">Private &amp; wealth</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">BV</span><div><p class="text-sm font-semibold text-ink">Bidvest</p><p class="text-xs text-muted">Corporate card</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">AF</span><div><p class="text-sm font-semibold text-ink">African Bank</p><p class="text-xs text-muted">Transactional</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">IC</span><div><p class="text-sm font-semibold text-ink">ICICI</p><p class="text-xs text-muted">Transactional (India)</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">OM</span><div><p class="text-sm font-semibold text-ink">Old Mutual</p><p class="text-xs text-muted">Portfolio &amp; unit trusts</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">SA</span><div><p class="text-sm font-semibold text-ink">Sanlam</p><p class="text-xs text-muted">Portfolio &amp; unit trusts</p></div></div>
+        <div class="bank-chip"><span class="bank-mono">AG</span><div><p class="text-sm font-semibold text-ink">Allan Gray</p><p class="text-xs text-muted">Portfolio &amp; unit trusts</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="mx-auto max-w-6xl px-6 py-28 text-center">
+    <h2 class="rise font-display font-bold tracking-tighter text-ink mx-auto max-w-3xl" style="font-size:clamp(2rem,4.5vw,3.5rem);">Put the engine on your books.</h2>
+    <a href="pricing.html" class="rise mt-10 inline-block rounded-full px-10 py-5 font-display font-semibold text-lg text-white transition-transform duration-300 hover:-translate-y-0.5" style="background:var(--accent);">See plans &amp; pricing</a>
+  </section>
+
+</main>
+
+<div id="footer-root"></div>
+
+<script src="assets/vendor/gsap.min.js" integrity="sha384-g4NTh/Iv5PPU4xPyhEWqPcwtNXOvdaDI8LLnyYfyNZOjKJeYQyjzQ9X5275eBjpt" crossorigin="anonymous"></script>
+<script src="assets/vendor/scrolltrigger.min.js" integrity="sha384-Z3REaz79l2IaAZqJsSABtTbhjgOUYyV3p90XNnAPCSHg3EMTz1fouunq9WZRtj3d" crossorigin="anonymous"></script>
+<script src="assets/features.data.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>
