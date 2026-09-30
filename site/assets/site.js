@@ -100,7 +100,7 @@
           '<div class="hidden lg:flex items-center gap-7 text-xs tracking-wide" style="color:#9aa4b2;">' + linkHtml + "</div>" +
           '<div class="flex items-center gap-2">' +
             '<a href="' + BASE + 'pricing.html" class="hidden sm:inline-block rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.3);color:#f2f4f8;">Sign in</a>' +
-            '<a href="' + BASE + 'download.html" class="rounded-full bg-white px-4 py-1.5 text-xs font-semibold hover:bg-slate-200 transition-colors" style="color:#0b0f16;">Download</a>' +
+            '<a href="' + BASE + 'index.html#demo" class="rounded-full bg-white px-4 py-1.5 text-xs font-semibold hover:bg-slate-200 transition-colors" style="color:#0b0f16;">Try it free</a>' +
           "</div>" +
         "</nav>" +
       "</header>";
@@ -402,6 +402,20 @@
         try { d.setKeywords([]); } catch (e) {}
         return d.save().then(function (bytes) {
           return { bytes: bytes, filename: "clean.pdf", title: "clean.pdf", note: "Author, title and producer stripped from the file." };
+        });
+      } },
+      pagenum: { needs: 1, run: function (PDFLib) {
+        var d = valid()[0].doc, pages = d.getPages();
+        pages.forEach(function (p, i) { var s = p.getSize(); p.drawText(String(i + 1), { x: s.width / 2 - 8, y: 18, size: 10, color: PDFLib.rgb(0.42, 0.42, 0.42) }); });
+        return d.save().then(function (bytes) {
+          return { bytes: bytes, filename: "numbered.pdf", title: "numbered.pdf", note: "All " + pages.length + " pages numbered, bottom centre." };
+        });
+      } },
+      watermark: { needs: 1, run: function (PDFLib) {
+        var d = valid()[0].doc, pages = d.getPages();
+        pages.forEach(function (p) { var s = p.getSize(); p.drawText("DRAFT", { x: s.width / 2 - 78, y: s.height / 2, size: 60, color: PDFLib.rgb(0.78, 0.06, 0.18), opacity: 0.18, rotate: PDFLib.degrees(30) }); });
+        return d.save().then(function (bytes) {
+          return { bytes: bytes, filename: "watermarked.pdf", title: "watermarked.pdf", note: "A DRAFT mark laid across every page." };
         });
       } },
       info: { needs: 1, run: function () {

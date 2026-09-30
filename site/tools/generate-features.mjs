@@ -49,7 +49,7 @@ function page(f) {
   const dlHref = "../download.html";
   const backHref = isFin ? finHref : toolsHref;
   const backLabel = isFin ? "Back to the financial engine" : "Back to all tools";
-  const demoNote = f.demo ? '<a href="../index.html#demo" class="mt-6 inline-flex items-center gap-2 rounded-full px-5 py-2.5 font-display font-semibold text-sm text-white transition-transform duration-300 hover:-translate-y-0.5" style="background:var(--accent);">Try it in your browser &rarr;</a>' : "";
+  const demoCta = '<a href="../index.html#demo" class="rounded-full bg-white px-7 py-3.5 font-display font-semibold text-sm transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Try it in your browser</a>';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -90,8 +90,8 @@ function page(f) {
       <h1 class="hero-in mt-4 font-display font-bold tracking-tighter leading-[1.04]" style="font-size:clamp(2.3rem,5vw,4rem);">${esc(f.name)}</h1>
       <p class="hero-in mt-6 max-w-2xl text-lg md:text-xl leading-relaxed" style="color:#b6bfcb;">${esc(f.lede)}</p>
       <div class="hero-in mt-10 flex flex-wrap items-center gap-4">
-        <a href="${dlHref}" class="rounded-full bg-white px-7 py-3.5 font-display font-semibold text-sm transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Download the app</a>
-        ${demoNote}
+        ${demoCta}
+        <a href="${dlHref}" class="rounded-full border px-7 py-3.5 font-display font-medium text-sm transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">Get the offline app</a>
       </div>
     </div>
   </section>
@@ -123,11 +123,11 @@ function page(f) {
 
   <section class="relative isolate overflow-hidden" style="background:var(--slab);color:var(--slab-ink);">
     <div class="mx-auto max-w-4xl px-6 py-20 md:py-24 text-center">
-      <h2 class="font-display font-bold tracking-tighter leading-[1.05]" style="font-size:clamp(1.8rem,4vw,2.8rem);">Get ${esc(f.name)} in the app.</h2>
-      <p class="mt-4 text-lg" style="color:#b6bfcb;">The desktop and Android builds unlock the full set, with more runs and no browser limits.</p>
+      <h2 class="font-display font-bold tracking-tighter leading-[1.05]" style="font-size:clamp(1.8rem,4vw,2.8rem);">Run ${esc(f.name)} right in your browser.</h2>
+      <p class="mt-4 text-lg" style="color:#b6bfcb;">No install to start. Want it offline, in batch, or on your phone? The app covers that too.</p>
       <div class="mt-9 flex flex-wrap items-center justify-center gap-4">
-        <a href="${dlHref}" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Download the app</a>
-        <a href="${backHref}" class="rounded-full border px-8 py-4 font-display font-medium text-base transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">${backLabel}</a>
+        <a href="../index.html#demo" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Try it in the browser</a>
+        <a href="${dlHref}" class="rounded-full border px-8 py-4 font-display font-medium text-base transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">Download for offline</a>
       </div>
     </div>
   </section>

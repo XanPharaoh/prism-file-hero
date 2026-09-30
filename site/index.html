@@ -44,10 +44,10 @@
         Merge, split, compress, redact, OCR, convert, compare, summarise. Thirty-seven local-first tools for the PDFs you touch every day, plus a financial engine that proves its own numbers when the work gets serious.
       </p>
       <div class="hero-in mt-12 flex flex-wrap items-center justify-center gap-4">
-        <a href="download.html" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Download the app</a>
-        <a href="#demo" class="rounded-full border px-8 py-4 font-display font-medium text-base transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">Try a tool in the browser</a>
+        <a href="#demo" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Drop a document to start</a>
+        <a href="tools.html" class="rounded-full border px-8 py-4 font-display font-medium text-base transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">See all 37 tools</a>
       </div>
-      <p class="hero-in mt-6 text-sm" style="color:#8b95a3;">Runs client-side &middot; your files never leave this device &middot; no sign-up for your first job</p>
+      <p class="hero-in mt-6 text-sm" style="color:#8b95a3;">Runs entirely in your browser &middot; your files never leave this device &middot; no sign-up to try it</p>
       <div class="hero-in mt-10 flex flex-wrap items-center justify-center gap-2.5">
         <span class="font-mono text-[11px] uppercase tracking-[0.16em]" style="color:#8b95a3;">Popular jobs</span>
         <a href="features/merge-pdf.html" class="job-chip rounded-full border px-4 py-2 text-sm font-medium">Merge PDFs</a>
@@ -95,10 +95,10 @@
           <div class="md:col-span-3 p-5 md:p-6">
             <div data-state="empty" class="h-full flex flex-col justify-center">
               <p class="font-display font-semibold text-lg tracking-tight" style="color:var(--slab-ink);">Drop a file, then choose a job</p>
-              <p class="mt-2 text-sm leading-relaxed" style="color:#9aa4b2;">Prism asks what you want to do with it. Some jobs run here in your browser right now. The heavier ones are waiting in the app.</p>
+              <p class="mt-2 text-sm leading-relaxed" style="color:#9aa4b2;">Pick what to do and it runs right here, in your browser, on your machine. No install, no sign-up, nothing uploaded.</p>
               <ul class="mt-4 space-y-1.5 text-sm" style="color:#c3cad4;">
-                <li>Runs now: merge, rotate, page details, strip metadata.</li>
-                <li>In the app: Excel, OCR, redaction, the bank engine.</li>
+                <li>Merge, rotate, number, watermark, strip metadata, read details.</li>
+                <li>Plus 31 more across convert, security and the bank engine.</li>
               </ul>
             </div>
 
@@ -107,16 +107,12 @@
               <div id="job-grid" class="mt-3 grid grid-cols-2 gap-2">
                 <button type="button" class="job-btn" data-job="merge" data-needs="2">Merge into one<span class="job-tag">browser</span></button>
                 <button type="button" class="job-btn" data-job="rotate" data-needs="1">Rotate 90&deg;<span class="job-tag">browser</span></button>
-                <button type="button" class="job-btn" data-job="info" data-needs="1">Page details<span class="job-tag">browser</span></button>
+                <button type="button" class="job-btn" data-job="pagenum" data-needs="1">Add page numbers<span class="job-tag">browser</span></button>
+                <button type="button" class="job-btn" data-job="watermark" data-needs="1">Watermark<span class="job-tag">browser</span></button>
                 <button type="button" class="job-btn" data-job="meta" data-needs="1">Strip metadata<span class="job-tag">browser</span></button>
+                <button type="button" class="job-btn" data-job="info" data-needs="1">Page details<span class="job-tag">browser</span></button>
               </div>
-              <p class="mt-4 mb-2 font-mono text-[10px]" style="color:#67717f;">in the app</p>
-              <div class="grid grid-cols-2 gap-2">
-                <a class="job-btn job-app" href="features/pdf-to-excel.html">To Excel<span class="job-lock">app</span></a>
-                <a class="job-btn job-app" href="features/redact-pdf.html">Redact PII<span class="job-lock">app</span></a>
-                <a class="job-btn job-app" href="features/ocr-to-searchable-pdf.html">OCR a scan<span class="job-lock">app</span></a>
-                <a class="job-btn job-app" href="download.html">All 37 tools<span class="job-lock">app</span></a>
-              </div>
+              <a href="tools.html" class="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-accent">See all 37 tools &rarr;</a>
             </div>
 
             <div data-state="result" hidden class="h-full flex flex-col justify-center">
@@ -212,8 +208,8 @@
       <h2 class="rise font-display font-bold tracking-tighter leading-[1.04] mx-auto max-w-4xl" style="font-size:clamp(2.4rem,5vw,4.5rem);">Run your first job free.</h2>
       <p class="rise mt-6 text-lg" style="color:#b6bfcb;">Free to start, no sign-up. Your files stay on your machine until you say otherwise.</p>
       <div class="rise mt-12 flex flex-wrap items-center justify-center gap-4">
-        <a href="download.html" class="inline-block rounded-full bg-white px-10 py-5 font-display font-semibold text-lg transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Download the app</a>
-        <a href="pricing.html" class="inline-block rounded-full border px-10 py-5 font-display font-medium text-lg transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">See pricing</a>
+        <a href="#demo" class="inline-block rounded-full bg-white px-10 py-5 font-display font-semibold text-lg transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Drop a document to start</a>
+        <a href="download.html" class="inline-block rounded-full border px-10 py-5 font-display font-medium text-lg transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">Prefer offline? Get the app</a>
       </div>
     </div>
   </section>
