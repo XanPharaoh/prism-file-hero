@@ -3,7 +3,9 @@
 (function () {
   "use strict";
 
-  var APP_URL = "https://prismfilehero.com";
+  // Prefix for pages served from a subfolder (feature pages set data-base="../").
+  var BASE = (typeof document !== "undefined" && document.body.getAttribute("data-base")) || "";
+  var FEATURE = {}; // name -> slug, filled from window.PRISM at boot
 
   /* ---------------- data ---------------- */
   var TOOLS = [
@@ -81,9 +83,9 @@
     if (!root) return;
     var page = document.body.getAttribute("data-page") || "";
     var links = [
-      { k: "tools", t: "Tools", href: "tools.html" },
-      { k: "financial", t: "Financial Engine", href: "financial.html" },
-      { k: "pricing", t: "Pricing", href: "pricing.html" }
+      { k: "tools", t: "Tools", href: BASE + "tools.html" },
+      { k: "financial", t: "Financial Engine", href: BASE + "financial.html" },
+      { k: "pricing", t: "Pricing", href: BASE + "pricing.html" }
     ];
     var linkHtml = links.map(function (l) {
       var cur = l.k === page ? ' aria-current="page"' : "";
@@ -94,11 +96,11 @@
       '<header class="fixed top-4 inset-x-0 z-50 px-4 pointer-events-none">' +
         '<nav class="pointer-events-auto mx-auto max-w-5xl flex items-center justify-between gap-4 rounded-full border px-5 py-2.5 backdrop-blur-md shadow-lg shadow-black/20" ' +
           'style="border-color:rgba(242,244,248,.16);background:rgba(11,15,22,.85);color:#f2f4f8;">' +
-          '<a href="index.html" class="font-display font-semibold tracking-tight text-sm">Prism File Hero</a>' +
+          '<a href="' + BASE + 'index.html" class="font-display font-semibold tracking-tight text-sm">Prism File Hero</a>' +
           '<div class="hidden lg:flex items-center gap-7 text-xs tracking-wide" style="color:#9aa4b2;">' + linkHtml + "</div>" +
           '<div class="flex items-center gap-2">' +
-            '<a href="pricing.html" class="hidden sm:inline-block rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.3);color:#f2f4f8;">Sign in</a>' +
-            '<a href="' + APP_URL + '" class="rounded-full bg-white px-4 py-1.5 text-xs font-semibold hover:bg-slate-200 transition-colors" style="color:#0b0f16;">Open the app</a>' +
+            '<a href="' + BASE + 'pricing.html" class="hidden sm:inline-block rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.3);color:#f2f4f8;">Sign in</a>' +
+            '<a href="' + BASE + 'download.html" class="rounded-full bg-white px-4 py-1.5 text-xs font-semibold hover:bg-slate-200 transition-colors" style="color:#0b0f16;">Download</a>' +
           "</div>" +
         "</nav>" +
       "</header>";
@@ -117,12 +119,12 @@
               '<p class="mt-2 text-sm max-w-xs" style="color:#9aa4b2;">Local-first document suite, plus a South African financial engine that has to balance before it exports.</p>' +
             "</div>" +
             '<div class="grid grid-cols-2 gap-x-16 gap-y-2 text-sm" style="color:#9aa4b2;">' +
-              '<a href="tools.html" class="hover:text-white transition-colors">Tools</a>' +
-              '<a href="financial.html" class="hover:text-white transition-colors">Financial Engine</a>' +
-              '<a href="pricing.html" class="hover:text-white transition-colors">Pricing</a>' +
-              '<a href="pricing.html#faq" class="hover:text-white transition-colors">FAQ</a>' +
-              '<a href="' + APP_URL + '" class="hover:text-white transition-colors">Open the app</a>' +
-              '<a href="' + APP_URL + '" class="hover:text-white transition-colors">Terms &amp; privacy</a>' +
+              '<a href="' + BASE + 'tools.html" class="hover:text-white transition-colors">Tools</a>' +
+              '<a href="' + BASE + 'financial.html" class="hover:text-white transition-colors">Financial Engine</a>' +
+              '<a href="' + BASE + 'pricing.html" class="hover:text-white transition-colors">Pricing</a>' +
+              '<a href="' + BASE + 'pricing.html#faq" class="hover:text-white transition-colors">FAQ</a>' +
+              '<a href="' + BASE + 'download.html" class="hover:text-white transition-colors">Download</a>' +
+              '<a href="' + BASE + 'download.html" class="hover:text-white transition-colors">Windows &middot; Linux &middot; Android</a>' +
             "</div>" +
           "</div>" +
           '<div class="mt-12 border-t pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm" style="border-color:rgba(242,244,248,.14);color:#9aa4b2;">' +
@@ -152,17 +154,22 @@
     var cats = [];
     TOOLS.forEach(function (t) { if (cats.indexOf(t.c) < 0) cats.push(t.c); });
 
+    function slugOf(name) {
+      if (FEATURE[name]) return FEATURE[name];
+      return name.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    }
     function card(t, featured) {
+      var href = BASE + "features/" + slugOf(t.n) + ".html";
       if (featured) {
-        return '<article class="tool-card group relative overflow-hidden rounded-2xl border border-line bg-surface p-7 col-span-full lg:col-span-3" data-cat="' + t.c + '">' +
+        return '<a href="' + href + '" class="tool-card group relative overflow-hidden rounded-2xl border border-line bg-surface p-7 col-span-full lg:col-span-3 block" data-cat="' + t.c + '">' +
             '<span class="absolute -right-3 -bottom-12 font-display font-extrabold leading-none pointer-events-none select-none" style="font-size:9rem;color:var(--ink);opacity:.07;" aria-hidden="true">' + t.c.charAt(0) + "</span>" +
             '<h3 class="font-display font-bold text-2xl tracking-tight text-ink">' + t.n + "</h3>" +
             '<p class="mt-2 text-sm leading-relaxed text-muted max-w-sm">' + t.d + "</p>" +
-          "</article>";
+          "</a>";
       }
-      return '<article class="tool-card rounded-2xl border border-line bg-surface p-5 lg:col-span-2" data-cat="' + t.c + '">' +
+      return '<a href="' + href + '" class="tool-card rounded-2xl border border-line bg-surface p-5 lg:col-span-2 block" data-cat="' + t.c + '">' +
           '<h3 class="font-display font-semibold text-[15px] tracking-tight text-ink">' + t.n + "</h3>" +
-        "</article>";
+        "</a>";
     }
 
     function group(cat, items, chrome) {
@@ -276,220 +283,172 @@
   function mountDemo() {
     var win = document.getElementById("demo-window");
     if (!win) return;
-    var hasGsap = typeof gsap !== "undefined";
-    var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    var scenes = Array.prototype.slice.call(win.querySelectorAll(".demo-scene"));
-    var tabs = Array.prototype.slice.call(win.querySelectorAll(".demo-tab[data-scene]"));
-    if (!scenes.length) return;
+    var zone = win.querySelector("#drop-zone");
+    var list = win.querySelector("#drop-list");
+    var idle = win.querySelector("#drop-idle");
+    var input = win.querySelector("#pdf-input");
+    var bar = win.querySelector(".demo-proc-bar");
+    var pEmpty = win.querySelector('[data-state="empty"]');
+    var pJobs = win.querySelector('[data-state="jobs"]');
+    var pResult = win.querySelector('[data-state="result"]');
+    var rTitle = win.querySelector("#result-title");
+    var rNote = win.querySelector("#result-note");
+    var rBadge = win.querySelector("#result-badge");
+    var rStats = win.querySelector("#result-stats");
+    var rDl = win.querySelector("#result-dl");
+    var jobGrid = win.querySelector("#job-grid");
+    var fileCount = win.querySelector("#file-count");
+    var docs = [], lastUrl = null, busy = false;
 
-    var index = 0, timer = null, tl = null, takeover = false;
-
-    function park(scene) {
-      if (!hasGsap) return;
-      var q = function (sel) { return Array.prototype.slice.call(scene.querySelectorAll(sel)); };
-      gsap.set(q(".demo-chip"), { x: 0, opacity: 1 });
-      gsap.set(q(".demo-badge, .demo-out, .demo-line"), { clearProps: "transform,opacity,scale,x,y" });
-      gsap.set(q(".demo-redact"), { scaleX: 1, transformOrigin: "left center" });
-      gsap.set(scene.querySelector(".demo-proc-bar"), { width: 0 });
-    }
-
-    function playScene(scene) {
-      if (tl) tl.kill();
-      var q = function (sel) { return Array.prototype.slice.call(scene.querySelectorAll(sel)); };
-      // park everything at its end state first, so a mid-flight kill() can never strand content invisible
-      park(scene);
-      tl = gsap.timeline();
-      tl.fromTo(scene, { opacity: 0, visibility: "visible" }, { opacity: 1, duration: 0.3, ease: "power2.out" })
-        .fromTo(q(".demo-chip"), { x: -24, opacity: 0 }, { x: 0, opacity: 1, duration: 0.4, stagger: 0.12, ease: "power3.out" }, "-=0.1");
-      // merge is a live tool, not a scripted demo: its bar stays empty until real files land
-      var bar = scene.querySelector(".demo-proc-bar");
-      if (scene.dataset.scene === "merge") { if (bar) gsap.set(bar, { width: 0 }); }
-      else if (bar) { tl.to(bar, { width: "100%", duration: 0.9, ease: "power1.inOut" }); }
-      tl.fromTo(q(".demo-badge"), { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: "back.out(2.4)" })
-        .fromTo(q(".demo-out"), { y: 16, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" }, "-=0.15")
-        .fromTo(q(".demo-line"), { opacity: 0 }, { opacity: 1, duration: 0.25, stagger: 0.05 }, "<")
-        .fromTo(q(".demo-redact"), { scaleX: 0 }, { scaleX: 1, duration: 0.3, stagger: 0.18, ease: "power2.out", transformOrigin: "left center" }, "-=0.2");
-    }
-
-    function show(i) {
-      index = i;
-      tabs.forEach(function (t, k) { t.setAttribute("aria-selected", k === i ? "true" : "false"); });
-      if (!hasGsap) {
-        scenes.forEach(function (s, k) { s.classList.toggle("is-live", k === i); });
-        return;
-      }
-      scenes.forEach(function (s, k) {
-        if (k === i) return;
-        park(s);
-        gsap.to(s, { opacity: 0, visibility: "hidden", duration: 0.25 });
+    function setState(name) {
+      [[pEmpty, "empty"], [pJobs, "jobs"], [pResult, "result"]].forEach(function (p) {
+        p[0].hidden = p[1] !== name;
       });
-      playScene(scenes[i]);
+    }
+    function sweep() {
+      if (!bar) return;
+      bar.style.transition = "none"; bar.style.width = "0";
+      requestAnimationFrame(function () { bar.style.transition = "width .7s ease-in-out"; bar.style.width = "100%"; });
+    }
+    function total() { return docs.reduce(function (s, d) { return s + (d.pages || 0); }, 0); }
+    function valid() { return docs.filter(function (d) { return d.doc; }); }
+
+    function addFiles(files) {
+      var pdfs = Array.prototype.filter.call(files, function (f) { return /\.pdf$/i.test(f.name) || f.type === "application/pdf"; });
+      if (!pdfs.length) return;
+      if (!docs.length && idle) { idle.style.opacity = "0"; idle.style.visibility = "hidden"; }
+      if (list) list.style.visibility = "visible";
+      pdfs.slice(0, 12 - docs.length).forEach(chip);
+      setState("jobs");
     }
 
-    function schedule() {
-      stop();
-      timer = setInterval(function () { show((index + 1) % scenes.length); }, 5200);
-    }
-    function stop() { if (timer) { clearInterval(timer); timer = null; } }
-
-    /* live merge: real files, real pdf-lib, all client-side */
-    function wireDrop() {
-      var zone = win.querySelector("#drop-zone");
-      if (!zone) return;
-      var input = zone.querySelector("#pdf-input");
-      var list = zone.querySelector("#drop-list");
-      var idle = zone.querySelector("#drop-idle");
-      var bar = zone.querySelector(".demo-proc-bar");
-      var badge = win.querySelector("#merge-badge");
-      var note = win.querySelector("#merge-note");
-      var dl = win.querySelector("#merge-dl");
-      var out = win.querySelector("#out-count");
-      var scene = win.querySelector('.demo-scene[data-scene="merge"]');
-      var docs = [], pending = 0, magicStart = 0;
-
-      zone.addEventListener("click", function () { input.click(); });
-      zone.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
-      zone.addEventListener("dragover", function (e) { e.preventDefault(); zone.classList.add("is-drop"); });
-      zone.addEventListener("dragleave", function (e) { if (!zone.contains(e.relatedTarget)) zone.classList.remove("is-drop"); });
-      zone.addEventListener("drop", function (e) {
-        e.preventDefault();
-        zone.classList.remove("is-drop");
-        handleFiles(e.dataTransfer && e.dataTransfer.files);
+    function chip(file) {
+      var row = document.createElement("div");
+      row.className = "demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5";
+      row.style.cssText = "background:rgba(255,255,255,.04);border:1px solid var(--slab-line);";
+      var tag = document.createElement("span");
+      tag.className = "shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5";
+      tag.style.cssText = "background:rgba(200,16,46,.18);color:#ff5266;";
+      tag.textContent = "PDF";
+      var nm = document.createElement("span");
+      nm.className = "text-xs truncate"; nm.style.color = "#c3cad4"; nm.textContent = file.name; nm.title = file.name;
+      var pg = document.createElement("span");
+      pg.className = "ml-auto shrink-0 font-mono text-[10px]"; pg.style.color = "#67717f"; pg.textContent = "…";
+      row.appendChild(tag); row.appendChild(nm); row.appendChild(pg);
+      if (list) list.appendChild(row);
+      var entry = { doc: null, pages: 0 };
+      docs.push(entry);
+      ensureLib(function (PDFLib) {
+        if (!PDFLib) { pg.textContent = "n/a"; refresh(); return; }
+        file.arrayBuffer().then(function (buf) { return PDFLib.PDFDocument.load(buf, { ignoreEncryption: true }); })
+          .then(function (d) { entry.doc = d; entry.pages = d.getPageCount(); pg.textContent = entry.pages + " pp"; })
+          .catch(function () { pg.textContent = "unreadable"; })
+          .then(refresh);
       });
-      input.addEventListener("change", function () { handleFiles(input.files); input.value = ""; });
+    }
 
-      function handleFiles(files) {
-        var pdfs = Array.prototype.filter.call(files, function (f) { return /\.pdf$/i.test(f.name) || f.type === "application/pdf"; });
-        if (!pdfs.length) return;
-        takeover = true;
-        stop();
-        show(0);
-        if (!docs.length) { list.textContent = ""; if (idle) { idle.style.opacity = "0"; idle.style.visibility = "hidden"; } list.style.visibility = "visible"; scene.classList.add("has-files"); }
-        setMagic(true);
-        pdfs.slice(0, Math.max(0, 12 - docs.length)).forEach(addFile);
+    function refresh() {
+      if (fileCount) { var n = docs.length; fileCount.textContent = n + (n === 1 ? " file" : " files") + (total() ? " · " + total() + " pp" : ""); }
+      if (jobGrid) Array.prototype.forEach.call(jobGrid.querySelectorAll("[data-job]"), function (b) {
+        var need = +b.getAttribute("data-needs") || 1;
+        var ok = valid().length >= need;
+        b.disabled = !ok;
+        b.title = ok ? "" : "Needs " + need + " valid PDF" + (need > 1 ? "s" : "");
+      });
+    }
+
+    function showResult(o) {
+      if (rTitle) rTitle.textContent = o.title;
+      if (rNote) rNote.textContent = o.note;
+      if (rStats) { rStats.hidden = !o.stats; if (o.stats) rStats.textContent = o.stats; }
+      if (rBadge) {
+        rBadge.textContent = o.badge || (o.bytes ? "Done · on this device" : "Read");
+        rBadge.style.background = o.ok === false ? "rgba(255,82,102,.14)" : "rgba(65,192,127,.14)";
+        rBadge.style.color = o.ok === false ? "#ff5266" : "#41c07f";
       }
-
-      function setMagic(on) {
-        if (!scene) return;
-        scene.classList.toggle("is-magic", on);
-        if (on) {
-          magicStart = Date.now();
-          if (badge) { badge.textContent = "Working our magic\u2026"; badge.style.background = "rgba(200,16,46,.16)"; badge.style.color = "#ff5266"; }
-          if (out) out.textContent = "pdf";
-        }
+      if (rDl) {
+        if (lastUrl) { URL.revokeObjectURL(lastUrl); lastUrl = null; }
+        if (o.bytes) {
+          lastUrl = URL.createObjectURL(new Blob([o.bytes], { type: "application/pdf" }));
+          rDl.href = lastUrl; rDl.setAttribute("download", o.filename || "prism.pdf");
+          rDl.textContent = "Download " + (o.filename || "prism.pdf");
+          rDl.hidden = false;
+        } else { rDl.hidden = true; rDl.removeAttribute("href"); }
       }
+      setState("result");
+    }
 
-      function addFile(file) {
-        var chip = document.createElement("div");
-        chip.className = "demo-chip flex items-center gap-3 rounded-lg px-3 py-2.5";
-        chip.style.cssText = "background:rgba(255,255,255,.04);border:1px solid var(--slab-line);";
-        var tag = document.createElement("span");
-        tag.className = "shrink-0 rounded font-mono text-[9px] px-1.5 py-0.5";
-        tag.style.cssText = "background:rgba(200,16,46,.18);color:#ff5266;";
-        tag.textContent = "PDF";
-        var nm = document.createElement("span");
-        nm.className = "text-xs truncate";
-        nm.style.color = "#c3cad4";
-        nm.textContent = file.name;
-        nm.title = file.name;
-        var pg = document.createElement("span");
-        pg.className = "ml-auto shrink-0 font-mono text-[10px]";
-        pg.style.color = "#67717f";
-        pg.textContent = "…";
-        chip.appendChild(tag); chip.appendChild(nm); chip.appendChild(pg);
-        list.appendChild(chip);
-
-        var entry = { doc: null, pages: 0 };
-        docs.push(entry);
-        pending++;
-
-        if (file.size > 30 * 1024 * 1024) { pg.textContent = "too big"; pending--; finish(); return; }
-        ensureLib(function (PDFLib) {
-          if (!PDFLib) { pg.textContent = "n/a"; pending--; finish(); return; }
-          file.arrayBuffer().then(function (buf) {
-            return PDFLib.PDFDocument.load(buf, { ignoreEncryption: true });
-          }).then(function (d) {
-            entry.doc = d; entry.pages = d.getPageCount();
-            pg.textContent = entry.pages + " pp";
-          }).catch(function () {
-            pg.textContent = "unreadable";
-          }).then(function () { pending--; finish(); });
-        });
-      }
-
-      function finish() {
-        if (pending > 0) return;
-        var ok = docs.filter(function (d) { return d.doc; });
-        var pages = ok.reduce(function (s, d) { return s + d.pages; }, 0);
-        if (bar) {
-          bar.style.transition = "none"; bar.style.width = "0";
-          requestAnimationFrame(function () { bar.style.transition = "width .9s ease-in-out"; bar.style.width = "100%"; });
-        }
-        var dwell = Math.max(0, 1200 - (Date.now() - magicStart));
-        setTimeout(function () {
-          setMagic(false);
-          if (out) out.textContent = pages ? pages + " pp" : "PDF";
-          if (badge) {
-            if (ok.length) { badge.textContent = "Merged " + ok.length + (ok.length === 1 ? " file" : " files"); badge.style.background = "rgba(65,192,127,.14)"; badge.style.color = "#41c07f"; }
-            else { badge.textContent = "No valid PDFs"; badge.style.background = "rgba(255,255,255,.06)"; badge.style.color = "#8b95a3"; }
-          }
-          if (note) note.textContent = ok.length
-            ? ok.length + " files, " + pages + " pages combined in this browser. Nothing uploaded."
-            : "Those files could not be read. Any valid PDF will do.";
-          if (dl) {
-            dl.classList.toggle("hidden", !ok.length);
-            if (ok.length) buildDownload();
-          }
-        }, 900 + dwell);
-      }
-
-      var lastUrl = null, building = false;
-      function buildDownload() {
-        if (!dl || building) return;
-        building = true;
-        dl.removeAttribute("href");
-        dl.textContent = "Preparing download…";
-        ensureLib(function (PDFLib) {
-          if (!PDFLib) { dl.textContent = "Download combined.pdf"; building = false; return; }
-          PDFLib.PDFDocument.create().then(function (outDoc) {
-            var jobs = docs.filter(function (d) { return d.doc; }).map(function (d) {
-              return outDoc.copyPages(d.doc, d.doc.getPageIndices()).then(function (pages) {
-                pages.forEach(function (p) { outDoc.addPage(p); });
-              });
-            });
-            return Promise.all(jobs).then(function () { return outDoc.save(); });
-          }).then(function (bytes) {
-            if (lastUrl) URL.revokeObjectURL(lastUrl);
-            lastUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-            dl.href = lastUrl;
-            dl.setAttribute("download", "combined.pdf");
-            dl.textContent = "Download combined.pdf";
-            building = false;
-          }).catch(function () {
-            dl.textContent = "Could not combine";
-            building = false;
+    var JOBS = {
+      merge: { needs: 2, run: function (PDFLib) {
+        return PDFLib.PDFDocument.create().then(function (out) {
+          return Promise.all(valid().map(function (d) {
+            return out.copyPages(d.doc, d.doc.getPageIndices()).then(function (ps) { ps.forEach(function (p) { out.addPage(p); }); });
+          })).then(function () { return out.save(); }).then(function (bytes) {
+            return { bytes: bytes, filename: "combined.pdf", title: "combined.pdf",
+              note: valid().length + " files, " + total() + " pages merged in your browser. Nothing uploaded." };
           });
         });
-      }
+      } },
+      rotate: { needs: 1, run: function (PDFLib) {
+        var d = valid()[0].doc;
+        d.getPages().forEach(function (p) { p.setRotation(PDFLib.degrees((p.getRotation().angle + 90) % 360)); });
+        return d.save().then(function (bytes) {
+          return { bytes: bytes, filename: "rotated.pdf", title: "rotated.pdf", note: "All " + d.getPageCount() + " pages turned 90 degrees." };
+        });
+      } },
+      meta: { needs: 1, run: function (PDFLib) {
+        var d = valid()[0].doc;
+        ["setTitle", "setAuthor", "setSubject", "setProducer", "setCreator"].forEach(function (m) { try { d[m](undefined); } catch (e) {} });
+        try { d.setKeywords([]); } catch (e) {}
+        return d.save().then(function (bytes) {
+          return { bytes: bytes, filename: "clean.pdf", title: "clean.pdf", note: "Author, title and producer stripped from the file." };
+        });
+      } },
+      info: { needs: 1, run: function () {
+        var d = valid()[0].doc, size = d.getPage(0).getSize();
+        return { title: "Page details",
+          note: "Read locally, in a few milliseconds.",
+          stats: valid().length + " file(s) \u00b7 " + total() + " pages \u00b7 first page " + Math.round(size.width) + "\u00d7" + Math.round(size.height) + " pt" };
+      } }
+    };
+
+    function runJob(key) {
+      var job = JOBS[key]; if (!job || busy) return;
+      if (valid().length < job.needs) { return; }
+      busy = true; sweep(); setState("result");
+      if (rTitle) rTitle.textContent = "Working…";
+      if (rNote) rNote.textContent = "Running this in your browser.";
+      if (rStats) rStats.hidden = true;
+      if (rBadge) { rBadge.textContent = "In progress"; rBadge.style.background = "rgba(255,255,255,.06)"; rBadge.style.color = "#8b95a3"; }
+      if (rDl) rDl.hidden = true;
+      ensureLib(function (PDFLib) {
+        if (!PDFLib) { busy = false; showResult({ title: "Engine unavailable", note: "The in-browser engine didn't load.", ok: false }); return; }
+        Promise.resolve(job.run(PDFLib)).then(showResult).catch(function (e) {
+          showResult({ title: "Couldn't run that", note: (e && e.message) || "Try a different file.", ok: false });
+        }).then(function () { busy = false; });
+      });
     }
 
-    wireDrop();
-    if (reduced || !hasGsap) { show(0); return; }
-
-    tabs.forEach(function (t, k) {
-      t.addEventListener("click", function () { show(k); if (!takeover) schedule(); });
+    if (zone) {
+      zone.addEventListener("click", function () { if (input) input.click(); });
+      zone.addEventListener("keydown", function (e) { if ((e.key === "Enter" || e.key === " ") && input) { e.preventDefault(); input.click(); } });
+      zone.addEventListener("dragover", function (e) { e.preventDefault(); zone.classList.add("is-drop"); });
+      zone.addEventListener("dragleave", function (e) { if (!zone.contains(e.relatedTarget)) zone.classList.remove("is-drop"); });
+      zone.addEventListener("drop", function (e) { e.preventDefault(); zone.classList.remove("is-drop"); addFiles(e.dataTransfer && e.dataTransfer.files); });
+    }
+    if (input) input.addEventListener("change", function () { addFiles(input.files); input.value = ""; });
+    if (jobGrid) jobGrid.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-job]"); if (b && !b.disabled) { e.preventDefault(); runJob(b.getAttribute("data-job")); }
     });
-    win.addEventListener("mouseenter", stop);
-    win.addEventListener("mouseleave", function () { if (!takeover) schedule(); });
-    document.addEventListener("visibilitychange", function () { document.hidden || takeover ? stop() : schedule(); });
-
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) { (e.isIntersecting && !takeover) ? schedule() : stop(); });
+    Array.prototype.forEach.call(win.querySelectorAll("[data-reset]"), function (r) {
+      r.addEventListener("click", function () { setState(docs.length ? "jobs" : "empty"); });
     });
-    io.observe(win);
 
-    show(0);
-    schedule();
+    setState("empty");
+    refresh();
+    if (typeof gsap !== "undefined" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      gsap.from(win, { y: 24, opacity: 0, duration: 0.8, ease: "power3.out", scrollTrigger: { trigger: win, start: "top 88%" } });
+    }
   }
 
   /* ---------------- motion (guarded per element) ---------------- */
@@ -563,10 +522,11 @@
 
   /* ---------------- boot ---------------- */
   function boot() {
+    if (window.PRISM) window.PRISM.ALL.forEach(function (f) { FEATURE[f.name] = f.slug; });
     mountNav(); mountFooter(); mountTicker(); mountTools(); mountFinBand(); mountBilling(); mountDemo(); motion();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();
 
-  window.PrismSite = { TOOLS: TOOLS, FINANCIAL: FINANCIAL, APP_URL: APP_URL };
+  window.PrismSite = { TOOLS: TOOLS, FINANCIAL: FINANCIAL };
 })();
