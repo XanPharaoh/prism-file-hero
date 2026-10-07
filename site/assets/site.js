@@ -100,7 +100,7 @@
           '<div class="hidden lg:flex items-center gap-7 text-xs tracking-wide" style="color:#9aa4b2;">' + linkHtml + "</div>" +
           '<div class="flex items-center gap-2">' +
             '<a href="' + BASE + 'pricing.html" class="hidden sm:inline-block rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.3);color:#f2f4f8;">Sign in</a>' +
-            '<a href="' + BASE + 'index.html#demo" class="rounded-full bg-white px-4 py-1.5 text-xs font-semibold hover:bg-slate-200 transition-colors" style="color:#0b0f16;">Try it free</a>' +
+            '<a href="' + BASE + 'download.html" class="rounded-full bg-white px-4 py-1.5 text-xs font-semibold hover:bg-slate-200 transition-colors" style="color:#0b0f16;">Download</a>' +
           "</div>" +
         "</nav>" +
       "</header>";
@@ -158,8 +158,12 @@
       if (FEATURE[name]) return FEATURE[name];
       return name.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     }
+    function toolHref(name) {
+      var slug = slugOf(name);
+      return (window.PRISM && window.PRISM.appHref) ? window.PRISM.appHref(slug) : BASE + "features/" + slug + ".html";
+    }
     function card(t, featured) {
-      var href = BASE + "features/" + slugOf(t.n) + ".html";
+      var href = toolHref(t.n);
       if (featured) {
         return '<a href="' + href + '" class="tool-card group relative overflow-hidden rounded-2xl border border-line bg-surface p-7 col-span-full lg:col-span-3 block" data-cat="' + t.c + '">' +
             '<span class="absolute -right-3 -bottom-12 font-display font-extrabold leading-none pointer-events-none select-none" style="font-size:9rem;color:var(--ink);opacity:.07;" aria-hidden="true">' + t.c.charAt(0) + "</span>" +
@@ -226,6 +230,30 @@
     buttons.forEach(function (b) {
       b.addEventListener("click", function () { apply(b.getAttribute("data-filter")); });
     });
+  }
+
+  /* ---------------- home tool grid (ilovepdf-style front door) ---------------- */
+  var FAM_ICON = {
+    Organize: "M4 6h16M4 12h16M4 18h10", Convert: "M7 8l4-4 4 4M7 16l4 4 4-4",
+    Optimize: "M4 14l5-5 4 4 7-7", Security: "M12 3l7 3v6c0 4-3 6-7 9-4-3-7-5-7-9V6z",
+    "AI Labs": "M12 4v4M12 16v4M4 12h4M16 12h4M7 7l2 2M15 15l2 2M17 7l-2 2M9 15l-2 2"
+  };
+  function mountHomeTools() {
+    var root = document.getElementById("home-tools");
+    if (!root || !window.PRISM) return;
+    var fams = [];
+    PRISM.TOOLS.forEach(function (t) { if (fams.indexOf(t.family) < 0) fams.push(t.family); });
+    root.innerHTML = fams.map(function (fam) {
+      var items = PRISM.TOOLS.filter(function (t) { return t.family === fam; });
+      var cards = items.map(function (t) {
+        return '<a href="' + PRISM.appHref(t.slug) + '" class="htool group flex items-start gap-3 rounded-xl border border-line bg-surface p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-[color:var(--accent)]">' +
+          '<span class="htool-ico grid place-items-center h-9 w-9 shrink-0 rounded-lg" style="background:var(--sunken);color:var(--accent)">' +
+            '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="' + (FAM_ICON[fam] || FAM_ICON.Organize) + '"/></svg></span>' +
+          '<span class="min-w-0"><span class="block font-display font-semibold text-[15px] tracking-tight text-ink">' + t.name + '</span>' +
+          '<span class="block mt-0.5 text-xs leading-snug text-muted">' + t.tag + '</span></span></a>';
+      }).join("");
+      return '<div class="mt-10 first:mt-0"><div class="mb-3 flex items-baseline justify-between"><h3 class="font-display font-bold tracking-tight text-ink text-lg">' + fam + '</h3><span class="font-mono text-[11px] text-muted num">' + items.length + '</span></div><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">' + cards + "</div></div>";
+    }).join("");
   }
 
   /* ---------------- financial band ---------------- */
@@ -537,7 +565,7 @@
   /* ---------------- boot ---------------- */
   function boot() {
     if (window.PRISM) window.PRISM.ALL.forEach(function (f) { FEATURE[f.name] = f.slug; });
-    mountNav(); mountFooter(); mountTicker(); mountTools(); mountFinBand(); mountBilling(); mountDemo(); motion();
+    mountNav(); mountFooter(); mountTicker(); mountTools(); mountHomeTools(); mountFinBand(); mountBilling(); mountDemo(); motion();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();

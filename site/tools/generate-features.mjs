@@ -49,7 +49,8 @@ function page(f) {
   const dlHref = "../download.html";
   const backHref = isFin ? finHref : toolsHref;
   const backLabel = isFin ? "Back to the financial engine" : "Back to all tools";
-  const demoCta = '<a href="../index.html#demo" class="rounded-full bg-white px-7 py-3.5 font-display font-semibold text-sm transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Try it in your browser</a>';
+  const toolUrl = PRISM.appHref(f.slug);
+  const demoCta = '<a href="' + toolUrl + '" class="rounded-full bg-white px-7 py-3.5 font-display font-semibold text-sm transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Open this tool</a>';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -126,7 +127,7 @@ function page(f) {
       <h2 class="font-display font-bold tracking-tighter leading-[1.05]" style="font-size:clamp(1.8rem,4vw,2.8rem);">Run ${esc(f.name)} right in your browser.</h2>
       <p class="mt-4 text-lg" style="color:#b6bfcb;">No install to start. Want it offline, in batch, or on your phone? The app covers that too.</p>
       <div class="mt-9 flex flex-wrap items-center justify-center gap-4">
-        <a href="../index.html#demo" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Try it in the browser</a>
+        <a href="${toolUrl}" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Open this tool</a>
         <a href="${dlHref}" class="rounded-full border px-8 py-4 font-display font-medium text-base transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">Download for offline</a>
       </div>
     </div>

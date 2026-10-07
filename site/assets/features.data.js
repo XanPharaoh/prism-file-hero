@@ -199,8 +199,38 @@
       runs: ["desktop", "web-ai"], demo: null, related: ["bank-statement-to-xlsx", "ledger-guard"] }
   ];
 
+  // Hand-off to the real web app (already built in this repo: React SPA with
+  // /tools/:toolId routes backed by services/pdfService + AI/excel services).
+  // Set APP_BASE to the app origin when it is served from a different host.
+  var APP_BASE = "/";
+  var APP_ID = {
+    "merge-pdf": "merge", "split-pdf": "split", "rotate-pdf": "rotate", "auto-rotate-pages": "auto-rotate",
+    "delete-pages": "delete-pages", "extract-pages": "extract-pages", "reorder-pages": "reorder-pages",
+    "add-page-numbers": "page-numbers", "header-and-footer": "header-footer", "multi-page-layout": "n-up",
+    "add-stamp-badge": "stamp", "pdf-to-excel": "pdf-to-excel", "pdf-to-markdown": "ocr-to-md",
+    "pdf-to-word": "pdf-to-word", "pdf-to-plain-text": "pdf-to-text", "pdf-to-jpg": "pdf-to-jpg",
+    "jpg-to-pdf": "jpg-to-pdf", "extract-images": "extract-images", "compress-pdf": "compress",
+    "repair-pdf": "pdf-repair", "crop-and-resize": "crop-resize", "remove-blank-pages": "remove-blank-pages",
+    "scanner-paper-look": "scan-effect", "invert-colors": "invert-colors", "protect-pdf": "protect",
+    "unlock-pdf": "unlock-pdf", "redact-pdf": "redact", "watermark": "watermark", "edit-metadata": "metadata-edit",
+    "flatten-pdf": "flatten-pdf", "sanitize-pdf": "sanitize", "ocr-to-searchable-pdf": "ocr",
+    "ocr-to-markdown": "ocr-to-md", "compare-pdf": "compare", "grammar-and-spell-check": "grammar-check",
+    "pdf-qa-assistant": "pdf-qa", "pdf-summary": "pdf-summary",
+    "bank-statement-to-xlsx": "__bank", "vat-ready-workbooks": "__app", "ledger-guard": "__app",
+    "per-client-rules-engine": "__app", "industry-templates": "__app", "portfolio-statements": "__app"
+  };
+  function appHref(slug) {
+    var id = APP_ID[slug];
+    if (!id) return APP_BASE + "app";
+    if (id === "__bank") return APP_BASE + "bank-statement-to-excel";
+    if (id === "__app") return APP_BASE + "app";
+    return APP_BASE + "tools/" + id;
+  }
+
   g.PRISM = {
     DOWNLOADS: DOWNLOADS,
+    APP_BASE: APP_BASE,
+    appHref: appHref,
     TOOLS: TOOLS,
     FINANCIAL: FINANCIAL,
     ALL: TOOLS.concat(FINANCIAL),
