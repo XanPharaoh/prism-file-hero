@@ -99,7 +99,7 @@
           '<a href="' + BASE + 'index.html" class="font-display font-semibold tracking-tight text-sm">Prism File Hero</a>' +
           '<div class="hidden lg:flex items-center gap-7 text-xs tracking-wide" style="color:#9aa4b2;">' + linkHtml + "</div>" +
           '<div class="flex items-center gap-2">' +
-            '<a href="' + BASE + 'pricing.html" class="hidden sm:inline-block rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.3);color:#f2f4f8;">Sign in</a>' +
+            '<a href="' + BASE + 'account.html" class="hidden sm:inline-block rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.3);color:#f2f4f8;">Sign in</a>' +
             '<a href="' + BASE + 'download.html" class="rounded-full bg-white px-4 py-1.5 text-xs font-semibold hover:bg-slate-200 transition-colors" style="color:#0b0f16;">Download</a>' +
           "</div>" +
         "</nav>" +
@@ -562,10 +562,87 @@
     }
   }
 
+  /* ---------------- account: sign in / create account (UI shell, Clerk-wired later) ---------------- */
+  function mountAuth() {
+    var form = document.getElementById("auth-form");
+    if (!form) return;
+    var $ = function (id) { return document.getElementById(id); };
+    var tabIn = $("tab-signin"), tabUp = $("tab-signup"), submit = $("auth-submit");
+    var name = $("f-name"), email = $("f-email"), pass = $("f-password"), terms = $("f-terms");
+    var wrapName = $("wrap-name"), wrapTerms = $("wrap-terms"), wrapForgot = $("wrap-forgot");
+    var status = $("auth-status"), switchText = $("auth-switch-text"), switchBtn = $("auth-switch");
+    var mode = "signin";
+
+    function setErr(field, msg) {
+      var box = $("err-" + field);
+      if (box) { box.textContent = msg || ""; box.classList.toggle("show", !!msg); }
+      var input = $("f-" + field);
+      if (input) input.setAttribute("aria-invalid", msg ? "true" : "false");
+    }
+    function clearErrs() { ["name", "email", "password", "terms"].forEach(function (f) { setErr(f, ""); }); }
+    function showStatus(msg) { if (!status) return; status.textContent = msg; status.hidden = !msg; }
+
+    function setMode(m) {
+      mode = m;
+      var up = m === "signup";
+      tabIn.setAttribute("aria-selected", up ? "false" : "true"); tabIn.tabIndex = up ? -1 : 0;
+      tabUp.setAttribute("aria-selected", up ? "true" : "false"); tabUp.tabIndex = up ? 0 : -1;
+      wrapName.hidden = !up; wrapTerms.hidden = !up; wrapForgot.hidden = up;
+      submit.textContent = up ? "Create account" : "Sign in";
+      pass.setAttribute("autocomplete", up ? "new-password" : "current-password");
+      switchText.textContent = up ? "Already have an account?" : "New to Prism?";
+      switchBtn.textContent = up ? "Sign in" : "Create an account";
+      clearErrs(); showStatus("");
+    }
+
+    tabIn.addEventListener("click", function () { setMode("signin"); });
+    tabUp.addEventListener("click", function () { setMode("signup"); });
+    switchBtn.addEventListener("click", function () { setMode(mode === "signin" ? "signup" : "signin"); });
+
+    $("pw-eye").addEventListener("click", function () {
+      var show = pass.type === "password";
+      pass.type = show ? "text" : "password";
+      this.setAttribute("aria-pressed", show ? "true" : "false");
+      this.setAttribute("aria-label", show ? "Hide password" : "Show password");
+    });
+
+    function validate() {
+      clearErrs();
+      var ok = true, first = null;
+      if (mode === "signup" && !name.value.trim()) { setErr("name", "Please enter your name."); ok = false; first = first || name; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) { setErr("email", "Enter a valid email address."); ok = false; first = first || email; }
+      if (pass.value.length < 8) { setErr("password", "Use at least 8 characters."); ok = false; first = first || pass; }
+      if (mode === "signup" && !terms.checked) { setErr("terms", "Please accept the terms to continue."); ok = false; first = first || terms; }
+      if (first) first.focus();
+      return ok;
+    }
+
+    function pending() {
+      if (window.PRISM && window.PRISM.AUTH && window.PRISM.AUTH.clerkPublishableKey) {
+        // Real Clerk wiring goes here (mount @clerk/clerk-js with the key).
+        showStatus("Connecting to your account…");
+        return;
+      }
+      showStatus("This form isn't connected to an account provider yet. Add your Clerk key in assets/features.data.js (PRISM.AUTH.clerkPublishableKey) to go live.");
+    }
+
+    function submit_(e) {
+      if (e) e.preventDefault();
+      if (!validate()) return;
+      submit.disabled = true;
+      var label = submit.textContent;
+      submit.textContent = mode === "signup" ? "Creating…" : "Signing in…";
+      setTimeout(function () { submit.disabled = false; submit.textContent = label; pending(); }, 850);
+    }
+    form.addEventListener("submit", submit_);
+    $("auth-google").addEventListener("click", submit_);
+    [name, email, pass, terms].forEach(function (el) { if (el) el.addEventListener("input", function () { clearErrs(); }); });
+  }
+
   /* ---------------- boot ---------------- */
   function boot() {
     if (window.PRISM) window.PRISM.ALL.forEach(function (f) { FEATURE[f.name] = f.slug; });
-    mountNav(); mountFooter(); mountTicker(); mountTools(); mountHomeTools(); mountFinBand(); mountBilling(); mountDemo(); motion();
+    mountNav(); mountFooter(); mountTicker(); mountTools(); mountHomeTools(); mountFinBand(); mountBilling(); mountDemo(); mountAuth(); motion();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();

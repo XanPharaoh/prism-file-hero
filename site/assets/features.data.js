@@ -227,10 +227,16 @@
     return APP_BASE + "tools/" + id;
   }
 
+  // Auth wiring: the app uses Clerk. Drop your Clerk publishable key (a
+  // public client key) here to connect the account.html form to real auth.
+  // While empty, the form validates and shows a "not connected yet" state.
+  var AUTH = { clerkPublishableKey: "" };
+
   g.PRISM = {
     DOWNLOADS: DOWNLOADS,
     APP_BASE: APP_BASE,
     appHref: appHref,
+    AUTH: AUTH,
     TOOLS: TOOLS,
     FINANCIAL: FINANCIAL,
     ALL: TOOLS.concat(FINANCIAL),
