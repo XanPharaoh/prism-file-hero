@@ -50,7 +50,7 @@ function page(f) {
   const backHref = isFin ? finHref : toolsHref;
   const backLabel = isFin ? "Back to the financial engine" : "Back to all tools";
   const toolUrl = PRISM.appHref(f.slug);
-  const demoCta = '<a href="' + toolUrl + '" class="rounded-full bg-white px-7 py-3.5 font-display font-semibold text-sm transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Open this tool</a>';
+  const demoCta = '<a href="#tool" class="rounded-full bg-white px-7 py-3.5 font-display font-semibold text-sm transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Try it here</a>';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -97,6 +97,10 @@ function page(f) {
     </div>
   </section>
 
+  <section id="tool" class="mx-auto max-w-4xl px-6 pt-14 md:pt-16 scroll-mt-24">
+    <div id="tool-mount" data-tool="${f.slug}" data-name="${esc(f.name)}"></div>
+  </section>
+
   <section class="mx-auto max-w-4xl px-6 py-20 md:py-28">
     <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
       <div class="md:col-span-2">
@@ -127,7 +131,7 @@ function page(f) {
       <h2 class="font-display font-bold tracking-tighter leading-[1.05]" style="font-size:clamp(1.8rem,4vw,2.8rem);">Run ${esc(f.name)} right in your browser.</h2>
       <p class="mt-4 text-lg" style="color:#b6bfcb;">No install to start. Want it offline, in batch, or on your phone? The app covers that too.</p>
       <div class="mt-9 flex flex-wrap items-center justify-center gap-4">
-        <a href="${toolUrl}" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Open this tool</a>
+        <a href="#tool" class="rounded-full bg-white px-8 py-4 font-display font-semibold text-base transition-transform duration-300 hover:-translate-y-0.5" style="color:#0b0f16;">Use this tool</a>
         <a href="${dlHref}" class="rounded-full border px-8 py-4 font-display font-medium text-base transition-colors hover:bg-white/10" style="border-color:rgba(242,244,248,.35);color:#f2f4f8;">Download for offline</a>
       </div>
     </div>
@@ -141,6 +145,7 @@ function page(f) {
 <script src="../assets/vendor/scrolltrigger.min.js" integrity="sha384-Z3REaz79l2IaAZqJsSABtTbhjgOUYyV3p90XNnAPCSHg3EMTz1fouunq9WZRtj3d" crossorigin="anonymous"></script>
 <script src="../assets/features.data.js"></script>
 <script src="../assets/site.js"></script>
+<script src="../assets/tool.js"></script>
 </body>
 </html>
 `;

@@ -159,8 +159,7 @@
       return name.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     }
     function toolHref(name) {
-      var slug = slugOf(name);
-      return (window.PRISM && window.PRISM.appHref) ? window.PRISM.appHref(slug) : BASE + "features/" + slug + ".html";
+      return BASE + "features/" + slugOf(name) + ".html";
     }
     function card(t, featured) {
       var href = toolHref(t.n);
@@ -246,7 +245,7 @@
     root.innerHTML = fams.map(function (fam) {
       var items = PRISM.TOOLS.filter(function (t) { return t.family === fam; });
       var cards = items.map(function (t) {
-        return '<a href="' + PRISM.appHref(t.slug) + '" class="htool group flex items-start gap-3 rounded-xl border border-line bg-surface p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-[color:var(--accent)]">' +
+        return '<a href="' + BASE + 'features/' + t.slug + '.html" class="htool group flex items-start gap-3 rounded-xl border border-line bg-surface p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-[color:var(--accent)]">' +
           '<span class="htool-ico grid place-items-center h-9 w-9 shrink-0 rounded-lg" style="background:var(--sunken);color:var(--accent)">' +
             '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="' + (FAM_ICON[fam] || FAM_ICON.Organize) + '"/></svg></span>' +
           '<span class="min-w-0"><span class="block font-display font-semibold text-[15px] tracking-tight text-ink">' + t.name + '</span>' +
