@@ -164,6 +164,79 @@
       run: function (f) { return pdfJs().then(function (js) { return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) { var md = "", n = 1; function page() { if (n > doc.numPages) return Promise.resolve(); md += "\n\n## Page " + n + "\n\n"; return doc.getPage(n++).then(function (p) { return p.getTextContent(); }).then(function (tc) { md += tc.items.map(function (i) { return i.str; }).join(" ") + "\n"; return page(); }); } return page().then(function () { return [{ blob: new Blob([md.trim() + "\n"], { type: "text/markdown" }), name: "document.md" }]; }); }); }); } }
   });
 
+  // Third wave: completes the Optimize family. crop is pure pdf-lib; the visual
+  // tools render each page through pdf.js, filter the pixels, and re-embed as images.
+  function invertPixels(d) { for (var i = 0; i < d.length; i += 4) { d[i] = 255 - d[i]; d[i + 1] = 255 - d[i + 1]; d[i + 2] = 255 - d[i + 2]; } }
+  function scannerPixels(d) {
+    for (var i = 0; i < d.length; i += 4) {
+      var g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      var v = g > 190 ? 255 : Math.max(0, Math.min(255, (g - 128) * 1.7 + 128));
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+  }
+  function renderPageFiltered(doc, n, filter, quality, out, maxW) {
+    return doc.getPage(n).then(function (p) {
+      var vp0 = p.getViewport({ scale: 1 });
+      var sc = Math.min(1, (maxW || 1000) / Math.max(1, vp0.width));
+      var vp = p.getViewport({ scale: sc });
+      var c = document.createElement("canvas"); c.width = Math.max(1, Math.ceil(vp.width)); c.height = Math.max(1, Math.ceil(vp.height));
+      var ctx = c.getContext("2d");
+      return p.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+        if (filter) { var img = ctx.getImageData(0, 0, c.width, c.height); filter(img.data); ctx.putImageData(img, 0, 0); }
+        return new Promise(function (rr) { c.toBlob(function (b) { rr(b); }, "image/jpeg", quality || 0.85); });
+      }).then(function (blob) { return blob.arrayBuffer(); }).then(function (ab) {
+        return out.embedJpg(new Uint8Array(ab)).then(function (e) { var pg = out.addPage([c.width, c.height]); pg.drawImage(e, { x: 0, y: 0, width: c.width, height: c.height }); });
+      });
+    });
+  }
+  function renderToImagePdf(f, filter, quality, outName, maxW) {
+    return Promise.all([pdfJs(), pdfLib()]).then(function (r) {
+      var js = r[0], L = r[1];
+      return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) {
+        return L.PDFDocument.create().then(function (out) {
+          var seq = Promise.resolve();
+          for (var n = 1; n <= doc.numPages; n++) (function (n) { seq = seq.then(function () { return renderPageFiltered(doc, n, filter, quality, out, maxW); }); })(n);
+          return seq.then(function () { return out.save(); }).then(function (b) { return toPdf(b, outName); });
+        });
+      });
+    });
+  }
+  Object.assign(TOOLS, {
+    "crop-and-resize": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      opts: [{ key: "margin", label: "Trim from each edge", type: "text", def: "36", hint: "points · 72 = 1 inch" }],
+      run: function (f, o) { return loadPdf(f[0]).then(function (r) {
+        var m = Math.max(0, parseInt(o.margin, 10) || 0);
+        r.d.getPages().forEach(function (p) { var bx = p.getMediaBox(), w = bx.width - 2 * m, h = bx.height - 2 * m; if (w <= 0 || h <= 0) return; p.setMediaBox(bx.x + m, bx.y + m, w, h); p.setCropBox(bx.x + m, bx.y + m, w, h); });
+        return r.d.save().then(function (b) { return toPdf(b, "cropped.pdf"); }); }); } },
+    "invert-colors": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      run: function (f) { return renderToImagePdf(f, invertPixels, 0.9, "inverted.pdf", 1000); } },
+    "scanner-paper-look": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      run: function (f) { return renderToImagePdf(f, scannerPixels, 0.92, "scanned.pdf", 1200); } },
+    "remove-blank-pages": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      run: function (f) { return Promise.all([pdfJs(), pdfLib()]).then(function (r) {
+        var js = r[0], L = r[1], buf, marks;
+        return bytes(f[0]).then(function (b) { buf = b; return js.getDocument({ data: b.slice(0) }).promise; }).then(function (doc) {
+          marks = new Array(doc.numPages); var seq = Promise.resolve();
+          for (var n = 1; n <= doc.numPages; n++) (function (n) {
+            seq = seq.then(function () { return doc.getPage(n).then(function (p) {
+              var vp0 = p.getViewport({ scale: 1 }), sc = Math.min(1, 500 / Math.max(1, vp0.width)), vp = p.getViewport({ scale: sc });
+              var c = document.createElement("canvas"); c.width = Math.max(1, Math.ceil(vp.width)); c.height = Math.max(1, Math.ceil(vp.height));
+              var ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+              return p.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+                var d = ctx.getImageData(0, 0, c.width, c.height).data, dark = 0;
+                for (var i = 0; i < d.length; i += 4) { if (d[i] < 140 && d[i + 1] < 140 && d[i + 2] < 140 && ++dark > 6) break; }
+                marks[n - 1] = dark > 6;
+              });
+            }); });
+          })(n);
+          return seq;
+        }).then(function () { return L.PDFDocument.load(buf, { ignoreEncryption: true }).then(function (src) {
+          var keep = []; for (var i = 0; i < src.getPageCount(); i++) { if (marks[i] !== false) keep.push(i); } if (!keep.length) keep = [0];
+          return L.PDFDocument.create().then(function (out) { return out.copyPages(src, keep).then(function (ps) { ps.forEach(function (p) { out.addPage(p); }); return out.save(); }).then(function (b) { return toPdf(b, "no-blanks.pdf"); }); });
+        }); });
+      }); } }
+  });
+
   function fallback(host, name) {
     host.innerHTML = "";
     var card = el("div", "tool-fallback");
