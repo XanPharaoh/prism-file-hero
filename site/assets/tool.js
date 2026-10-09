@@ -237,6 +237,73 @@
       }); } }
   });
 
+  // Fourth wave: Security-family tools that run purely on pdf-lib / pdf.js.
+  function saveDoc(L, d, name) {
+    return d.save({ useObjectStreams: true }).catch(function () {
+      var n = d.getPageCount();
+      return L.PDFDocument.create().then(function (clean) {
+        return clean.copyPages(d, Array.from({ length: n }, function (_, i) { return i; })).then(function (ps) { ps.forEach(function (p) { clean.addPage(p); }); return clean.save({ useObjectStreams: true }); });
+      });
+    }).then(function (b) { return toPdf(b, name); });
+  }
+  // pdf.js can decrypt a standard security handler; pdf-lib cannot, so a truly
+  // password-locked file is rebuilt as page images (text becomes raster).
+  function rasterizeUnlock(js, L, file, pw) {
+    return bytes(file).then(function (b) { return js.getDocument(pw ? { data: b, password: pw } : { data: b }).promise; }).then(function (doc) {
+      return L.PDFDocument.create().then(function (out) { var seq = Promise.resolve();
+        for (var n = 1; n <= doc.numPages; n++) (function (n) { seq = seq.then(function () { return doc.getPage(n).then(function (p) {
+          var ov = p.getViewport({ scale: 1 }), vp = p.getViewport({ scale: 2 }); var c = document.createElement("canvas"); c.width = Math.max(1, Math.round(vp.width)); c.height = Math.max(1, Math.round(vp.height)); var ctx = c.getContext("2d");
+          return p.render({ canvasContext: ctx, viewport: vp }).promise.then(function () { return new Promise(function (res) { c.toBlob(function (bl) { res(bl); }, "image/jpeg", 0.95); }); }).then(function (bl) { return bl.arrayBuffer(); }).then(function (ab) { return out.embedJpg(new Uint8Array(ab)).then(function (img) { var np = out.addPage([ov.width, ov.height]); np.drawImage(img, { x: 0, y: 0, width: ov.width, height: ov.height }); }); });
+        }); }); })(n);
+        return seq.then(function () { return out.save({ useObjectStreams: true }); }).then(function (b2) { return toPdf(b2, "unlocked.pdf"); });
+      });
+    });
+  }
+  Object.assign(TOOLS, {
+    "flatten-pdf": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      run: function (f) { return loadPdf(f[0]).then(function (r) { var L = r.L, d = r.d, N = L.PDFName;
+        try { d.getForm().flatten(); } catch (e) {}
+        try { if (d.catalog.has(N.of("AcroForm"))) d.catalog.delete(N.of("AcroForm")); } catch (e) {}
+        d.getPages().forEach(function (page) { try {
+          var ref = page.node.get(N.of("Annots")); if (!ref) return; var annots = d.context.lookup(ref);
+          if (annots instanceof L.PDFArray) { var keep = []; for (var i = 0; i < annots.size(); i++) { var it = annots.get(i); var dict = d.context.lookup(it);
+            if (dict instanceof L.PDFDict) { var st = dict.get(N.of("Subtype")); if (!(st && st.toString() === "/Widget")) keep.push(it); } else keep.push(it); }
+            if (!keep.length) page.node.delete(N.of("Annots")); else if (keep.length !== annots.size()) page.node.set(N.of("Annots"), d.context.obj(keep));
+          }
+        } catch (e) {} });
+        return saveDoc(L, d, "flattened.pdf"); }); } },
+    "sanitize-pdf": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      run: function (f) { return loadPdf(f[0]).then(function (r) { var L = r.L, d = r.d, N = L.PDFName, cat = d.catalog;
+        ["OpenAction", "AA", "JavaScript", "JS", "Launch", "URI", "EmbeddedFiles", "AF", "Metadata", "PieceInfo", "SpiderInfo"].forEach(function (k) { try { cat.delete(N.of(k)); } catch (e) {} });
+        try { d.getForm().getFields().forEach(function (field) { try { field.acroField.dict.delete(N.of("AA")); field.acroField.dict.delete(N.of("A")); } catch (e) {} }); } catch (e) {}
+        try { var nr = cat.get(N.of("Names")); if (nr) { var nd = d.context.lookup(nr); if (nd instanceof L.PDFDict) { nd.delete(N.of("JavaScript")); nd.delete(N.of("EmbeddedFiles")); } cat.delete(N.of("Names")); } } catch (e) {}
+        try { d.setTitle(""); d.setAuthor(""); d.setSubject(""); d.setKeywords([]); d.setProducer(""); d.setCreator(""); } catch (e) {}
+        d.getPages().forEach(function (page) { try {
+          page.node.delete(N.of("AA")); page.node.delete(N.of("AF")); page.node.delete(N.of("Metadata")); page.node.delete(N.of("PieceInfo"));
+          var ref = page.node.get(N.of("Annots")); if (!ref) return; var annots = d.context.lookup(ref);
+          if (annots instanceof L.PDFArray) { var keep = []; for (var i = 0; i < annots.size(); i++) { var it = annots.get(i); var dict = d.context.lookup(it);
+            if (dict instanceof L.PDFDict) { var st = dict.get(N.of("Subtype")), ar = dict.get(N.of("A")), ad = ar ? d.context.lookup(ar) : null, at = (ad instanceof L.PDFDict) && ad.get(N.of("S")) ? ad.get(N.of("S")).toString() : null;
+              try { dict.delete(N.of("AA")); if (at === "/JavaScript" || at === "/Launch") dict.delete(N.of("A")); } catch (e) {}
+              var isLink = (st && st.toString() === "/Link") || at === "/URI" || at === "/Launch" || at === "/GoToR"; if (isLink) continue;
+              keep.push(it);
+            } else keep.push(it); }
+            if (!keep.length) page.node.delete(N.of("Annots")); else if (keep.length !== annots.size()) page.node.set(N.of("Annots"), d.context.obj(keep));
+          }
+        } catch (e) {} });
+        return saveDoc(L, d, "sanitized.pdf"); }); } },
+    "auto-rotate-pages": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      run: function (f) { return loadPdf(f[0]).then(function (r) { r.d.getPages().forEach(function (p) { var s = p.getSize(); if (s.width > s.height * 1.1) p.setRotation(r.L.degrees((p.getRotation().angle + 90) % 360)); }); return r.d.save().then(function (b) { return toPdf(b, "auto-rotated.pdf"); }); }); } },
+    "unlock-pdf": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      opts: [{ key: "password", label: "Password", type: "password", def: "", hint: "blank = open it but it won't let you edit" }],
+      run: function (f, o) { var pw = o.password || "";
+        return Promise.all([pdfJs(), pdfLib()]).then(function (rr) { var js = rr[0], L = rr[1];
+          if (pw) return rasterizeUnlock(js, L, f[0], pw);
+          return bytes(f[0]).then(function (b) { return L.PDFDocument.load(b).then(function (d) { return d.save().then(function (bb) { return toPdf(bb, "unlocked.pdf"); }); }); }).catch(function (err) {
+            if (err && (/ncrypt/i.test(err.message || "") || /ncrypt/i.test(err.name || ""))) return rasterizeUnlock(js, L, f[0], "");
+            throw err; });
+        }); } }
+  });
+
   function fallback(host, name) {
     host.innerHTML = "";
     var card = el("div", "tool-fallback");
@@ -267,7 +334,7 @@
       row.appendChild(el("span", "tool-opt-l", o.label));
       var ctl;
       if (o.type === "select") { ctl = el("select", "tool-select"); o.choices.forEach(function (c) { var op = el("option", null, c[1]); op.value = c[0]; if (c[0] === o.def) op.selected = true; ctl.appendChild(op); }); }
-      else { ctl = el("input", "tool-text"); ctl.type = "text"; ctl.value = o.def || ""; }
+      else { ctl = el("input", "tool-text"); ctl.type = o.type === "password" ? "password" : "text"; ctl.value = o.def || ""; }
       ctl.id = "opt-" + o.key; row.appendChild(ctl);
       if (o.hint) row.appendChild(el("span", "tool-opt-h", o.hint));
       optWrap.appendChild(row);
