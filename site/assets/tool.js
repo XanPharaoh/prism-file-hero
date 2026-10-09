@@ -34,6 +34,8 @@
   function excelLib() { if (!excelP) excelP = window.ExcelJS ? Promise.resolve(window.ExcelJS) : loadScript(B + "assets/vendor/exceljs.min.js").then(function () { return window.ExcelJS; }); return excelP; }
   var encP = null;
   function pdfEncrypt() { if (!encP) encP = import(B + "assets/vendor/pdfencrypt/pdf-encrypt.mjs").then(function (m) { return m.encryptPDF; }); return encP; }
+  var tessP = null;
+  function tessLib() { if (!tessP) tessP = window.Tesseract ? Promise.resolve(window.Tesseract) : loadScript(B + "assets/vendor/tesseract.min.js").then(function () { return window.Tesseract; }); return tessP; }
 
   function bytes(file) { return file.arrayBuffer().then(function (b) { return new Uint8Array(b); }); }
   function canvasJpeg(page, scale, quality) {
@@ -484,11 +486,55 @@
         return [{ blob: new Blob([report], { type: "text/plain" }), name: "ledger-report.txt" }, { blob: new Blob([toCSV(rec)], { type: "text/csv" }), name: "ledger-annotated.csv" }]; }); } }
   });
 
-  function fallback(host, name) {
+  var tessP = null;
+  function tessLib() { if (!tessP) tessP = window.Tesseract ? Promise.resolve(window.Tesseract) : loadScript(B + "assets/vendor/tesseract.min.js").then(function () { return window.Tesseract; }); return tessP; }
+  function tessWords(data) {
+    if (data && data.words && data.words.length) return data.words;
+    var ws = [];
+    try { (data && data.blocks || []).forEach(function (b) { (b.paragraphs || []).forEach(function (p) { (p.lines || []).forEach(function (l) { (l.words || []).forEach(function (w) { ws.push(w); }); }); }); }); } catch (e) {}
+    return ws;
+  }
+  Object.assign(TOOLS, {
+    "ocr-to-markdown": { accept: ".pdf,application/pdf,image/jpeg,image/png", multi: false, min: 1,
+      run: function (f) { return Promise.all([pdfJs(), tessLib()]).then(function (r) { var js = r[0], T = r[1];
+        return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) {
+          return T.createWorker("eng", 1).then(function (w) {
+            var md = "", seq = Promise.resolve();
+            for (var n = 1; n <= doc.numPages; n++) (function (n) { seq = seq.then(function () { return doc.getPage(n).then(function (p) {
+              var vp = p.getViewport({ scale: 2 }); var c = document.createElement("canvas"); c.width = Math.max(1, Math.round(vp.width)); c.height = Math.max(1, Math.round(vp.height));
+              return p.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise.then(function () { return w.recognize(c); }).then(function (rec) { md += "\n\n## Page " + n + "\n\n" + ((rec.data.text || "").trim()) + "\n"; });
+            }); }); })(n);
+            return seq.then(function () { return w.terminate().catch(function () {}); }).then(function () { if (!md.trim()) throw new Error("OCR found no readable text on this page"); return [{ blob: new Blob([md.trim() + "\n"], { type: "text/markdown" }), name: "ocr.md" }]; });
+          }); }); }); } },
+    "ocr-to-searchable-pdf": { accept: ".pdf,application/pdf,image/jpeg,image/png", multi: false, min: 1,
+      run: function (f) { return Promise.all([pdfJs(), pdfLib(), tessLib()]).then(function (rr) { var js = rr[0], L = rr[1], T = rr[2];
+        return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) {
+          return Promise.all([T.createWorker("eng", 1), L.PDFDocument.create()]).then(function (p2) { var w = p2[0], out = p2[1];
+            return out.embedFont(L.StandardFonts.Helvetica).then(function (HFONT) {
+              var seq = Promise.resolve(), pagesSeen = 0;
+              for (var n = 1; n <= doc.numPages; n++) (function (n) { seq = seq.then(function () { return doc.getPage(n).then(function (p) {
+                var scale = 2, ov = p.getViewport({ scale: 1 }), vp = p.getViewport({ scale: scale });
+                var c = document.createElement("canvas"); c.width = Math.max(1, Math.round(vp.width)); c.height = Math.max(1, Math.round(vp.height));
+                return p.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise
+                  .then(function () { return w.recognize(c, {}, { blocks: true, text: true }); }).then(function (rec) { pagesSeen++; return { words: tessWords(rec.data) }; })
+                  .then(function (res) { return new Promise(function (b2) { c.toBlob(function (bl) { b2(bl); }, "image/jpeg", 0.9); }).then(function (bl) { return bl.arrayBuffer(); }).then(function (ab) { return out.embedJpg(new Uint8Array(ab)).then(function (e) {
+                    var np = out.addPage([ov.width, ov.height]); np.drawImage(e, { x: 0, y: 0, width: ov.width, height: ov.height });
+                    res.words.forEach(function (wd) { if (!wd || !wd.bbox || !wd.text) return; np.drawText(wd.text, { x: wd.bbox.x0 / scale, y: ov.height - wd.bbox.y1 / scale, size: Math.max(1, (wd.bbox.y1 - wd.bbox.y0) / scale), font: HFONT, color: L.rgb(0, 0, 0), opacity: 0 }); });
+                  }); }); });
+              }); }); })(n);
+              return seq.then(function () { return w.terminate().catch(function () {}); }).then(function () { if (!pagesSeen) throw new Error("OCR found no readable text on this page"); return out.save({ useObjectStreams: true }); }).then(function (b3) { return toPdf(b3, "searchable.pdf"); });
+            }); });
+        }); }); } }
+  });
+
+  function fallback(host, name, slug) {
     host.innerHTML = "";
+    var desktopOnly = { "vat-ready-workbooks": 1, "per-client-rules-engine": 1, "industry-templates": 1 };
     var card = el("div", "tool-fallback");
     card.appendChild(el("p", "tool-fb-title", name + " runs in the full app"));
-    card.appendChild(el("p", "tool-fb-body", "This tool needs the desktop engine (OCR, AI, table extraction or the bank parser). It isn't wired to a backend on this preview page yet, so it can't run here in the browser."));
+    card.appendChild(el("p", "tool-fb-body", desktopOnly[slug]
+      ? "This is a desktop pipeline job - it runs the offline engine against your local data on your machine, so it isn't available as a browser preview."
+      : "This tool uses the AI models, which run server-side behind sign-in. It isn't wired to that backend on this preview page yet, so it can't run here in the browser."));
     var a = el("a", "tool-fb-btn", "Download the app");
     a.href = B + "download.html"; card.appendChild(a);
     host.appendChild(card);
@@ -568,7 +614,7 @@
     var slug = host.getAttribute("data-tool");
     var name = host.getAttribute("data-name") || "this tool";
     var cfg = TOOLS[slug];
-    if (cfg) build(host, cfg, name); else fallback(host, name);
+    if (cfg) build(host, cfg, name); else fallback(host, name, slug);
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);
   else mount();
