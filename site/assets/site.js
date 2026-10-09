@@ -561,10 +561,64 @@
     }
   }
 
-  /* ---------------- account: sign in / create account (UI shell, Clerk-wired later) ---------------- */
+  /* ---------------- Clerk headless auth bridge (lazy; powers AI session tokens) ---------------- */
+  window.PRFAuth = (function () {
+    function pk() { return (window.PRISM && window.PRISM.AUTH && window.PRISM.AUTH.clerkPublishableKey) || ""; }
+    var inst = null, loading = null, listeners = [];
+    function clerkDomain() { var k = pk(); try { return atob(k.split("_")[2]).slice(0, -1); } catch (e) { return "clerk.prismfilehero.com"; } }
+    function loadScript(src) { return new Promise(function (res, rej) { var s = document.createElement("script"); s.src = src; s.async = true; s.crossOrigin = "anonymous"; s.onload = res; s.onerror = function () { rej(new Error("Clerk script failed: " + src)); }; document.head.appendChild(s); }); }
+    function fire() { listeners.slice().forEach(function (l) { try { l(inst); } catch (e) {} }); }
+    function ensure() {
+      var key = pk();
+      if (!key) return Promise.resolve(null);
+      if (inst) return Promise.resolve(inst);
+      if (loading) return loading;
+      loading = loadScript("https://cdn.jsdelivr.net/npm/@clerk/clerk-js@6/dist/clerk.browser.js")
+        .then(function () { return loadScript("https://" + clerkDomain() + "/npm/@clerk/ui@1/dist/ui.browser.js"); })
+        .then(function () {
+          var Ctor = window.Clerk; if (typeof Ctor !== "function") throw new Error("Clerk global unavailable");
+          inst = new Ctor(key);
+          return inst.load({ ui: { ClerkUI: window.__internal_ClerkUICtor } });
+        })
+        .then(function () { fire(); return inst; })
+        .catch(function (e) { loading = null; inst = null; throw e; });
+      return loading;
+    }
+    function onChange(l) { listeners.push(l); if (inst) { try { l(inst); } catch (e) {} } }
+    function getToken() { return ensure().then(function (c) { return (c && c.isSignedIn && c.session) ? c.session.getToken() : null; }).catch(function () { return null; }); }
+    return {
+      enabled: !!pk(), ensure: ensure, getToken: getToken, onChange: onChange,
+      mountSignIn: function (el) { return ensure().then(function (c) { if (c) { c.isSignedIn ? c.mountUserButton(el) : c.mountSignIn(el); } }); },
+      mountSignUp: function (el) { return ensure().then(function (c) { if (c) c.mountSignUp(el); }); },
+      mountUserButton: function (el) { return ensure().then(function (c) { if (c) c.mountUserButton(el); }); },
+      signOut: function () { return (inst && inst.signOut) ? inst.signOut() : Promise.resolve(); }
+    };
+  })();
+
+  /* ---------------- account: sign in / create account (Clerk; UI shell fallback) ---------------- */
   function mountAuth() {
     var form = document.getElementById("auth-form");
     if (!form) return;
+
+    // Primary path: real Clerk. Only if the key is present. On any load failure we
+    // un-hide the static shell below so the page never goes blank.
+    if (window.PRFAuth && window.PRFAuth.enabled) {
+      var card = form.parentElement || document.body;
+      var host = document.createElement("div"); host.id = "clerk-auth-root";
+      var toggle = document.createElement("p"); toggle.className = "clerk-toggle";
+      var switchBtn = document.createElement("button"); switchBtn.type = "button"; switchBtn.textContent = "Create one";
+      toggle.appendChild(document.createTextNode("Need an account? ")); toggle.appendChild(switchBtn);
+      form.hidden = true; card.insertBefore(host, form); card.appendChild(toggle);
+      var mode = "signin";
+      function mount() { host.innerHTML = ""; try { mode === "signin" ? window.PRFAuth.mountSignIn(host) : window.PRFAuth.mountSignUp(host); } catch (e) {} }
+      window.PRFAuth.ensure().then(function (c) {
+        if (c && c.isSignedIn) { host.innerHTML = '<p class="clerk-signed">Signed in. AI tools are unlocked for your plan.</p>'; var ub = document.createElement("div"); host.appendChild(ub); try { c.mountUserButton(ub); } catch (e) {} toggle.hidden = true; }
+        else { mount(); }
+      }).catch(function () { form.hidden = false; host.remove(); toggle.remove(); });
+      switchBtn.addEventListener("click", function () { mode = mode === "signin" ? "signup" : "signin"; this.textContent = mode === "signin" ? "Create one" : "Use an existing account"; mount(); });
+      return;
+    }
+
     var $ = function (id) { return document.getElementById(id); };
     var tabIn = $("tab-signin"), tabUp = $("tab-signup"), submit = $("auth-submit");
     var name = $("f-name"), email = $("f-email"), pass = $("f-password"), terms = $("f-terms");

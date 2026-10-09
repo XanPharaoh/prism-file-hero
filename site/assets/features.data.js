@@ -227,15 +227,18 @@
     return APP_BASE + "tools/" + id;
   }
 
-  // Auth wiring: the app uses Clerk. Drop your Clerk publishable key (a
-  // public client key) here to connect the account.html form to real auth.
-  // While empty, the form validates and shows a "not connected yet" state.
-  var AUTH = { clerkPublishableKey: "" };
+  // Auth wiring: the app uses Clerk (production instance clerk.prismfilehero.com).
+  // This is a PUBLIC client key (safe to ship). account.html mounts real Clerk
+  // sign-in with it, and the AI tool pages obtain a session JWT from it to call
+  // the Cloudflare Worker /api/ai (Premium-gated; free tier AI is locked server-side).
+  var WORKER = "https://prism-worker.prismfilehero.workers.dev";
+  var AUTH = { clerkPublishableKey: "pk_live_Y2xlcmsucHJpc21maWxlaGVyby5jb20k" };
 
   g.PRISM = {
     DOWNLOADS: DOWNLOADS,
     APP_BASE: APP_BASE,
     appHref: appHref,
+    WORKER: WORKER,
     AUTH: AUTH,
     TOOLS: TOOLS,
     FINANCIAL: FINANCIAL,

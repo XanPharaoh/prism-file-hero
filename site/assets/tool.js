@@ -527,6 +527,53 @@
         }); }); } }
   });
 
+  // Tenth wave: the four AI tools. They render pages to JPEG, then POST to the
+  // Cloudflare Worker /api/ai (same contract as services/geminiService.ts) with a
+  // Clerk session JWT. Premium-gated server-side; we surface sign-in/upgrade/limits.
+  function blobB64(blob) { return new Promise(function (res) { var fr = new FileReader(); fr.onload = function () { res(String(fr.result).split(",")[1]); }; fr.readAsDataURL(blob); }); }
+  function pageImgsB64(f, maxPages) { return pdfJs().then(function (js) { return bytes(f).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) {
+    var arr = [], n = 1;
+    function p() { if (n > doc.numPages || arr.length >= maxPages) return Promise.resolve(); return doc.getPage(n++).then(function (pg) { return canvasJpeg(pg, 1.4, 0.85).then(blobB64).then(function (s) { arr.push(s); return p(); }); }); }
+    return p().then(function () { return arr; }); }); }); }
+  var AI_SYS = {
+    "compare": "Compare the two provided documents thoroughly and list all differences, additions, and deletions.",
+    "grammar-check": "Perform a comprehensive grammar, spelling, and style check. Return corrected text with brief explanations.",
+    "pdf-qa": "You are an expert document assistant. Answer the question with absolute fidelity based solely on the provided document images. Be concise and cite pages.",
+    "pdf-summary": "Provide a comprehensive, highly structured executive summary. Include key takeaways, main topics, critical dates/numbers, and action items."
+  };
+  function aiUserText(toolId, o) { o = o || {}; if (toolId === "pdf-qa") return "User Question: " + (o.qaQuestion || "Summarize the key points.") + "\nAnswer based on these pages."; if (toolId === "pdf-summary") { var s = "Generate a document summary."; if (o.summaryLength) s += " Summary length: " + o.summaryLength + "."; if (o.summaryFocus) s += " Focus area: " + o.summaryFocus + "."; return s; } return "Process the images according to the system prompt."; }
+  function aiCall(toolId, imgs, options) {
+    var worker = (window.PRISM && window.PRISM.WORKER) || "";
+    if (!worker) return Promise.reject(new Error("AI endpoint not configured"));
+    if (!window.PRFAuth) return Promise.reject(new Error("Please open the site normally and sign in at account.html"));
+    return window.PRFAuth.getToken().then(function (tok) {
+      if (!tok) throw new Error("Please sign in to use this AI tool.");
+      var content = imgs.map(function (b) { return { type: "image_url", image_url: { url: "data:image/jpeg;base64," + b } }; });
+      content.push({ type: "text", text: aiUserText(toolId, options) });
+      var payload = { toolId: toolId, messages: [{ role: "system", content: AI_SYS[toolId] || "Extract data accurately." }, { role: "user", content: content }], options: options || {} };
+      return fetch(worker + "/api/ai", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + tok }, body: JSON.stringify(payload) });
+    }).then(function (r) {
+      if (r.status === 401) throw new Error("Please sign in again to use AI.");
+      if (r.status === 402) throw new Error("This AI tool is a Premium feature.");
+      if (r.status === 429) throw new Error("AI rate limit reached - try again shortly.");
+      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (e) { throw new Error((e && e.error) || ("AI request failed " + r.status)); });
+      return r.json();
+    }).then(function (d) { return (d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || (d && d.data) || (typeof d === "string" ? d : "(no response)"); });
+  }
+  function aiOut(text, name, mime) { return [{ blob: new Blob([text], { type: mime || "text/plain" }), name: name }]; }
+  Object.assign(TOOLS, {
+    "compare-pdf": { accept: ".pdf,application/pdf", multi: true, min: 2,
+      run: function (f) { return Promise.all([pageImgsB64(f[0], 1), pageImgsB64(f[1], 1)]).then(function (a) { var imgs = a[0].concat(a[1]); if (imgs.length < 2) throw new Error("Need two readable PDFs"); return aiCall("compare", imgs.slice(0, 2), {}); }).then(function (t) { return aiOut(t, "comparison.txt"); }); } },
+    "grammar-and-spell-check": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      run: function (f) { return pageImgsB64(f[0], 2).then(function (imgs) { if (!imgs.length) throw new Error("No readable pages"); return aiCall("grammar-check", imgs, {}); }).then(function (t) { return aiOut(t, "grammar-check.txt"); }); } },
+    "pdf-qa-assistant": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      opts: [{ key: "q", label: "Question", type: "text", def: "", hint: "Ask anything about the document" }],
+      run: function (f, o) { if (!o.q || !o.q.trim()) throw new Error("Type a question first"); return pageImgsB64(f[0], 2).then(function (imgs) { return aiCall("pdf-qa", imgs, { qaQuestion: o.q }); }).then(function (t) { return aiOut(t, "answer.txt"); }); } },
+    "pdf-summary": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      opts: [{ key: "len", label: "Length", type: "select", def: "medium", choices: [["short", "Short"], ["medium", "Medium"], ["long", "Detailed"]] }, { key: "focus", label: "Focus (optional)", type: "text", def: "" }],
+      run: function (f, o) { return pageImgsB64(f[0], 2).then(function (imgs) { return aiCall("pdf-summary", imgs, { summaryLength: o.len, summaryFocus: o.focus }); }).then(function (t) { return aiOut(t, "summary.md", "text/markdown"); }); } }
+  });
+
   function fallback(host, name, slug) {
     host.innerHTML = "";
     var desktopOnly = { "vat-ready-workbooks": 1, "per-client-rules-engine": 1, "industry-templates": 1 };
