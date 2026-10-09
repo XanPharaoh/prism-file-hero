@@ -609,22 +609,20 @@
     // password into the URL). Guard applies regardless of which path runs next.
     form.addEventListener("submit", function (e) { e.preventDefault(); });
 
-    // Primary path: real Clerk. Only if the key is present. On any load failure we
-    // un-hide the static shell below so the page never goes blank.
+    // Primary path: real Clerk. Hide the mock tab bar + form so there is a single,
+    // clean Clerk experience (Clerk's own component links switch sign-in/sign-up).
     if (window.PRFAuth && window.PRFAuth.enabled) {
       var card = form.parentElement || document.body;
-      var host = document.createElement("div"); host.id = "clerk-auth-root";
-      var toggle = document.createElement("p"); toggle.className = "clerk-toggle";
-      var switchBtn = document.createElement("button"); switchBtn.type = "button"; switchBtn.textContent = "Create one";
-      toggle.appendChild(document.createTextNode("Need an account? ")); toggle.appendChild(switchBtn);
-      form.hidden = true; card.insertBefore(host, form); card.appendChild(toggle);
-      var mode = "signin";
-      function mount() { host.innerHTML = ""; try { mode === "signin" ? window.PRFAuth.mountSignIn(host) : window.PRFAuth.mountSignUp(host); } catch (e) {} }
+      var tabbar = card.querySelector('[role="tablist"]');
+      if (tabbar) tabbar.hidden = true;
+      var host = document.createElement("div"); host.id = "clerk-auth-root"; host.className = "clerk-root";
+      form.hidden = true; card.insertBefore(host, form);
+      var wantSignUp = /[?&]mode=signup/.test(location.search);
       window.PRFAuth.ensure().then(function (c) {
-        if (c && c.isSignedIn) { host.innerHTML = '<p class="clerk-signed">Signed in. AI tools are unlocked for your plan.</p>'; var ub = document.createElement("div"); host.appendChild(ub); try { c.mountUserButton(ub); } catch (e) {} toggle.hidden = true; }
-        else { mount(); }
-      }).catch(function () { host.innerHTML = '<p class="clerk-err">Sign-in is unavailable right now. Please refresh, or use the desktop app.</p>'; toggle.hidden = true; });
-      switchBtn.addEventListener("click", function () { mode = mode === "signin" ? "signup" : "signin"; this.textContent = mode === "signin" ? "Create one" : "Use an existing account"; mount(); });
+        if (!c) { form.hidden = false; if (tabbar) tabbar.hidden = false; return; }
+        if (c.isSignedIn) { host.innerHTML = '<p class="clerk-signed">You’re signed in.</p>'; var ub = document.createElement("div"); host.appendChild(ub); try { c.mountUserButton(ub); } catch (e) {} }
+        else { try { wantSignUp ? c.mountSignUp(host) : c.mountSignIn(host); } catch (e) { host.innerHTML = '<p class="clerk-err">Sign-in is unavailable right now. Please refresh or use the desktop app.</p>'; } }
+      }).catch(function () { host.innerHTML = '<p class="clerk-err">Sign-in is unavailable right now. Please refresh or use the desktop app.</p>'; });
       return;
     }
 
