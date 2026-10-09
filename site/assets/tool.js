@@ -390,6 +390,100 @@
             var u8 = out instanceof Uint8Array ? out : new Uint8Array(out); return [{ blob: new Blob([u8], { type: "application/pdf" }), name: "protected.pdf" }]; }); }); } }
   });
 
+  // Seventh wave: real redaction and the deterministic Ledger Guard, ported from
+  // services/reconciliationService.ts + ledgerGuard.ts. Both are pure arithmetic;
+  // no libraries beyond pdf.js/pdf-lib and no backend.
+  function parseMoney(str) {
+    if (typeof str === "number") return str;
+    if (!str || typeof str !== "string") return 0;
+    var clean = str.replace(/[R$£€\s,]/g, "").replace(/\*/g, "");
+    if (clean.startsWith("(") && clean.endsWith(")")) clean = "-" + clean.substring(1, clean.length - 1);
+    var neg = false, lower = clean.toLowerCase();
+    if (lower.endsWith("dr")) { neg = true; clean = clean.slice(0, -2); }
+    else if (lower.endsWith("cr")) { clean = clean.slice(0, -2); }
+    else if (clean.startsWith("-")) { neg = true; clean = clean.slice(1); }
+    else if (clean.endsWith("-")) { neg = true; clean = clean.slice(0, -1); }
+    var num = parseFloat(clean); if (!Number.isFinite(num)) return 0;
+    return neg ? -Math.abs(num) : Math.abs(num);
+  }
+  function normKey(k) { return String(k).toLowerCase().replace(/\(.*?\)/g, "").replace(/[^a-z]/g, ""); }
+  function findKey(keys, targets) { return keys.find(function (k) { return targets.indexOf(normKey(k)) >= 0; }) || ""; }
+  function nearly(a, b) { return Math.abs(a - b) < 0.02; }
+  function isOpeningRow(r) { var t = JSON.stringify(r).toLowerCase(); return t.indexOf("opening") >= 0 || t.indexOf("brought forward") >= 0; }
+  function isClosingRow(r) { var t = JSON.stringify(r).toLowerCase(); return t.indexOf("closing") >= 0 || t.indexOf("carried forward") >= 0; }
+  function isInfoRow(r) { var t = JSON.stringify(r).toLowerCase(); return t.indexOf("summary") >= 0 || t.indexOf("total charges") >= 0; }
+  function reconcileBank(rows, openingStr) {
+    var running = parseMoney(openingStr), keys = Object.keys(rows[0]);
+    var debitKey = findKey(keys, ["debit", "debits", "debiet", "uit", "withdrawals", "withdrawal"]);
+    var creditKey = findKey(keys, ["credit", "credits", "krediet", "deposit", "deposits"]);
+    var feeKey = findKey(keys, ["fee", "fees", "charge", "charges"]);
+    var amountKey = findKey(keys, ["amount", "geld", "bedrag"]);
+    var balanceKey = findKey(keys, ["balance", "saldo"]) || "Balance";
+    return rows.map(function (row) {
+      var rec = Object.assign({}, row), stated = parseMoney(row[balanceKey] || "0");
+      if (isOpeningRow(row) || isClosingRow(row) || isInfoRow(row)) { rec.Amount = 0; rec._math_reconciled = true; rec.Direction = ""; if (stated !== 0) running = stated; return rec; }
+      var debit = parseMoney(row[debitKey] || "0"), credit = parseMoney(row[creditKey] || "0"), fee = parseMoney(row[feeKey] || "0"), net = null, ok = false;
+      if (debitKey || creditKey) {
+        var a1 = +(credit - debit - fee).toFixed(2); if (nearly(running + a1, stated)) { net = a1; ok = true; }
+        if (!ok) { var a2 = +(credit - debit).toFixed(2); if (nearly(running + a2, stated)) { net = a2; ok = true; } }
+        if (!ok && fee > 0 && debit === 0 && credit === 0) { var a3 = -Math.abs(fee); if (nearly(running + a3, stated)) { net = +a3.toFixed(2); ok = true; } }
+      }
+      if (!ok && amountKey) { var raw = row[amountKey], signed = /[-(]|\bdr\b|\bcr\b/i.test(String(raw)) || parseMoney(raw) < 0, abs = Math.abs(parseMoney(raw));
+        if (signed) net = +(parseMoney(raw) - Math.abs(fee)).toFixed(2); else { var sp = running + abs - Math.abs(fee), sn = running - abs - Math.abs(fee); net = +(((Math.abs(sp - stated) <= Math.abs(sn - stated)) ? +1 : -1) * abs - Math.abs(fee)).toFixed(2); }
+        if (net !== null && nearly(running + net, stated)) ok = true; }
+      if (!ok || net === null) { net = +(stated - running).toFixed(2); ok = true;
+        if (debit > 0 && credit === 0 && net > 0) rec._math_error = "Debit row but balance increased by " + net;
+        if (credit > 0 && debit === 0 && net < 0) rec._math_error = "Credit row but balance decreased by " + net; }
+      rec.Amount = +net.toFixed(2); rec._math_reconciled = ok; rec.Direction = net >= 0 ? "In" : "Out"; running = stated; return rec;
+    });
+  }
+  function parseCSV(text) {
+    text = text.replace(/\r\n?/g, "\n"); var rows = [], row = [], field = "", q = false;
+    for (var i = 0; i < text.length; i++) { var ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; } else field += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ",") { row.push(field); field = ""; }
+      else if (ch === "\n") { row.push(field); field = ""; if (row.some(function (x) { return x !== ""; })) rows.push(row); row = []; }
+      else field += ch; }
+    if (field !== "" || row.length) { row.push(field); if (row.some(function (x) { return x !== ""; })) rows.push(row); }
+    if (!rows.length) return []; var hdr = rows[0].map(function (h) { return h.trim(); });
+    return rows.slice(1).map(function (r) { var o = {}; hdr.forEach(function (h, idx) { o[h] = r[idx] !== undefined ? r[idx] : ""; }); return o; });
+  }
+  function toCSV(rows) { if (!rows.length) return ""; var keys = []; rows.forEach(function (r) { Object.keys(r).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); }); }); var esc = function (v) { v = v == null ? "" : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }; return keys.join(",") + "\n" + rows.map(function (r) { return keys.map(function (k) { return esc(r[k]); }).join(","); }).join("\n"); }
+  Object.assign(TOOLS, {
+    "redact-pdf": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      opts: [{ key: "terms", label: "Text to redact", type: "text", def: "", hint: "comma-separated words or phrases" }],
+      run: function (f, o) { var terms = (o.terms || "").split(",").map(function (t) { return t.trim().toLowerCase(); }).filter(Boolean);
+        if (!terms.length) throw new Error("Enter at least one term to redact");
+        return Promise.all([pdfJs(), pdfLib()]).then(function (r) { var js = r[0], L = r[1];
+          return bytes(f[0]).then(function (b) { return js.getDocument({ data: b.slice(0) }).promise; }).then(function (doc) {
+            return L.PDFDocument.create().then(function (out) { var seq = Promise.resolve(), hits = 0;
+              for (var n = 1; n <= doc.numPages; n++) (function (n) { seq = seq.then(function () { return doc.getPage(n).then(function (p) {
+                var vp = p.getViewport({ scale: 2 }); var c = document.createElement("canvas"); c.width = Math.max(1, Math.round(vp.width)); c.height = Math.max(1, Math.round(vp.height)); var ctx = c.getContext("2d");
+                return p.render({ canvasContext: ctx, viewport: vp }).promise.then(function () { return p.getTextContent(); }).then(function (tc) {
+                  tc.items.forEach(function (it) { if (!it || typeof it.str !== "string") return; var s = it.str.toLowerCase();
+                    if (!terms.some(function (t) { return s.indexOf(t) >= 0; })) return; hits++;
+                    var tx = it.transform[4], ty = it.transform[5], w = it.width || 0, h = it.height || 12, rc = vp.convertToViewportRectangle([tx, ty, tx + w, ty + h]);
+                    ctx.fillStyle = "#000"; ctx.fillRect(Math.min(rc[0], rc[2]) - 1, Math.min(rc[1], rc[3]) - 1, Math.abs(rc[2] - rc[0]) + 2, Math.abs(rc[3] - rc[1]) + 2); });
+                }).then(function () { return new Promise(function (res) { c.toBlob(function (bl) { res(bl); }, "image/jpeg", 0.9); }); }).then(function (bl) { return bl.arrayBuffer(); }).then(function (ab) { return out.embedJpg(new Uint8Array(ab)).then(function (img) { var np = out.addPage([c.width, c.height]); np.drawImage(img, { x: 0, y: 0, width: c.width, height: c.height }); }); });
+              }); }); })(n);
+              return seq.then(function () { if (!hits) throw new Error("No matching text found in this PDF"); return out.save({ useObjectStreams: true }); }).then(function (b2) { return toPdf(b2, "redacted.pdf"); }); });
+          }); }); } },
+    "ledger-guard": { accept: ".csv,text/csv", multi: false, min: 1,
+      opts: [{ key: "opening", label: "Opening balance", type: "text", def: "0", hint: "R / currency amount" }],
+      run: function (f, o) { return f[0].text().then(function (txt) { var rows = parseCSV(txt); if (!rows.length) throw new Error("CSV is empty");
+        var opening = parseMoney(o.opening), rec = reconcileBank(rows, o.opening), balKey = findKey(Object.keys(rows[0]), ["balance", "saldo"]) || "Balance";
+        var sum = 0; rec.forEach(function (r) { sum += parseMoney(r.Amount) || 0; });
+        var last = rec[rec.length - 1], lastBal = last ? parseMoney(last[balKey]) : opening, expected = +(opening + sum).toFixed(2);
+        var lineErrors = rec.filter(function (r) { return r._math_error; }).map(function (r) { return (r.Date ? r.Date + ": " : "") + (r.Description ? r.Description + " - " : "") + r._math_error; });
+        var badRows = rec.filter(function (r) { return r._math_reconciled === false || r._math_error; }).length;
+        var issues = lineErrors.slice();
+        if (Math.abs(expected - lastBal) > 0.05) issues.push("Flow conservation: opening(" + opening.toFixed(2) + ") + sum(" + sum.toFixed(2) + ") = " + expected.toFixed(2) + " but reported closing is " + lastBal.toFixed(2) + ". Diff " + Math.abs(expected - lastBal).toFixed(2));
+        var status = "OK"; if (issues.length) { status = "WARN"; var txn = rec.filter(function (r) { return !isOpeningRow(r) && !isClosingRow(r) && !isInfoRow(r); }).length; if (txn > 0 && badRows / txn > 0.3) status = "BLOCKED"; }
+        var report = "PRISM LEDGER GUARD\n===================\nStatus: " + status + "\nRows checked: " + rec.length + "\nOpening balance: " + opening.toFixed(2) + "\nSum of movements: " + sum.toFixed(2) + "\nExpected closing: " + expected.toFixed(2) + "\nReported closing: " + lastBal.toFixed(2) + "\nBad rows: " + badRows + "\n\nIssues:\n" + (issues.length ? issues.map(function (i) { return "- " + i; }).join("\n") : "- none, the ledger balances from opening to closing") + "\n";
+        return [{ blob: new Blob([report], { type: "text/plain" }), name: "ledger-report.txt" }, { blob: new Blob([toCSV(rec)], { type: "text/csv" }), name: "ledger-annotated.csv" }]; }); } }
+  });
+
   function fallback(host, name) {
     host.innerHTML = "";
     var card = el("div", "tool-fallback");
