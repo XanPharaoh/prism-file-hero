@@ -574,11 +574,10 @@
       if (inst) return Promise.resolve(inst);
       if (loading) return loading;
       loading = loadScript("https://cdn.jsdelivr.net/npm/@clerk/clerk-js@6/dist/clerk.browser.js")
-        .then(function () { return loadScript("https://" + clerkDomain() + "/npm/@clerk/ui@1/dist/ui.browser.js"); })
         .then(function () {
           var Ctor = window.Clerk; if (typeof Ctor !== "function") throw new Error("Clerk global unavailable");
           inst = new Ctor(key);
-          return inst.load({ ui: { ClerkUI: window.__internal_ClerkUICtor } });
+          return inst.load();
         })
         .then(function () { fire(); return inst; })
         .catch(function (e) { loading = null; inst = null; throw e; });
