@@ -573,9 +573,10 @@
       if (!key) return Promise.resolve(null);
       if (inst) return Promise.resolve(inst);
       if (loading) return loading;
-      loading = loadScript("https://cdn.jsdelivr.net/npm/@clerk/clerk-js@6/dist/clerk.browser.js")
-        .then(function () {
-          var Ctor = window.Clerk; if (typeof Ctor !== "function") throw new Error("Clerk global unavailable");
+      loading = import("https://cdn.jsdelivr.net/npm/@clerk/clerk-js@6/+esm")
+        .then(function (mod) {
+          var Ctor = (mod && (mod.Clerk || (mod.default && mod.default.Clerk))) || window.Clerk;
+          if (typeof Ctor !== "function") throw new Error("Clerk unavailable");
           inst = new Ctor(key);
           return inst.load();
         })
