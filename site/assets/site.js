@@ -603,101 +603,24 @@
 
   /* ---------------- account: sign in / create account (Clerk; UI shell fallback) ---------------- */
   function mountAuth() {
-    var form = document.getElementById("auth-form");
-    if (!form) return;
-    // Safety: this static form must NEVER native-submit (it would put the
-    // password into the URL). Guard applies regardless of which path runs next.
-    form.addEventListener("submit", function (e) { e.preventDefault(); });
-
-    // Primary path: real Clerk. Hide the mock tab bar + form so there is a single,
-    // clean Clerk experience (Clerk's own component links switch sign-in/sign-up).
-    if (window.PRFAuth && window.PRFAuth.enabled) {
-      var card = form.parentElement || document.body;
-      var tabbar = card.querySelector('[role="tablist"]');
-      if (tabbar) tabbar.hidden = true;
-      var host = document.createElement("div"); host.id = "clerk-auth-root"; host.className = "clerk-root";
-      form.hidden = true; card.insertBefore(host, form);
-      var wantSignUp = /[?&]mode=signup/.test(location.search);
-      window.PRFAuth.ensure().then(function (c) {
-        if (!c) { form.hidden = false; if (tabbar) tabbar.hidden = false; return; }
-        if (c.isSignedIn) { host.innerHTML = '<p class="clerk-signed">You’re signed in.</p>'; var ub = document.createElement("div"); host.appendChild(ub); try { c.mountUserButton(ub); } catch (e) {} }
-        else { try { wantSignUp ? c.mountSignUp(host) : c.mountSignIn(host); } catch (e) { host.innerHTML = '<p class="clerk-err">Sign-in is unavailable right now. Please refresh or use the desktop app.</p>'; } }
-      }).catch(function () { host.innerHTML = '<p class="clerk-err">Sign-in is unavailable right now. Please refresh or use the desktop app.</p>'; });
-      return;
-    }
-
-    var $ = function (id) { return document.getElementById(id); };
-    var tabIn = $("tab-signin"), tabUp = $("tab-signup"), submit = $("auth-submit");
-    var name = $("f-name"), email = $("f-email"), pass = $("f-password"), terms = $("f-terms");
-    var wrapName = $("wrap-name"), wrapTerms = $("wrap-terms"), wrapForgot = $("wrap-forgot");
-    var status = $("auth-status"), switchText = $("auth-switch-text"), switchBtn = $("auth-switch");
-    var mode = "signin";
-
-    function setErr(field, msg) {
-      var box = $("err-" + field);
-      if (box) { box.textContent = msg || ""; box.classList.toggle("show", !!msg); }
-      var input = $("f-" + field);
-      if (input) input.setAttribute("aria-invalid", msg ? "true" : "false");
-    }
-    function clearErrs() { ["name", "email", "password", "terms"].forEach(function (f) { setErr(f, ""); }); }
-    function showStatus(msg) { if (!status) return; status.textContent = msg; status.hidden = !msg; }
-
-    function setMode(m) {
-      mode = m;
-      var up = m === "signup";
-      tabIn.setAttribute("aria-selected", up ? "false" : "true"); tabIn.tabIndex = up ? -1 : 0;
-      tabUp.setAttribute("aria-selected", up ? "true" : "false"); tabUp.tabIndex = up ? 0 : -1;
-      wrapName.hidden = !up; wrapTerms.hidden = !up; wrapForgot.hidden = up;
-      submit.textContent = up ? "Create account" : "Sign in";
-      pass.setAttribute("autocomplete", up ? "new-password" : "current-password");
-      switchText.textContent = up ? "Already have an account?" : "New to Prism?";
-      switchBtn.textContent = up ? "Sign in" : "Create an account";
-      clearErrs(); showStatus("");
-    }
-
-    tabIn.addEventListener("click", function () { setMode("signin"); });
-    tabUp.addEventListener("click", function () { setMode("signup"); });
-    switchBtn.addEventListener("click", function () { setMode(mode === "signin" ? "signup" : "signin"); });
-
-    $("pw-eye").addEventListener("click", function () {
-      var show = pass.type === "password";
-      pass.type = show ? "text" : "password";
-      this.setAttribute("aria-pressed", show ? "true" : "false");
-      this.setAttribute("aria-label", show ? "Hide password" : "Show password");
-    });
-
-    function validate() {
-      clearErrs();
-      var ok = true, first = null;
-      if (mode === "signup" && !name.value.trim()) { setErr("name", "Please enter your name."); ok = false; first = first || name; }
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) { setErr("email", "Enter a valid email address."); ok = false; first = first || email; }
-      if (pass.value.length < 8) { setErr("password", "Use at least 8 characters."); ok = false; first = first || pass; }
-      if (mode === "signup" && !terms.checked) { setErr("terms", "Please accept the terms to continue."); ok = false; first = first || terms; }
-      if (first) first.focus();
-      return ok;
-    }
-
-    function pending() {
-      if (window.PRISM && window.PRISM.AUTH && window.PRISM.AUTH.clerkPublishableKey) {
-        // Real Clerk wiring goes here (mount @clerk/clerk-js with the key).
-        showStatus("Connecting to your account…");
-        return;
+    var root = document.getElementById("clerk-auth-root");
+    if (!root) return;
+    var fb = document.getElementById("auth-fallback");
+    function fail() { if (fb) { fb.hidden = false; } }
+    if (!(window.PRFAuth && window.PRFAuth.enabled)) { fail(); return; }
+    var wantSignUp = /[?&]mode=signup/.test(location.search);
+    window.PRFAuth.ensure().then(function (c) {
+      if (!c) { fail(); return; }
+      if (c.isSignedIn) {
+        root.innerHTML = '<p class="clerk-signed">You\u2019re signed in.</p>';
+        var ub = document.createElement("div"); root.appendChild(ub);
+        try { c.mountUserButton(ub); } catch (e) {}
+      } else {
+        try { wantSignUp ? c.mountSignUp(root) : c.mountSignIn(root); } catch (e) { fail(); }
       }
-      showStatus("This form isn't connected to an account provider yet. Add your Clerk key in assets/features.data.js (PRISM.AUTH.clerkPublishableKey) to go live.");
-    }
-
-    function submit_(e) {
-      if (e) e.preventDefault();
-      if (!validate()) return;
-      submit.disabled = true;
-      var label = submit.textContent;
-      submit.textContent = mode === "signup" ? "Creating…" : "Signing in…";
-      setTimeout(function () { submit.disabled = false; submit.textContent = label; pending(); }, 850);
-    }
-    form.addEventListener("submit", submit_);
-    $("auth-google").addEventListener("click", submit_);
-    [name, email, pass, terms].forEach(function (el) { if (el) el.addEventListener("input", function () { clearErrs(); }); });
+    }).catch(fail);
   }
+
 
   /* ---------------- boot ---------------- */
   function boot() {
