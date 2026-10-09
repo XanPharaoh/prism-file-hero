@@ -28,6 +28,12 @@
   }
   var zipP = null;
   function jszip() { if (!zipP) zipP = window.JSZip ? Promise.resolve(window.JSZip) : loadScript(B + "assets/vendor/jszip.min.js").then(function () { return window.JSZip; }); return zipP; }
+  var docxP = null;
+  function docxLib() { if (!docxP) docxP = window.docx ? Promise.resolve(window.docx) : loadScript(B + "assets/vendor/docx.umd.min.js").then(function () { return window.docx; }); return docxP; }
+  var excelP = null;
+  function excelLib() { if (!excelP) excelP = window.ExcelJS ? Promise.resolve(window.ExcelJS) : loadScript(B + "assets/vendor/exceljs.min.js").then(function () { return window.ExcelJS; }); return excelP; }
+  var encP = null;
+  function pdfEncrypt() { if (!encP) encP = import(B + "assets/vendor/pdfencrypt/pdf-encrypt.mjs").then(function (m) { return m.encryptPDF; }); return encP; }
 
   function bytes(file) { return file.arrayBuffer().then(function (b) { return new Uint8Array(b); }); }
   function canvasJpeg(page, scale, quality) {
@@ -302,6 +308,86 @@
             if (err && (/ncrypt/i.test(err.message || "") || /ncrypt/i.test(err.name || ""))) return rasterizeUnlock(js, L, f[0], "");
             throw err; });
         }); } }
+  });
+
+  // Fifth wave: extract the actual embedded raster images (not page snapshots).
+  function rgbaFromImg(img) {
+    var w = img.width, h = img.height, d = img.data;
+    if (!d || !w || !h) return null;
+    if (d.length === w * h * 4) return new ImageData(new Uint8ClampedArray(d), w, h);
+    var out = new Uint8ClampedArray(w * h * 4);
+    if (d.length === w * h * 3) { for (var i = 0, j = 0; i < w * h; i++) { out[j++] = d[i * 3]; out[j++] = d[i * 3 + 1]; out[j++] = d[i * 3 + 2]; out[j++] = 255; } return new ImageData(out, w, h); }
+    if (d.length === w * h) { for (var i = 0, j = 0; i < w * h; i++) { var g = d[i]; out[j++] = g; out[j++] = g; out[j++] = g; out[j++] = 255; } return new ImageData(out, w, h); }
+    return null;
+  }
+  function imageBlobFromObj(obj) {
+    return new Promise(function (res) {
+      var c = document.createElement("canvas");
+      if (obj.bitmap) { c.width = obj.width; c.height = obj.height; c.getContext("2d").drawImage(obj.bitmap, 0, 0); return c.toBlob(function (b) { res(b); }, "image/png"); }
+      var id = rgbaFromImg(obj); if (!id) return res(null);
+      c.width = obj.width; c.height = obj.height; c.getContext("2d").putImageData(id, 0, 0); c.toBlob(function (b) { res(b); }, "image/png");
+    });
+  }
+  Object.assign(TOOLS, {
+    "extract-images": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      run: function (f) { return Promise.all([pdfJs(), jszip()]).then(function (r) { var js = r[0], Z = r[1], OPS = js.OPS;
+        return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) {
+          var zip = new Z(), count = 0, seq = Promise.resolve();
+          for (var n = 1; n <= doc.numPages; n++) (function (n) { seq = seq.then(function () { return doc.getPage(n).then(function (page) {
+            var vp = page.getViewport({ scale: 1 }); var c = document.createElement("canvas"); c.width = Math.max(1, vp.width | 0); c.height = Math.max(1, vp.height | 0);
+            // Rendering first forces pdf.js to decode and cache the page's image objects.
+            return page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise.then(function () { return page.getOperatorList(); }).then(function (ol) {
+              var chain = Promise.resolve();
+              for (var i = 0; i < ol.fnArray.length; i++) (function (fn, args) {
+                if (fn === OPS.paintImageXObject && args && args[0] != null) { var name = args[0];
+                  chain = chain.then(function () { return new Promise(function (res) { try { page.objs.get(name, function (v) { res(v); }); } catch (e) { res(page.objs.get(name)); } }); })
+                    .then(function (obj) { if (!obj) return; return imageBlobFromObj(obj).then(function (bl) { if (bl) zip.file("image-" + String(++count).padStart(3, "0") + ".png", bl); }); });
+                }
+              })(ol.fnArray[i], ol.argsArray[i]);
+              return chain; });
+          }); }); })(n);
+          return seq.then(function () { return doc.destroy().catch(function () {}); }).then(function () { if (!count) throw new Error("No embedded images found in this PDF"); return zip.generateAsync({ type: "blob" }); }).then(function (z) { return [{ blob: z, name: "images.zip" }]; });
+        }); }); } }
+  });
+
+  // Sixth wave: Word/Excel output and encryption, reusing the app's libraries.
+  Object.assign(TOOLS, {
+    "pdf-to-word": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      run: function (f) { return Promise.all([pdfJs(), docxLib()]).then(function (r) { var js = r[0], D = r[1];
+        return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) {
+          var children = [], n = 1;
+          function page() { if (n > doc.numPages) return Promise.resolve(); var i = n++;
+            return doc.getPage(i).then(function (p) { return p.getTextContent(); }).then(function (tc) {
+              var items = tc.items, lines = [], cur = "", lastY = null;
+              items.forEach(function (it) { if (!it || typeof it.str !== "string") return; var y = it.transform ? Math.round(it.transform[5]) : null;
+                if (lastY !== null && y !== null && Math.abs(y - lastY) > 4) { if (cur.trim()) lines.push(cur.trim()); cur = it.str; } else cur += (cur ? " " : "") + it.str;
+                if (y !== null) lastY = y; if (it.hasEOL) { if (cur.trim()) lines.push(cur.trim()); cur = ""; lastY = null; } });
+              if (cur.trim()) lines.push(cur.trim());
+              if (doc.numPages > 1) children.push(new D.Paragraph({ text: "Page " + i, heading: D.HeadingLevel.HEADING_2, spacing: { before: 200, after: 100 } }));
+              lines.forEach(function (line) { children.push(new D.Paragraph({ children: [new D.TextRun(line)], spacing: { after: 80 } })); });
+              return page(); }); }
+          return page().then(function () { if (!children.length) children.push(new D.Paragraph({ children: [new D.TextRun("")] }));
+            return D.Packer.toBlob(new D.Document({ sections: [{ properties: {}, children: children }] })); }).then(function (blob) { return [{ blob: blob, name: "document.docx" }]; });
+        }); }); } },
+    "pdf-to-excel": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      run: function (f) { return Promise.all([pdfJs(), excelLib()]).then(function (r) { var js = r[0], E = r[1];
+        return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) {
+          var wb = new E.Workbook(), any = false, n = 1;
+          function page() { if (n > doc.numPages) return Promise.resolve(); var i = n++, ws = wb.addWorksheet("Page " + i);
+            return doc.getPage(i).then(function (p) { return p.getTextContent(); }).then(function (tc) {
+              var items = (tc.items || []).filter(function (it) { return it && typeof it.str === "string" && it.str.trim(); });
+              if (items.length) { var byLine = {}; items.forEach(function (it) { var y = Math.round(it.transform ? it.transform[5] : 0); (byLine[y] = byLine[y] || []).push(it); });
+                Object.keys(byLine).map(Number).sort(function (a, b) { return b - a; }).forEach(function (y) { ws.addRow(byLine[y].sort(function (a, b) { return a.transform[4] - b.transform[4]; }).map(function (it) { return it.str.trim(); })); any = true; }); }
+              return page(); }); }
+          return page().then(function () { if (!any) throw new Error("No text found - scanned pages need OCR in the app"); return wb.xlsx.writeBuffer(); })
+            .then(function (buf) { return [{ blob: new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), name: "table.xlsx" }]; });
+        }); }); } },
+    "protect-pdf": { accept: ".pdf,application/pdf", multi: false, min: 1,
+      opts: [{ key: "password", label: "Password", type: "password", def: "", hint: "used to open the file" }],
+      run: function (f, o) { var pw = o.password || ""; if (!pw) throw new Error("Enter a password first");
+        return Promise.all([pdfEncrypt(), loadPdf(f[0])]).then(function (r) { var encPDF = r[0], rr = r[1];
+          return rr.d.save({ useObjectStreams: true }).then(function (bytes) { return encPDF(bytes, pw, pw); }).then(function (out) {
+            var u8 = out instanceof Uint8Array ? out : new Uint8Array(out); return [{ blob: new Blob([u8], { type: "application/pdf" }), name: "protected.pdf" }]; }); }); } }
   });
 
   function fallback(host, name) {
