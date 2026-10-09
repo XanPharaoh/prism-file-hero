@@ -436,19 +436,22 @@ describe('Feature 16: Flatten PDF', () => {
 describe('Feature 17: Redact PDF', () => {
   it.each([['NED'], ['ABSA']])('%s → redacted', async (label) => {
     const file = { SBSA, ABSA, FNB, NED }[label]!;
+    const before = await pdfInfo(file);
     const blob = await redactPdf(file, [
       { page: 1, text: 'BALANCE', x: 50, y: 100, width: 120, height: 20 },
       { page: 1, text: 'STATEMENT', x: 50, y: 140, width: 150, height: 20 },
     ]);
     const { pages, textItems, sizeKb } = await pdfInfo(blob);
 
-    const ok = sizeKb >= 5 && pages >= 1 && textItems >= 20;
+    // Genuine redaction rasterizes the document: the text layer is discarded so the
+    // covered terms are no longer extractable. Page count must be preserved.
+    const ok = sizeKb >= 5 && pages === before.pages && textItems === 0;
     report('Redact', label, ok ? 'PASS' : 'FAIL', `pages=${pages}, text=${textItems}, ${sizeKb}KB`);
     reportLines.push(`| Redact | ${label} | ${ok ? 'PASS ✅' : 'FAIL ❌'} | pages=${pages}, text=${textItems}, ${sizeKb}KB |`);
 
     expect(blob.size).toBeGreaterThan(4096);
-    expect(pages).toBeGreaterThanOrEqual(1);
-    expect(textItems).toBeGreaterThanOrEqual(20);
+    expect(pages).toBe(before.pages);
+    expect(textItems).toBe(0);
   });
 });
 

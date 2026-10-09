@@ -421,162 +421,146 @@ export async function compressPdf(
  * Security: Redact PDF by placing permanent opaque blackouts over
  * sensitive terms, search matches, and specified coordinates without rendering artifacts.
  */
+/**
+ * Security: Redact PDF — GENUINE removal via raster reconstruction.
+ *
+ * Renders every page to pixels, paints opaque black over the selected regions,
+ * and rebuilds a NEW PDF containing only those page images. The original text
+ * streams, objects, annotations, attachments, layers and metadata are never
+ * copied, so covered content cannot be extracted.
+ *
+ * Disclose to the user before running: the output has no selectable/searchable
+ * text and loses interactive forms; a digitally signed document will NOT retain
+ * a valid original signature.
+ *
+ * Coordinate model (single conversion path): regions are given either as
+ * `text` (matched against the page text layer) or as a box in top-origin PDF
+ * points on the visible page. Both are mapped to canvas pixels through
+ * PDF.js's rotation-aware viewport, so preview scale, page rotation, PDF points
+ * and raster pixels stay consistent. Page count and visible dimensions are
+ * preserved; unselected pages are included unchanged (as images).
+ */
 export async function redactPdf(
   file: File,
   regions: { page: number; x: number; y: number; width: number; height: number; text?: string }[]
 ): Promise<Blob> {
-  const bytes = await file.arrayBuffer();
-  const pdfDoc = await loadPdfResilient(file);
-  const pages = pdfDoc.getPages();
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let src: any = null;
+  const clean = await PDFDocument.create();
+  const maxPixels = 16_000_000;
 
-  let pdfjsDoc: any = null;
+  const paintRect = (ctx: CanvasRenderingContext2D, rect: number[]) => {
+    const x = Math.min(rect[0], rect[2]) - 1;
+    const y = Math.min(rect[1], rect[3]) - 1;
+    const w = Math.abs(rect[2] - rect[0]) + 2;
+    const h = Math.abs(rect[3] - rect[1]) + 2;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x, y, w, h);
+  };
+
   try {
-    pdfjsDoc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
-  } catch (err) {
-    console.error('Failed to load pdfjs in redactPdf:', err);
-  }
+    src = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
 
-  try {
-    for (const region of regions) {
-      const pageIndex = region.page - 1;
-      if (pageIndex < 0 || pageIndex >= pages.length) continue;
+    for (let pNum = 1; pNum <= src.numPages; pNum++) {
+      const jsPage = await src.getPage(pNum);
+      const visible = jsPage.getViewport({ scale: 1 });
+      const scale = Math.min(2, Math.sqrt(maxPixels / Math.max(1, visible.width * visible.height)));
+      const raster = jsPage.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.ceil(raster.width));
+      canvas.height = Math.max(1, Math.ceil(raster.height));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { jsPage.cleanup?.(); continue; }
 
-      const page = pages[pageIndex];
-      const { height: pageHeight, width: pageWidth } = page.getSize();
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await jsPage.render({ canvasContext: ctx, viewport: raster, background: '#ffffff' }).promise;
 
-      let redactedWithTextSearch = false;
+      const pageRegions = (regions || []).filter(r => (r.page || 1) === pNum);
+      let textContentCache: any[] | null = null;
+      const getTextItems = async () => {
+        if (textContentCache === null) {
+          const tc = await jsPage.getTextContent();
+          textContentCache = (tc.items || []) as any[];
+        }
+        return textContentCache;
+      };
+      for (const region of pageRegions) {
+        if (region.text && region.text.trim().length > 0) {
+          const items = await getTextItems();
+          const needle = region.text.trim().toLowerCase();
+          let matched = false;
 
-      if (pdfjsDoc && region.text && region.text.trim().length > 0) {
-        try {
-          const jsPage = await pdfjsDoc.getPage(region.page);
-          const textContent = await jsPage.getTextContent();
-          const items = (textContent.items || []) as any[];
-          const cleanSearch = region.text.trim().toLowerCase();
-
-          // 1. Exact or substring match inside text items
+          // 1. Whole phrase sits inside one text item.
           for (const item of items) {
             if (!item || typeof item.str !== 'string') continue;
-            const itemText = item.str.trim().toLowerCase();
-            if (itemText.length > 0 && itemText.includes(cleanSearch)) {
-              const tx = item.transform || [1, 0, 0, 1, 0, 0];
-              const fontSize = Math.abs(tx[3]) || item.height || 12;
-              const itemWidth = item.width || Math.max(10, cleanSearch.length * fontSize * 0.6);
-              page.drawRectangle({
-                x: tx[4] - 2,
-                y: tx[5] - fontSize * 0.25 - 2,
-                width: itemWidth + 4,
-                height: fontSize * 1.25 + 4,
-                color: rgb(0, 0, 0),
-                opacity: 1.0,
-              });
-              redactedWithTextSearch = true;
-            }
+            if (!item.str.trim().toLowerCase().includes(needle)) continue;
+            const tx = item.transform ? item.transform[4] : 0;
+            const ty = item.transform ? item.transform[5] : 0;
+            const fs = Math.abs(item.transform?.[3] || 12) || item.height || 12;
+            const w = item.width || Math.max(10, item.str.trim().length * fs * 0.6);
+            const h = item.height || fs;
+            paintRect(ctx, raster.convertToViewportRectangle([tx, ty, tx + w, ty + h]));
+            matched = true;
           }
 
-          // 2. Phrase matching across multiple consecutive items
-          if (!redactedWithTextSearch) {
-            for (let i = 0; i < items.length; i++) {
+          // 2. Phrase spans consecutive items on the same baseline (e.g. "John Doe"
+          // split across separate text runs).
+          if (!matched && needle.includes(' ')) {
+            const itemsWithPos = items.filter(
+              it => it && typeof it.str === 'string' && it.transform && it.str.trim().length > 0
+            );
+            for (let i = 0; i < itemsWithPos.length; i++) {
               let combined = '';
-              const startX = items[i].transform ? items[i].transform[4] : 0;
-              const startY = items[i].transform ? items[i].transform[5] : 0;
-              let maxFontSize = Math.abs(items[i].transform?.[3] || 12) || items[i].height || 12;
-
-              for (let j = i; j < Math.min(i + 12, items.length); j++) {
-                combined += (combined ? ' ' : '') + (items[j].str || '');
-                const currentFontSize = Math.abs(items[j].transform?.[3] || 12) || items[j].height || 12;
-                maxFontSize = Math.max(maxFontSize, currentFontSize);
-
-                if (combined.toLowerCase().includes(cleanSearch)) {
-                  const endX = (items[j].transform ? items[j].transform[4] : startX) + (items[j].width || 0);
-                  const rectX = Math.min(startX, endX) - 2;
-                  const rectW = Math.max(1, Math.abs(endX - startX)) + 4;
-                  const rectY = Math.min(startY, items[j].transform ? items[j].transform[5] : startY) - maxFontSize * 0.25 - 2;
-                  const rectH = maxFontSize * 1.25 + 4;
-
-                  page.drawRectangle({
-                    x: rectX,
-                    y: rectY,
-                    width: rectW,
-                    height: rectH,
-                    color: rgb(0, 0, 0),
-                    opacity: 1.0,
-                  });
-                  redactedWithTextSearch = true;
+              let startTX = 0, startTY = 0, endX = 0, endTY = 0, maxFS = 0, baseY = 0;
+              for (let j = i; j < Math.min(i + 16, itemsWithPos.length); j++) {
+                const it = itemsWithPos[j];
+                const tx = it.transform[4], ty = it.transform[5];
+                if (j === i) {
+                  baseY = ty;
+                  startTX = tx; startTY = ty;
+                } else if (Math.abs(ty - baseY) > Math.max(3, maxFS * 0.5)) {
+                  break; // different baseline — stop extending the window
+                }
+                const fs = Math.abs(it.transform[3] || 12) || it.height || 12;
+                maxFS = Math.max(maxFS, fs);
+                const w = it.width || Math.max(10, it.str.trim().length * fs * 0.6);
+                endX = tx + w; endTY = ty;
+                combined += (combined ? ' ' : '') + it.str.trim();
+                if (combined.toLowerCase().includes(needle)) {
+                  const y0 = Math.min(startTY, endTY);
+                  const h0 = maxFS * 1.3;
+                  paintRect(ctx, raster.convertToViewportRectangle([startTX, y0 - maxFS * 0.25, endX, y0 + h0]));
+                  matched = true;
                   break;
                 }
               }
+              if (matched) break;
             }
           }
-
-          jsPage.cleanup?.();
-        } catch (err) {
-          console.error('Error during text-search redaction:', err);
+        } else if (region.width > 0 && region.height > 0) {
+          const x0 = region.x;
+          const y0 = visible.height - region.y - region.height;
+          paintRect(ctx, raster.convertToViewportRectangle([x0, y0, x0 + region.width, y0 + region.height]));
         }
       }
 
-      // Fallback: draw box based on percentage/absolute coordinates from AI
-      if (!redactedWithTextSearch) {
-        const boxX = Math.max(0, region.x);
-        const boxY = Math.max(0, pageHeight - region.y - region.height);
-        const boxW = Math.min(pageWidth - boxX, Math.max(1, region.width));
-        const boxH = Math.min(pageHeight - boxY, Math.max(1, region.height));
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      const b64 = dataUrl.split(',')[1];
+      const bin = atob(b64);
+      const jpgBytes = new Uint8Array(bin.length);
+      for (let k = 0; k < bin.length; k++) jpgBytes[k] = bin.charCodeAt(k);
+      const img = await clean.embedJpg(jpgBytes);
+      const outPage = clean.addPage([visible.width, visible.height]);
+      outPage.drawImage(img, { x: 0, y: 0, width: visible.width, height: visible.height });
 
-        page.drawRectangle({
-          x: boxX,
-          y: boxY,
-          width: boxW,
-          height: boxH,
-          color: rgb(0, 0, 0),
-          opacity: 1.0,
-        });
-      }
-
-      // Clean any link/widget annotations in the redacted region
-      try {
-        const annotsRef = page.node.get(PDFName.of('Annots'));
-        if (annotsRef) {
-          const annots = pdfDoc.context.lookup(annotsRef);
-          if (annots instanceof PDFArray) {
-            const retainedAnnots: any[] = [];
-            for (let aIdx = 0; aIdx < annots.size(); aIdx++) {
-              const annotItem = annots.get(aIdx);
-              const annotDict = pdfDoc.context.lookup(annotItem);
-              if (annotDict instanceof PDFDict) {
-                const rect = annotDict.get(PDFName.of('Rect'));
-                if (rect instanceof PDFArray && rect.size() === 4) {
-                  const ax1 = (rect.get(0) as any)?.asNumber?.() ?? 0;
-                  const ay1 = (rect.get(1) as any)?.asNumber?.() ?? 0;
-                  const ax2 = (rect.get(2) as any)?.asNumber?.() ?? 0;
-                  const ay2 = (rect.get(3) as any)?.asNumber?.() ?? 0;
-                  const targetY = pageHeight - region.y - region.height;
-                  const overlaps =
-                    ax1 < region.x + region.width &&
-                    ax2 > region.x &&
-                    ay1 < targetY + region.height &&
-                    ay2 > targetY;
-                  if (overlaps) {
-                    continue; // Skip redacted annotation
-                  }
-                }
-              }
-              retainedAnnots.push(annotItem);
-            }
-            if (retainedAnnots.length === 0) {
-              page.node.delete(PDFName.of('Annots'));
-            } else if (retainedAnnots.length !== annots.size()) {
-              page.node.set(PDFName.of('Annots'), pdfDoc.context.obj(retainedAnnots));
-            }
-          }
-        }
-      } catch {}
+      canvas.width = 0; canvas.height = 0;
+      jsPage.cleanup?.();
     }
   } finally {
-    if (pdfjsDoc) {
-      try { await pdfjsDoc.destroy(); } catch {}
-    }
+    if (src) { try { await src.destroy(); } catch {} }
   }
 
-  const redactedPdfBytes = await pdfDoc.save({ useObjectStreams: true });
+  const redactedPdfBytes = await clean.save({ useObjectStreams: false });
   return new Blob([redactedPdfBytes as BlobPart], { type: 'application/pdf' });
 }
 

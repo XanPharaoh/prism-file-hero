@@ -12,7 +12,7 @@ actually run; nothing is inferred from the master snapshot or from prior transcr
 |---|---|---|
 | Unit/integration suite | `npm test` (`vitest run`) | **564 passed / 2 skipped** across 58 files (1 skipped file); exit 0; ~34s |
 | App build | `npm run build` (`vite build`) | **success**, 49.45s, exit 0. Warning: `dist/assets/index-*.js` = **4,414 kB (1,349 kB gzip)** — oversized chunk |
-| Worker typecheck | `cd worker && npx tsc --noEmit` | **FAIL**, exit 2 — all errors are `@cloudflare/workers-types` vs DOM `lib` global conflicts (TS6200/TS2403/…), i.e. a tsconfig `lib` problem, not app-logic errors. `wrangler` builds via esbuild so deploy is unaffected. |
+| Worker typecheck | `cd worker && npx tsc --noEmit` | **FAIL**, exit code **2**, **64 `error TS` lines total, all in `node_modules/@cloudflare/workers-types/index.d.ts`, 0 errors in `worker/src/*.ts`**. Root cause: the tsconfig's `types: ["@cloudflare/workers-types"]` collides with the ambient DOM `lib` globals (TS6200 "definitions conflict with…", TS2403, TS2717, TS2315, TS2687, TS2508). This is a **tsconfig `lib`/`types` configuration problem**, not app-logic errors. `wrangler deploy` uses esbuild which strips types, so the deployed Worker is unaffected. See §10 for the verbatim diagnostics. |
 | Static site JS | `node --check` on tool.js / site.js / features.data.js | **OK** |
 | Live backend probe (earlier) | `curl /api/health`, `/api/ai` | health **200 ok**; `/api/ai` unauth **401** (gated); origin `localhost:4173` accepted (not 403) |
 
@@ -27,7 +27,7 @@ audit lists.
   `prism-file-hero` (owns `prismfilehero.com`, `www.prismfilehero.com`,
   `prism-file-hero.pages.dev`). Serves 43 tool pages + landing/account/download/pricing/financial/tools/404.
 - **React web app** — root `index.html` → `src/`, `App.tsx`, `services/`; `vite build` → `dist/`.
-- **Desktop (Tauri)** — `src-tauri/` (Cargo.toml + tauri.conf.json; `src-tauri/src` has only 2 `.rs`). **A second, parallel desktop tree exists: `Prism File Hero Desktop/`** with its own `src-tauri/`, `package.json`, `vite.config.ts`, `dist-desktop/`. Two Tauri apps can silently ship different versions (guide §11).
+- **Desktop (Tauri)** — `src-tauri/` (Cargo.toml + tauri.conf.json; `src-tauri/src` has only 2 `.rs`). **A second, parallel desktop tree also exists: `Prism File Hero Desktop/`** with its own `src-tauri/`, `package.json`, `vite.config.ts`, `dist-desktop/`. This is recorded as **potentially-overlapping build targets until configuration proves otherwise** — it is *not* yet confirmed that both trees are wired into any build/CI path or that they ship different versions; that determination requires comparing the two tauri.conf.json `identifier`s / product names and inspecting which tree (if any) the release pipeline targets (guide §11 follow-up).
 - **Android (Capacitor)** — `android/` + `capacitor.config.ts`.
 - **Cloudflare Worker** — `worker/` (`wrangler dev|deploy`; no test/typecheck script).
 - **Supabase Postgres** — `supabase/migrations/` (2) + root `migrations/` (001,003,004,rls_document_history). **No `supabase/functions/`** (no edge functions).
@@ -43,7 +43,9 @@ pdf.js+worker, jszip, docx, exceljs, tesseract.min.js, pdf-encrypt trio).
 Missing / gaps (recorded precisely, not assumed):
 - **No `.nvmrc`, no `packageManager` field** → the guide's proposed CI (`node-version-file: .nvmrc`) and any version pinning are not satisfiable as-is. Node here is v26.
 - **No `typecheck` script** in root package.json.
-- **OCR is not offline-capable.** Only `tesseract.min.js` is vendored; the **wasm core and `eng.traineddata` are fetched from jsdelivr at runtime**. So "Runs on your device / never uploaded" is **false for OCR** (the document stays local, but the engine/model are a third-party download). Guide §7.1 requires bundling worker/core/font/lang for offline OCR.
+- **OCR runs *locally* but is NOT *offline*.** These are two different claims and the copy must not conflate them:
+  - *Local* — the page pixels are rasterized and recognised in the browser; the document itself is never uploaded. This is **true**.
+  - *Offline* — the tool works with no network. This is **false** for OCR. Only `tesseract.min.js` (the JS glue) is vendored; the **wasm core and `eng.traineddata` language model are fetched from jsdelivr at runtime**, so a first OCR run on an air-gapped or CDN-blocked device fails. Marketing copy "Runs on your device / never uploaded" is accurate about *privacy/locality* but must not be read as *fully self-contained/offline*. Guide §7.1 requires bundling worker/core/font/lang to make the offline claim true.
 - **No Paddle/billing code or routes** in the Worker (guide BUG-04/§9) — no checkout/webhook/portal exists.
 
 ## 4. Snapshot vs actual files (master `complete source code with updates.md`)
@@ -105,3 +107,49 @@ committed — synthetic/de-identified only.
 Proceed to **Batch 01** (stop unsafe redaction + restore the finance review gate) per
 guide §14, using this baseline as input. Do not mark the program complete on any
 single batch.
+
+## 10. Worker typecheck — verbatim diagnostics (evidence for §1)
+
+Running `cd worker && npx tsc --noEmit` (exit **2**). The full output is ~64 `error TS`
+lines and **every one** is inside `node_modules/@cloudflare/workers-types/index.d.ts`;
+`grep -E '^src/'` over the output returns **0 lines**. Representative first lines:
+
+```
+node_modules/@cloudflare/workers-types/index.d.ts(17,1): error TS6200: Definitions of the
+  following identifiers conflict with those in another file: DOMException, console,
+  BufferSource, … Blob, File, CacheStorage, Cache, Crypto, … URL, URLSearchParams, …
+node_modules/@cloudflare/workers-types/index.d.ts(17,13): error TS2403: Subsequent variable
+  declarations must have the same type. Variable 'onmessage' must be of type
+  '((this: Window, ev: MessageEvent<any>) => any) | null', but here has type 'never'.
+node_modules/@cloudflare/workers-types/index.d.ts(79,50): error TS2508: No base constructor
+  has the specified number of type arguments.
+node_modules/@cloudflare/workers-types/index.d.ts(229,5): error TS2717: … Property 'value'
+  must be of type 'T', but here has type 'keyof ValueTypeMap'.
+```
+
+Diagnosis: `worker/tsconfig.json` sets `"types": ["@cloudflare/workers-types"]` but leaves
+`lib` at the default, so the DOM lib's global declarations are also loaded and collide with
+the Workers types. The fix is a tsconfig change (exclude `dom` from `lib`, or scope
+`workers-types` per-file), **not** an application-code change — which is why the deployed
+Worker (built by `wrangler`/esbuild, which ignores these type conflicts) runs correctly in
+production. Recorded here so a future batch fixes the config rather than "chasing" phantom
+logic errors.
+
+## 11. Batch 01 deltas (applied on top of this Batch 00 baseline)
+
+- **BUG-01 (app redaction) FIXED** — `pdfService.redactPdf` rewritten from vector-overlay to
+  genuine raster reconstruction (render page → paint opaque black → embed JPEG into a NEW
+  image-only PDF). Text layer is discarded, so covered content is no longer extractable. New
+  unmocked regression `tests/redactionRemoval.test.ts` proves a secret token is present in the
+  input and absent from the output; Feature 17 in `fullFeatureValidation` and the 3
+  `pdfService.test.ts` redact cases were updated to assert removal instead of overlay.
+- **BUG-03 (finance review gate) FIXED** — `documentService.applyReviewGate` no longer forces
+  `requiresReview=false`/deletes reasons; it derives the review state from genuine signals
+  (reconcile failure, low confidence, parser disagreement, raw-text/alignment fallback) while
+  **preserving** bank-extractor-set reasons and **never zero-filling balances**. Direct unit
+  tests in `tests/reviewGate.test.ts`.
+- **BUG-33 (PR deploys production) FIXED** — `.github/workflows/deploy.yml` dropped the
+  `pull_request` trigger (now `push: [main]` + `workflow_dispatch` only), added a `concurrency`
+  group and an `if:` guard, and pinned the job to the `production` environment.
+- Worker `tsc` conflict (§1/§10) is **pre-existing and unchanged** by this batch — reported,
+  not silently marked green.

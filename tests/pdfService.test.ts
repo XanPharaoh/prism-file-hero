@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PDFDocument, PDFName, PDFString, PDFArray, PDFDict } from 'pdf-lib';
 import {
   convertPdfToImages,
@@ -688,74 +688,107 @@ describe('pdfService', () => {
   });
 
   describe('redactPdf', () => {
+    // Prior suites leave document.createElement spied to a partial canvas; redaction needs a
+    // real canvas with the napi-backed getContext from tests/setup.ts (fillRect, toDataURL).
+    // Restore only createElement — vi.restoreAllMocks() would also tear down the pdfjs module mock.
+    const realCreateElement = document.createElement.bind(document);
+    beforeEach(() => {
+      (document.createElement as any).mockRestore?.();
+      vi.spyOn(document, 'createElement').mockImplementation(realCreateElement as any);
+    });
+    afterEach(() => {
+      (document.createElement as any).mockRestore?.();
+      (pdfjsLib.getDocument as any).mockReset();
+    });
+
+    // The redaction path is a raster reconstruction driven by pdf.js. redactionRemoval.test.ts
+    // is the authoritative, UNMOCKED proof that covered text is gone. These cases exercise the
+    // coordinate-mapping branches deterministically against a faithful pdf.js page mock, while
+    // the canvas/extract-to-JPEG/embed pipeline below it runs for real (see tests/setup.ts).
+    function mockPdfDoc(pages: { items?: any[] }[]) {
+      const convertToViewportRectangle = vi.fn(([x0, y0, x1, y1]: number[]) => {
+        const H = 400;
+        const s = 2;
+        return [x0 * s, (H - y1) * s, x1 * s, (H - y0) * s];
+      });
+      const getViewport = vi.fn(({ scale }: { scale?: number } = {}) => ({
+        width: 300 * (scale || 1),
+        height: 400 * (scale || 1),
+        convertToViewportRectangle,
+      }));
+      const render = vi.fn(() => ({ promise: Promise.resolve() }));
+      const cleanup = vi.fn();
+      const pageObjs = pages.map(p => ({
+        getViewport,
+        render,
+        cleanup,
+        getTextContent: vi.fn().mockResolvedValue({ items: p.items || [] }),
+      }));
+      const doc = {
+        numPages: pages.length,
+        getPage: vi.fn(async (n: number) => pageObjs[n - 1]),
+        destroy: vi.fn(async () => {}),
+      };
+      return { doc, convertToViewportRectangle };
+    }
+
     it('should permanently apply coordinate-based blackout boxes', async () => {
+      const { doc, convertToViewportRectangle } = mockPdfDoc([{ }, { }]);
+      (pdfjsLib.getDocument as any).mockReturnValue({ promise: Promise.resolve(doc) });
+
       const file = await createSamplePdf(2);
       const resultBlob = await redactPdf(file, [
         { page: 1, x: 50, y: 50, width: 100, height: 20 },
       ]);
       expect(resultBlob).toBeInstanceOf(Blob);
       expect(resultBlob.type).toBe('application/pdf');
+      expect(convertToViewportRectangle).toHaveBeenCalled();
 
       const resDoc = await PDFDocument.load(await resultBlob.arrayBuffer());
       expect(resDoc.getPageCount()).toBe(2);
+      expect(doc.destroy).toHaveBeenCalled();
     });
 
-    it('should redact sensitive text matches with pdfjs text inspection', async () => {
-      const mockPage = {
-        getTextContent: vi.fn().mockResolvedValue({
+    it('should redact sensitive text matches via the pdf.js text layer', async () => {
+      const { doc, convertToViewportRectangle } = mockPdfDoc([
+        {
           items: [
             { str: 'Confidential Account: 123456789', transform: [12, 0, 0, 12, 50, 300], width: 180, height: 12 },
             { str: 'Public Information', transform: [12, 0, 0, 12, 50, 200], width: 120, height: 12 },
           ],
-        }),
-        cleanup: vi.fn(),
-      };
-      const mockPdf = {
-        numPages: 1,
-        getPage: vi.fn().mockResolvedValue(mockPage),
-        destroy: vi.fn().mockResolvedValue(undefined),
-      };
-
-      (pdfjsLib.getDocument as any).mockReturnValue({
-        promise: Promise.resolve(mockPdf),
-      });
+        },
+      ]);
+      (pdfjsLib.getDocument as any).mockReturnValue({ promise: Promise.resolve(doc) });
 
       const file = await createSamplePdf(1);
       const resultBlob = await redactPdf(file, [
         { page: 1, x: 0, y: 0, width: 0, height: 0, text: '123456789' },
       ]);
       expect(resultBlob).toBeInstanceOf(Blob);
+      expect(convertToViewportRectangle).toHaveBeenCalled();
       const resDoc = await PDFDocument.load(await resultBlob.arrayBuffer());
       expect(resDoc.getPageCount()).toBe(1);
-      expect(mockPdf.destroy).toHaveBeenCalled();
+      expect(doc.destroy).toHaveBeenCalled();
     });
 
-    it('should handle multi-word phrase matching across items', async () => {
-      const mockPage = {
-        getTextContent: vi.fn().mockResolvedValue({
+    it('should handle multi-word phrase matching across consecutive items', async () => {
+      const { doc, convertToViewportRectangle } = mockPdfDoc([
+        {
           items: [
             { str: 'Patient', transform: [12, 0, 0, 12, 50, 300], width: 45, height: 12 },
             { str: 'John', transform: [12, 0, 0, 12, 100, 300], width: 30, height: 12 },
             { str: 'Doe', transform: [12, 0, 0, 12, 135, 300], width: 25, height: 12 },
           ],
-        }),
-        cleanup: vi.fn(),
-      };
-      const mockPdf = {
-        numPages: 1,
-        getPage: vi.fn().mockResolvedValue(mockPage),
-        destroy: vi.fn().mockResolvedValue(undefined),
-      };
-
-      (pdfjsLib.getDocument as any).mockReturnValue({
-        promise: Promise.resolve(mockPdf),
-      });
+        },
+      ]);
+      (pdfjsLib.getDocument as any).mockReturnValue({ promise: Promise.resolve(doc) });
 
       const file = await createSamplePdf(1);
       const resultBlob = await redactPdf(file, [
         { page: 1, x: 0, y: 0, width: 0, height: 0, text: 'John Doe' },
       ]);
       expect(resultBlob).toBeInstanceOf(Blob);
+      expect(convertToViewportRectangle).toHaveBeenCalled();
       const resDoc = await PDFDocument.load(await resultBlob.arrayBuffer());
       expect(resDoc.getPageCount()).toBe(1);
     });

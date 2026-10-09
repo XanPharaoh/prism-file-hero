@@ -264,13 +264,56 @@ async function buildSpatialRescue(
     };
 }
 
-function applyReviewGate(result: DocumentServiceResult): DocumentServiceResult {
-    // This is an export utility, not a verification workflow. Keep diagnostics in
-    // the result for developers, but never block a user from receiving their
-    // locally extracted table because a heuristic confidence/reconciliation rule
-    // was not met.
-    result.metadata.requiresReview = false;
-    delete result.metadata.reviewReasons;
+export function applyReviewGate(result: DocumentServiceResult): DocumentServiceResult {
+    // The finance review gate is a *quality state*, not an export block. It stays
+    // honest about whether the ledger can be trusted, without ever fabricating
+    // balances (no zero-fill) or silently shipping a "filing-grade" number that a
+    // deterministic check could not re-derive.
+    //
+    // States surfaced through metadata:
+    //   - processing/validation: reconciles + ledgerHealth + parseErrors
+    //   - review: requiresReview + reviewReasons (consumed by ProcessingView)
+    //   - draft: rows are always returned so the user can inspect/fix locally.
+    //
+    // Existing review reasons set by bank-specific extractors are preserved and
+    // de-duplicated; generic signals are appended below.
+    const m = result.metadata;
+    const reasons: string[] = Array.isArray(m.reviewReasons) ? [...m.reviewReasons] : [];
+    const addReason = (reason: string) => {
+        if (!reasons.some(r => r.toLowerCase() === reason.toLowerCase())) reasons.push(reason);
+    };
+
+    const isBankStatement = (m.documentType ?? '').toLowerCase().includes('bank');
+    const conf = typeof m.confidence === 'number' ? m.confidence : 0;
+    const ledgerInvalid = m.ledgerHealth && typeof m.ledgerHealth.isValid === 'boolean'
+        ? !m.ledgerHealth.isValid
+        : m.reconciles === false;
+
+    // A ledger that does not reconcile must carry the phrase ProcessingView uses to
+    // disable "pass review" — the whole point of the gate is refusing a wrong total.
+    if (isBankStatement && m.reconciles === false && ledgerInvalid) {
+        addReason('Rows do not reconcile from opening to closing balance. Fix or confirm before export.');
+    }
+    if (conf > 0 && conf < 0.6) {
+        addReason(`Low extraction confidence (${Math.round(conf * 100)}%). Verify each row before export.`);
+    }
+    if (m.parserDisagreement) {
+        addReason('Two parsers disagreed on this layout. Rows were rescued by spatial alignment and need review.');
+    }
+    if (m.source === 'raw-text-fallback') {
+        addReason('No structured table was detected. Rows are raw text lines and must be reviewed before use.');
+    }
+    if (m.source === 'spatial-alignment-rescue') {
+        addReason('Columns were aligned heuristically. Confirm debits/credits before export.');
+    }
+
+    const validationIssues = Array.isArray(m.validationIssues) ? m.validationIssues : [];
+    for (const issue of validationIssues) {
+        if (issue && typeof issue === 'string') addReason(issue);
+    }
+
+    m.reviewReasons = reasons;
+    m.requiresReview = reasons.length > 0;
     return result;
 }
 

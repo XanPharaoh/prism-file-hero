@@ -3,17 +3,28 @@ name: Deploy to Cloudflare Pages
 # The marketing/SaaS site in ./site is a no-build static bundle and is the
 # production front door for prismfilehero.com. The former React app (./dist)
 # is no longer published to this Pages project.
-
+#
+# Production deploys are ONLY allowed on an actual push to main (or a manual
+# dispatch). A pull_request must never deploy to production: PRs run in the
+# fork's/branch's context and would push unreviewed code to the live site.
+# Verification of PRs belongs in the test/build workflow, not here.
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+
+# Serialize deployments so two pushes to main cannot interleave a partial deploy.
+concurrency:
+  group: pages-deploy-main
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy static site
+    # Defence in depth: refuse to run for any event that is not a push/dispatch on main.
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    environment: production
     steps:
       - uses: actions/checkout@v4
 
@@ -23,3 +34,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy site --project-name=prism-file-hero --branch=main
+
