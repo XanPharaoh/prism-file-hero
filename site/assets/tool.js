@@ -46,14 +46,51 @@
     });
   }
   function parseRange(str, max) {
-    var out = [];
-    (str || "").split(",").forEach(function (part) {
-      part = part.trim(); if (!part) return;
-      var m = part.match(/^(\d+)\s*-\s*(\d+)$/);
-      if (m) { for (var i = +m[1]; i <= +m[2]; i++) if (i >= 1 && i <= max) out.push(i - 1); }
-      else if (/^\d+$/.test(part)) { if (+part >= 1 && +part <= max) out.push(+part - 1); }
+    // Browser mirror of shared/pdf/pageSelection.parseSelection (non-strict):
+    // accept commas/spaces/semicolons, "a-b", "a to b" and the word "and",
+    // drop out-of-range, and DE-DUPLICATE so e.g. "2,2" selects page 2 once.
+    var seen = {}, out = [];
+    (str || "").replace(/\band\b/gi, ",").replace(/&/g, ",").split(/[\s,;]+/).forEach(function (part) {
+      part = (part || "").trim(); if (!part) return;
+      var m = part.match(/^(\d+)\s*(?:[-–—]|to)\s*(\d+)$/i);
+      if (m) {
+        var a = +m[1], b = +m[2]; if (a > b) { var t = a; a = b; b = t; }
+        for (var i = Math.max(1, a); i <= Math.min(max, b); i++) { if (!seen[i]) { seen[i] = 1; out.push(i - 1); } }
+      } else if (/^\d+$/.test(part)) {
+        var p = +part; if (p >= 1 && p <= max && !seen[p]) { seen[p] = 1; out.push(p - 1); }
+      }
     });
-    return out;
+    return out.sort(function (x, y) { return x - y; });
+  }
+
+  // Reorder parser: rejects explicit duplicates (BUG-11: "1,1,1" must not replace
+  // a 3-page doc) and out-of-range values; then fills any unlisted pages so a
+  // partial order still reorders the WHOLE document (site UX). Throws so no
+  // download is produced on invalid input.
+  function parseOrder(str, n) {
+    var order = (str || "").replace(/\band\b/gi, ",").replace(/&/g, ",").split(/[\s,;]+/)
+      .map(function (t) { return parseInt((t || "").trim(), 10); })
+      .filter(function (x) { return !isNaN(x); })
+      .map(function (x) { return x - 1; });
+    var seen = {};
+    order.forEach(function (i) {
+      if (i < 0 || i >= n) throw new Error("Page " + (i + 1) + " is not valid (1-" + n + ").");
+      if (seen[i]) throw new Error("Page " + (i + 1) + " appears more than once — list each page only once.");
+      seen[i] = 1;
+    });
+    for (var i = 0; i < n; i++) if (!seen[i]) order.push(i); // keep unlisted pages, appended in order
+    return order;
+  }
+
+  // Declared N-up grids: two-up is one column of two rows (never 1x1).
+  function nUpGrid(per) {
+    if (per === 1) return { cols: 1, rows: 1 };
+    if (per === 2) return { cols: 1, rows: 2 };
+    if (per === 4) return { cols: 2, rows: 2 };
+    if (per === 6) return { cols: 2, rows: 3 };
+    if (per === 9) return { cols: 3, rows: 3 };
+    if (per === 16) return { cols: 4, rows: 4 };
+    var cols = Math.ceil(Math.sqrt(per)); return { cols: cols, rows: Math.ceil(per / cols) };
   }
 
   // Each runner: fn(files, opts) -> Promise<[{blob, name}]>
@@ -67,14 +104,40 @@
           }); });
       }); } },
     "split-pdf": { accept: ".pdf,application/pdf", multi: false, min: 1,
-      opts: [{ key: "range", label: "Pages to extract", type: "text", def: "1", hint: "e.g. 1-3, 5, 8-10" }],
-      run: function (f, o) { return pdfLib().then(function (L) {
+      opts: [
+        { key: "mode", label: "Split by", type: "select", def: "each", choices: [["each", "Every page (one file per page)"], ["ranges", "Each range/group I list"], ["every", "Every N pages"]] },
+        { key: "ranges", label: "Groups (for 'Each range')", type: "text", def: "1-3, 4-6", hint: "e.g. 1-3, 5, 8-10 — each comma group becomes its own PDF" },
+        { key: "n", label: "N (for 'Every N pages')", type: "text", def: "2" }
+      ],
+      run: function (f, o) { return Promise.all([pdfLib(), jszip()]).then(function (rr) { var L = rr[0], Z = rr[1];
         return bytes(f[0]).then(function (b) { return L.PDFDocument.load(b, { ignoreEncryption: true }); }).then(function (src) {
-          var idx = parseRange(o.range, src.getPageCount()); if (!idx.length) idx = [0];
-          return L.PDFDocument.create().then(function (out) {
-            return out.copyPages(src, idx).then(function (ps) { ps.forEach(function (p) { out.addPage(p); }); return out.save(); })
-              .then(function (b) { return [{ blob: new Blob([b], { type: "application/pdf" }), name: "extracted.pdf" }]; });
+          var n = src.getPageCount(), groups = [];
+          if (o.mode === "each" || !o.mode) {
+            for (var i = 0; i < n; i++) groups.push([i]);
+          } else if (o.mode === "every") {
+            var step = Math.max(1, parseInt(o.n, 10) || 2);
+            for (var s0 = 0; s0 < n; s0 += step) { var g = []; for (var k = s0; k < Math.min(n, s0 + step); k++) g.push(k); groups.push(g); }
+          } else { // ranges: each comma group -> its own PDF, preserving the group's order
+            (String(o.ranges || "").split(/[,;]+/).map(function (t) { return t.trim(); }).filter(Boolean)).forEach(function (tok) {
+              var idx = parseRange(tok, n); if (idx.length) groups.push(idx);
+            });
+            if (!groups.length) groups.push(parseRange("1", n));
+          }
+          var zip = new Z(), seq = Promise.resolve(), made = [];
+          groups.forEach(function (grp, gi) {
+            seq = seq.then(function () {
+              return L.PDFDocument.create().then(function (out) {
+                return out.copyPages(src, grp).then(function (ps) {
+                  ps.forEach(function (p) { out.addPage(p); });
+                  return out.save();
+                }).then(function (bytesOut) {
+                  var name = "part-" + String(gi + 1).padStart(3, "0") + ".pdf";
+                  zip.file(name, bytesOut); made.push(name);
+                });
+              });
+            });
           });
+          return seq.then(function () { return zip.generateAsync({ type: "blob" }); }).then(function (z) { return [{ blob: z, name: "split-" + made.length + "-files.zip" }]; });
         });
       }); } },
     "rotate-pdf": { accept: ".pdf,application/pdf", multi: false, min: 1,
@@ -161,13 +224,13 @@
       opts: [{ key: "range", label: "Pages to keep", type: "text", def: "1", hint: "e.g. 1-3, 5" }],
       run: function (f, o) { return loadPdf(f[0]).then(function (r) { var idx = parseRange(o.range, r.d.getPageCount()); if (!idx.length) idx = [0]; return r.L.PDFDocument.create().then(function (out) { return out.copyPages(r.d, idx).then(function (ps) { ps.forEach(function (p) { out.addPage(p); }); return out.save(); }).then(function (b) { return toPdf(b, "extracted.pdf"); }); }); }); } },
     "reorder-pages": { accept: ".pdf,application/pdf", multi: false, min: 1,
-      opts: [{ key: "order", label: "New order", type: "text", def: "", hint: "e.g. 3,1,2 (blank = reverse)" }],
-      run: function (f, o) { return loadPdf(f[0]).then(function (r) { var n = r.d.getPageCount(), idx = o.order && o.order.trim() ? parseRange(o.order, n) : Array.from({ length: n }, function (_, i) { return n - 1 - i; }); if (idx.length !== n) { var seen = {}; idx = idx.filter(function (i) { if (seen[i]) return false; seen[i] = 1; return true; }); for (var i = 0; i < n; i++) if (!seen[i]) idx.push(i); } return r.L.PDFDocument.create().then(function (out) { return out.copyPages(r.d, idx).then(function (ps) { ps.forEach(function (p) { out.addPage(p); }); return out.save(); }).then(function (b) { return toPdf(b, "reordered.pdf"); }); }); }); } },
+      opts: [{ key: "order", label: "New order", type: "text", def: "", hint: "e.g. 3,1,2 (must list every page once; blank = reverse)" }],
+      run: function (f, o) { return loadPdf(f[0]).then(function (r) { var n = r.d.getPageCount(), idx = (o.order && o.order.trim()) ? parseOrder(o.order, n) : Array.from({ length: n }, function (_, i) { return n - 1 - i; }); return r.L.PDFDocument.create().then(function (out) { return out.copyPages(r.d, idx).then(function (ps) { ps.forEach(function (p) { out.addPage(p); }); return out.save(); }).then(function (b) { return toPdf(b, "reordered.pdf"); }); }); }); } },
     "repair-pdf": { accept: ".pdf,application/pdf", multi: false, min: 1,
       run: function (f) { return loadPdf(f[0]).then(function (r) { return r.d.save({ useObjectStreams: false }).then(function (b) { return toPdf(b, "repaired.pdf"); }); }); } },
     "multi-page-layout": { accept: ".pdf,application/pdf", multi: false, min: 1,
-      opts: [{ key: "per", label: "Pages per sheet", type: "select", def: "2", choices: [["2", "2-up"], ["4", "4-up"]] }],
-      run: function (f, o) { return pdfLib().then(function (L) { return bytes(f[0]).then(function (b) { return L.PDFDocument.load(b, { ignoreEncryption: true }).then(function (src) { var n = src.getPageCount(); return L.PDFDocument.create().then(function (out) { return out.embedPdf(b, Array.from({ length: n }, function (_, i) { return i; })).then(function (emb) { var per = +o.per, W = 595.28, H = 841.89, cols = per === 4 ? 2 : 1, rows = per === 4 ? 2 : 1; for (var s = 0; s < n; s += per) { var sheet = out.addPage([W, H]); for (var k = 0; k < per && (s + k) < n; k++) { var c = k % cols, rw = Math.floor(k / cols), cw = W / cols, ch = H / rows, e = emb[s + k], sc = Math.min(cw / e.width, ch / e.height) * 0.96, dw = e.width * sc, dh = e.height * sc; sheet.drawPage(e, { x: c * cw + (cw - dw) / 2, y: H - (rw + 1) * ch + (ch - dh) / 2, width: dw, height: dh }); } } return out.save(); }).then(function (bb) { return toPdf(bb, "n-up.pdf"); }); }); }); }); }); } },
+      opts: [{ key: "per", label: "Pages per sheet", type: "select", def: "2", choices: [["2", "2-up"], ["4", "4-up"], ["9", "9-up"]] }],
+      run: function (f, o) { return pdfLib().then(function (L) { return bytes(f[0]).then(function (b) { return L.PDFDocument.load(b, { ignoreEncryption: true }).then(function (src) { var n = src.getPageCount(); return L.PDFDocument.create().then(function (out) { return out.embedPdf(b, Array.from({ length: n }, function (_, i) { return i; })).then(function (emb) { var per = +o.per || 2, g = nUpGrid(per), W = 595.28, H = 841.89, m = 16, cw = (W - m * (g.cols + 1)) / g.cols, ch = (H - m * (g.rows + 1)) / g.rows; for (var s = 0; s < n; s += per) { var sheet = out.addPage([W, H]); for (var k = 0; k < per && (s + k) < n; k++) { var col = k % g.cols, rw = Math.floor(k / g.cols), e = emb[s + k], sc = Math.min(cw / e.width, ch / e.height), dw = e.width * sc, dh = e.height * sc, cx = m + col * (cw + m), cy = H - m - (rw + 1) * ch - rw * 0; sheet.drawPage(e, { x: cx + (cw - dw) / 2, y: cy + (ch - dh) / 2, width: dw, height: dh }); } } return out.save(); }).then(function (bb) { return toPdf(bb, "n-up.pdf"); }); }); }); }); }); } },
     "pdf-to-markdown": { accept: ".pdf,application/pdf", multi: false, min: 1,
       run: function (f) { return pdfJs().then(function (js) { return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) { var md = "", n = 1; function page() { if (n > doc.numPages) return Promise.resolve(); md += "\n\n## Page " + n + "\n\n"; return doc.getPage(n++).then(function (p) { return p.getTextContent(); }).then(function (tc) { md += tc.items.map(function (i) { return i.str; }).join(" ") + "\n"; return page(); }); } return page().then(function () { return [{ blob: new Blob([md.trim() + "\n"], { type: "text/markdown" }), name: "document.md" }]; }); }); }); } }
   });

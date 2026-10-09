@@ -4,6 +4,14 @@ import { PDFDocument, rgb, degrees, StandardFonts, PDFName, PDFArray, PDFDict } 
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import JSZip from 'jszip';
+import {
+  parseSelection,
+  assertUnique,
+  keepIndicesForDeletion,
+  nUpGrid,
+  cellFor,
+  SelectionError,
+} from '@/shared/pdf/pageSelection';
 
 /**
  * Simple main-thread image preprocessing for OCR enhancement.
@@ -23,84 +31,19 @@ async function preprocessImageData(imageData: ImageData): Promise<ImageData> {
 
 /**
  * Helper to parse page selection strings (e.g. "1, 2, 4-6, and 8") into 0-indexed page indices.
+ * Delegates to the shared parser so site and app agree on duplicates, ranges, out-of-range,
+ * and expansion caps. Defaults to all pages when the input selects nothing (merge/split semantics).
  */
 function parsePageSelection(pagesStr: string, totalPages: number): number[] {
-  const indices: number[] = [];
-  // Split on commas, spaces, or words like 'and'
-  const parts = pagesStr.split(/[\s,]+/);
-  
-  for (const part of parts) {
-    const cleanPart = part.trim();
-    if (!cleanPart) continue;
-    if (cleanPart.toLowerCase() === 'and') continue;
-    
-    if (cleanPart.includes('-')) {
-      const rangeParts = cleanPart.split('-');
-      const start = parseInt(rangeParts[0], 10);
-      const end = parseInt(rangeParts[1], 10);
-      if (!isNaN(start) && !isNaN(end)) {
-        const actualStart = Math.min(start, end);
-        const actualEnd = Math.max(start, end);
-        for (let i = actualStart; i <= actualEnd; i++) {
-          if (i >= 1 && i <= totalPages) {
-            indices.push(i - 1); // 0-indexed
-          }
-        }
-      }
-    } else {
-      const pageNum = parseInt(cleanPart, 10);
-      if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
-        indices.push(pageNum - 1); // 0-indexed
-      }
-    }
-  }
-  
-  // If invalid or empty, default to all pages
-  if (indices.length === 0) {
-    for (let i = 0; i < totalPages; i++) {
-      indices.push(i);
-    }
-  }
-  
-  // Sort and remove duplicates
-  return Array.from(new Set(indices)).sort((a, b) => a - b);
+  return parseSelection(pagesStr, totalPages, { strict: false, fallback: 'all' });
 }
 
 /**
- * Helper to parse page selection strings (e.g. "1, 2, 4-6") into 0-indexed page indices without defaulting to all pages.
+ * Helper to parse page selection strings (e.g. "1, 2, 4-6") into 0-indexed page indices without
+ * defaulting to all pages. Delegates to the shared parser (de-duplicates + clamps by default).
  */
 function parsePageRange(pagesStr: string, totalPages: number): number[] {
-  const indices: number[] = [];
-  if (!pagesStr || !pagesStr.trim()) return indices;
-
-  const parts = pagesStr.split(/[\s,]+/);
-
-  for (const part of parts) {
-    const cleanPart = part.trim();
-    if (!cleanPart || cleanPart.toLowerCase() === 'and') continue;
-
-    if (cleanPart.includes('-')) {
-      const rangeParts = cleanPart.split('-');
-      const start = parseInt(rangeParts[0], 10);
-      const end = parseInt(rangeParts[1], 10);
-      if (!isNaN(start) && !isNaN(end)) {
-        const actualStart = Math.min(start, end);
-        const actualEnd = Math.max(start, end);
-        for (let i = actualStart; i <= actualEnd; i++) {
-          if (i >= 1 && i <= totalPages) {
-            indices.push(i - 1);
-          }
-        }
-      }
-    } else {
-      const pageNum = parseInt(cleanPart, 10);
-      if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
-        indices.push(pageNum - 1);
-      }
-    }
-  }
-
-  return Array.from(new Set(indices)).sort((a, b) => a - b);
+  return parseSelection(pagesStr, totalPages, { strict: false, fallback: 'none' });
 }
 
 /**
@@ -808,11 +751,16 @@ export async function deletePages(file: File, pagesStr: string): Promise<Blob> {
     return new Blob([savedBytes as BlobPart], { type: 'application/pdf' });
   }
 
-  const deleteSet = new Set(deleteIndices);
-  const keepIndices = Array.from({ length: totalPages }, (_, i) => i).filter(i => !deleteSet.has(i));
-
-  if (keepIndices.length === 0) {
-    throw new Error('Cannot delete all pages from the document.');
+  // Unique set (parsePageRange already de-duplicates) → keep everything else.
+  // Throws instead of emitting an empty document when the request deletes all pages.
+  let keepIndices: number[];
+  try {
+    keepIndices = keepIndicesForDeletion(deleteIndices, totalPages);
+  } catch (e) {
+    if (e instanceof SelectionError && e.code === 'EMPTY') {
+      throw new Error('Cannot delete all pages from the document.');
+    }
+    throw e;
   }
 
   const newPdf = await PDFDocument.create();
@@ -1128,6 +1076,19 @@ export async function reorderPages(file: File, newOrder: number[] | string): Pro
   const validOrder = orderArray.filter(idx => typeof idx === 'number' && idx >= 0 && idx < totalPages);
   if (validOrder.length === 0) {
     throw new Error('Invalid page order provided.');
+  }
+
+  // Reorder may select a SUBSET (e.g. "3,2,1" on a 16-page doc keeps those three
+  // in the given order), but it must never repeat a page. BUG-11 fix: the old code
+  // only de-duplicated when the length differed from the page count, so "1,1,1"
+  // (length === n) silently replaced a 3-page doc with three copies of page 1.
+  try {
+    assertUnique(validOrder, totalPages);
+  } catch (e) {
+    if (e instanceof SelectionError) {
+      throw new Error(`Invalid page order provided. ${e.message}`);
+    }
+    throw e;
   }
 
   const newPdf = await PDFDocument.create();
@@ -1791,19 +1752,9 @@ export async function nUpPageLayout(
   const A4_WIDTH = 595.28;
   const A4_HEIGHT = 841.89;
 
-  let cols = 1;
-  let rows = 2;
-
-  if (pagesPerSheet === 4) {
-    cols = 2;
-    rows = 2;
-  } else if (pagesPerSheet === 9) {
-    cols = 3;
-    rows = 3;
-  } else {
-    cols = 1;
-    rows = 2;
-  }
+  const grid = nUpGrid(pagesPerSheet);
+  const cols = grid.cols;
+  const rows = grid.rows;
 
   const margin = 20;
   const cellWidth = (A4_WIDTH - margin * (cols + 1)) / cols;
@@ -1820,8 +1771,7 @@ export async function nUpPageLayout(
       const drawWidth = embedded.width * scale;
       const drawHeight = embedded.height * scale;
 
-      const col = c % cols;
-      const row = Math.floor(c / cols);
+      const { col, row } = cellFor(c, grid);
 
       const cellX = margin + col * (cellWidth + margin);
       const cellY = A4_HEIGHT - (margin + (row + 1) * cellHeight + row * margin);

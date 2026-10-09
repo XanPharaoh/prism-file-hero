@@ -74,10 +74,11 @@ does not mean the advertised behaviour is correct (see §6).
 Batch 00 does not fix anything. For the record, the audit's defects are **carried
 forward unverified-but-plausible** and are addressed in later batches. Spot notes from
 reading current code:
-- Site `redact-pdf` already rasterizes (text removed) — but the **app** `pdfService.redactPdf` still only overlays (BUG-01 stands for the app).
-- Site `delete-pages` / `reorder-pages` / `multi-page-layout` still use the pre-Batch-02 logic (BUG-10/11/12 plausible in the site runners too — to be reproduced with fixtures in Batch 02, not asserted here).
+- Site `redact-pdf` already rasterizes (text removed) — but the **app** `pdfService.redactPdf` still only overlays (BUG-01 stood for the app → **FIXED in Batch 01**, see §11).
+- Site `delete-pages` / `reorder-pages` / `multi-page-layout` used pre-Batch-02 logic (BUG-10/11/12). **Reproduced and FIXED in Batch 02** (§12): `parseRange` now de-duplicates (BUG-10), reorder rejects repeated pages (BUG-11), and N-up uses a declared grid with two-up = 1×2 plus a new 9-up option (BUG-12). The app `reorderPages` also rejected subsets-by-mistake; it now allows a subset reorder but forbids repeats.
 - `usageConfig` free `aiPages = 0` (BUG-06) is real in code; site AI is premium-gated accordingly.
-- `deploy.yml` still runs on `pull_request` and always deploys `--branch=main` (BUG-33) — confirmed in the file.
+- `deploy.yml` ran on `pull_request` and always deployed `--branch=main` (BUG-33) — **FIXED in Batch 01** (§11).
+- Site `split-pdf` produced ONE `extracted.pdf` (BUG-13) — **FIXED in Batch 02** (§12): genuine split-to-many with per-page / per-range / every-N modes, bundled into a ZIP.
 
 ## 7. Tool acceptance manifest + fixture inventory (planned)
 
@@ -153,3 +154,35 @@ logic errors.
   group and an `if:` guard, and pinned the job to the `production` environment.
 - Worker `tsc` conflict (§1/§10) is **pre-existing and unchanged** by this batch — reported,
   not silently marked green.
+
+## 12. Batch 02 deltas — destructive page operations (applied on top of Batch 01)
+
+A single tested parser (`shared/pdf/pageSelection.ts`) is now the source of truth for page
+selection across BOTH the app and the site (the site carries a hand-mirrored copy because it is
+a no-build IIFE).
+
+- **BUG-10 FIXED (delete-pages, duplicate ranges)** — the site `parseRange` returned duplicates,
+  so `removePage(i)` over a descending duplicated list removed an extra original page ("2,2" killed
+  pages 2 AND 3). `parseRange` now de-duplicates + sorts ascending; the app `deletePages` uses the
+  shared `keepIndicesForDeletion`, which also refuses an all-pages deletion instead of emitting an
+  empty document.
+- **BUG-11 FIXED (reorder-pages, duplicate pages)** — the site only de-duplicated when the length
+  differed from the page count, so "1,1,1" (length === n) produced three copies of page 1. Both the
+  site `parseOrder` and the app `reorderPages` now REJECT repeated pages and out-of-range values
+  while still permitting a legitimate subset reorder ("3,2,1" out of 16). Invalid input throws, so
+  no download is produced.
+- **BUG-12 FIXED (multi-page-layout, grid)** — two-up used `cols=1, rows=1`, drawing the second
+  page off the sheet at negative y. `nUpGrid` declares two-up = 1 col × 2 rows, four-up = 2×2,
+  nine-up = 3×3; the site gained a **9-up** option and the app routes through the same table.
+- **BUG-13 FIXED (split-pdf, split-to-many)** — the site emitted ONE `extracted.pdf`. It now
+  genuinely splits-to-many with three modes (every page / each listed range / every N pages) and
+  bundles the parts into a ZIP, matching the advertised behaviour.
+- **Tests** — `tests/pageSelection.test.ts` (13 cases: dedup, reversed range, "and"/to-syntax,
+  out-of-range strict throw, malformed, oversized cap, fallback, permutation + unique checks, grid)
+  and `tests/pageOps.test.ts` (6 cases reproducing BUG-10/11/12 at the service layer with real
+  pdf-lib fixtures and real `pdfjs-dist` text extraction, asserting each original page appears
+  exactly once and 2-up/4-up keep every page on-sheet). The `reorder-pages` stress case now passes.
+- **Verification** — `npx vitest run` → **591 passed / 2 skipped** (62 files, 1 skipped) exit 0;
+  `npm run build` → success exit 0 (known oversized-chunk warning); `node --check site/assets/tool.js`
+  → OK. Worker `tsc` unchanged (§10): exit 2, 64 errors, all in `@cloudflare/workers-types`, 0 in `worker/src`.
+  Nothing deployed.
