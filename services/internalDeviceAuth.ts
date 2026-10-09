@@ -1,7 +1,7 @@
 import { isInternalDesktopDistribution } from '../src/config/distribution';
 
 const STORAGE_KEY = 'prism.internal-device-auth';
-const WORKER_BASE_URL = (import.meta as any).env?.VITE_WORKER_URL || 'http://localhost:8787';
+const WORKER_BASE_URL = (import.meta as any).env?.VITE_WORKER_URL || 'https://prism-worker.prismfilehero.workers.dev';
 
 export interface InternalDeviceActivation {
   token: string;

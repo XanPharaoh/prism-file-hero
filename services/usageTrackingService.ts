@@ -14,7 +14,7 @@ import {
 import { getAuthToken } from './authService';
 import { isInternalDesktopDistribution } from '../src/config/distribution';
 
-const WORKER_BASE_URL = (import.meta as any).env?.VITE_WORKER_URL || 'http://localhost:8787';
+const WORKER_BASE_URL = (import.meta as any).env?.VITE_WORKER_URL || 'https://prism-worker.prismfilehero.workers.dev';
 const LOCAL_CACHE_KEY = 'pfh_usage_cache_v2';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 

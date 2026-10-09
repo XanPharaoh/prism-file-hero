@@ -1,5 +1,9 @@
 name: Deploy to Cloudflare Pages
 
+# The marketing/SaaS site in ./site is a no-build static bundle and is the
+# production front door for prismfilehero.com. The former React app (./dist)
+# is no longer published to this Pages project.
+
 on:
   push:
     branches: [main]
@@ -9,29 +13,13 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Build and Deploy
+    name: Deploy static site
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build
-        run: npm run build
-        env:
-          VITE_WORKER_URL: ${{ secrets.VITE_WORKER_URL }}
-
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy site to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=prism-file-hero --commit-dirty=true
+          command: pages deploy site --project-name=prism-file-hero --branch=main

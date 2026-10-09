@@ -4,7 +4,7 @@ import { getAuthToken } from './authService';
 import { isInternalDesktopDistribution } from '../src/config/distribution';
 import { getInternalAiHeaders } from './internalDeviceAuth';
 
-const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787';
+const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL || 'https://prism-worker.prismfilehero.workers.dev';
 
 const TOOL_PROMPTS: Record<string, string> = {
   'pdf-to-excel': `Extract ALL data from these images into a clean spreadsheet structure.
