@@ -281,38 +281,43 @@ function getMistralModel(toolId: string): string {
   }
 }
 
+// Server-owned system prompts (Batch 03). The prompt and model selection are the
+// SERVER's responsibility: any client-supplied system message is stripped and the
+// authoritative instruction for the tool is injected here, so a stale or hostile
+// client cannot change what the model is told to do.
+const SYSTEM_PROMPTS: Record<string, string> = {
+  'pdf-to-excel': 'You are a financial document extraction engine. Extract tables into strict JSON: { "rows": [{ "Date": "", "Description": "", "Debit": 0, "Credit": 0, "Balance": 0 }], "document_metadata": {} }. No markdown, no commentary.',
+  'redact': 'You are a PII detection engine. Return ONLY a JSON object { "regions": [{ page, x, y, width, height, text, category }] }. No markdown, no explanation.',
+  'pdf-to-word': 'Reconstruct the document as structured Markdown preserving headings, lists and tables. Output Markdown only.',
+  'ocr': 'Provide a COMPLETE, exhaustive, word-for-word transcript of the text. Do not summarize.',
+  'ocr-to-md': 'Provide a COMPLETE, exhaustive, word-for-word transcript of the text as Markdown. Do not summarize.',
+  'compare': 'Two versions of the SAME document are attached (A then B). List every change, addition and deletion as concise Markdown.',
+  'grammar-check': 'Perform a grammar, spelling and style check. Return corrected text with brief explanations in Markdown.',
+  'pdf-qa': 'Answer the user question with absolute fidelity using ONLY the provided document pages. Be concise and cite the page.',
+  'pdf-summary': 'Write a structured executive summary: key takeaways, main topics, critical dates/numbers, action items.',
+};
+
+// Models that cannot read images must never receive image parts — reject early.
+function toolNeedsVision(toolId: string): boolean {
+  return toolId !== 'grammar-check';
+}
+
+function normalizeToServerOwnedMessages(toolId: string, messages: NvidiaMessage[]): NvidiaMessage[] {
+  // Drop any client system message; keep the user turn(s).
+  const userOnly = messages.filter(m => m.role !== 'system');
+  const system = SYSTEM_PROMPTS[toolId] || 'Extract data accurately and return the result.';
+  return [{ role: 'system', content: system } as NvidiaMessage, ...userOnly];
+}
+
 function buildNvidiaPayload(toolId: string, messages: NvidiaMessage[]) {
   const model = getNvidiaModel(toolId);
-  
-  // Specialized system prompts for NVIDIA NIM models
-  if (toolId === 'redact') {
-    return {
-      model,
-      messages: [
-        { role: 'system', content: 'You are a PII detection engine. Return ONLY a JSON array of objects with keys: page, x, y, width, height, text, type. No markdown, no explanation.' },
-        ...messages
-      ],
-      temperature: 0.0,
-      max_tokens: 4096,
-    };
-  }
+  const owned = normalizeToServerOwnedMessages(toolId, messages);
 
-  if (toolId === 'pdf-to-excel') {
-    return {
-      model,
-      messages: [
-        { role: 'system', content: 'You are a financial document extraction engine. Extract tables into strict JSON format: { "rows": [{ "Date": "", "Description": "", "Debit": 0, "Credit": 0, "Balance": 0 }] }. No markdown.' },
-        ...messages
-      ],
-      temperature: 0.0,
-      max_tokens: 4096,
-    };
-  }
-
+  const temperature = toolId === 'pdf-to-excel' || toolId === 'redact' ? 0.0 : 0.1;
   return {
     model,
-    messages,
-    temperature: 0.1,
+    messages: owned,
+    temperature,
     max_tokens: 4096,
   };
 }
@@ -605,6 +610,11 @@ export default {
         const pagesRequested = countImagePages(messages);
         if (!pagesRequested || pagesRequested > 20) {
           return Response.json({ error: 'Invalid or excessive image payload' }, { status: 400, headers: cors });
+        }
+        // Capability verification (Batch 03): a vision tool must actually receive
+        // images. Reject before spend when the payload can't satisfy the model.
+        if (toolNeedsVision(toolId) && pagesRequested === 0) {
+          return Response.json({ error: 'This tool requires document images in the request' }, { status: 400, headers: cors });
         }
 
         // Internal devices are provisioned outside the public Clerk/Supabase quota system.

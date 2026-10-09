@@ -31,7 +31,7 @@ describe('geminiService (concurrent batch processing)', () => {
           json: () => Promise.resolve({ choices: [{ message: { content: '{"rows": [{"date": "2023-01-01", "amount": 100}]}' } }] }),
         });
       }
-      return Promise.reject(new Error('Rate limit exceeded'));
+      return Promise.reject(new Error('400 bad request from provider'));
     });
 
     const images = [
@@ -47,12 +47,16 @@ describe('geminiService (concurrent batch processing)', () => {
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0].date).toBe('2023-01-01');
     expect(result.rows[0].amount).toBe(100);
+    // New Batch 03 contract: a partial run is reported honestly, never silent.
+    expect(result.coverage.status).toBe('partial');
+    expect(result.coverage.failedPages.length).toBeGreaterThan(0);
+    expect(result.notice).toMatch(/partial/i);
     // At least 1 call should have been made (the successful batch)
     expect(global.fetch).toHaveBeenCalled();
   });
 
   it('should throw if all batches fail', async () => {
-    (global.fetch as any).mockRejectedValue(new Error('Network error'));
+    (global.fetch as any).mockRejectedValue(new Error('400 bad request'));
 
     const images = [{ base64: 'img1', pageNumber: 1 }];
 

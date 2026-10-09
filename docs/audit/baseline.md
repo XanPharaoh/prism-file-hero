@@ -186,3 +186,39 @@ a no-build IIFE).
   `npm run build` → success exit 0 (known oversized-chunk warning); `node --check site/assets/tool.js`
   → OK. Worker `tsc` unchanged (§10): exit 2, 64 errors, all in `@cloudflare/workers-types`, 0 in `worker/src`.
   Nothing deployed.
+
+## 13. Batch 03 deltas — AI contracts, truncation and schema mismatch
+
+A single typed contract `shared/ai/aiContract.ts` now governs every AI path (app, Worker,
+site), with results carrying **coverage** so a partial run is reported as partial.
+
+- **Schema mismatch FIXED (the headline defect)** — `geminiService.mergeResults` returned
+  `{rows}` / `{regions}` / `{text}`, but every `toolRegistry` consumer read `result.data` /
+  `result.summary`. Net effect: **AI redaction, AI compare, and every text AI tool (OCR,
+  Word, grammar, Q&A, summary) silently produced empty/fallback output.** `processWithAI`
+  now returns a canonical `data` per tool (excel → `{rows, document_metadata}` · redact →
+  `regions[]` · text → string) plus legacy aliases (`rows/regions/text/summary`) so no
+  caller breaks during migration.
+- **No silent truncation** — all requested page batches are attempted; a failed batch is
+  retried once and, if still failing, is reported in `coverage.failedPages` with
+  `status: 'partial'` and a user `notice` — never a fake success built only from the
+  batches that happened to work. (Old code merged only successes and warned to console.)
+- **compare pairing (BUG-14)** — compare now sends page N of document A together with page
+  N of document B in each request (`buildCompareBatches` + `docLabel`), so the model can
+  actually see a before/after; previously a 2-image batch held pages from a single document.
+- **Malformed vs empty** — malformed/non-JSON replies throw (typed `AiContractError`);
+  valid-but-empty tables/redactions are a legitimate complete run (empty ledger / no PII),
+  while a blank transcript is a failure.
+- **Server-owned prompts + capability check (Worker source)** — `worker/src/index.ts` now
+  strips any client-supplied system message and injects the authoritative per-tool prompt
+  (`SYSTEM_PROMPTS` + `normalizeToServerOwnedMessages`), and rejects a vision tool that
+  received zero images before spend. The client still sends its (now-overridden) system
+  message so the LIVE, not-yet-redeployed Worker keeps working; removal is gated on deploy.
+  ⚠ **Deploy-gated:** the Worker-side prompt/metering/capability behaviour is verified by
+  source + typecheck only, NOT end-to-end (do-not-deploy constraint).
+- **Tests** — `tests/aiContract.test.ts` (coverage/parse/compare-pairing), `tests/aiProcess.test.ts`
+  (canonical `.data`, partial-not-silent, retry-only-missing, compare pairs both docs, malformed
+  vs empty), and the existing `tests/geminiService.test.ts` updated to the new contract.
+- **Verification** — `npx vitest run` → **607 passed / 2 skipped** (64 files, 1 skipped) exit 0;
+  `npx tsc --noEmit -p tsconfig.json` → **0** app errors; `npm run build` → exit 0; `node --check
+  site/assets/tool.js` → OK; Worker `tsc` unchanged (64 errors, 0 in `worker/src`). Nothing deployed.

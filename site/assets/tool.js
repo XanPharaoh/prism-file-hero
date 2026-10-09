@@ -626,7 +626,7 @@
   function aiOut(text, name, mime) { return [{ blob: new Blob([text], { type: mime || "text/plain" }), name: name }]; }
   Object.assign(TOOLS, {
     "compare-pdf": { accept: ".pdf,application/pdf", multi: true, min: 2,
-      run: function (f) { return Promise.all([pageImgsB64(f[0], 1), pageImgsB64(f[1], 1)]).then(function (a) { var imgs = a[0].concat(a[1]); if (imgs.length < 2) throw new Error("Need two readable PDFs"); return aiCall("compare", imgs.slice(0, 2), {}); }).then(function (t) { return aiOut(t, "comparison.txt"); }); } },
+      run: function (f) { return Promise.all([pageImgsB64(f[0], 1), pageImgsB64(f[1], 1)]).then(function (a) { var imgs = a[0].concat(a[1]); if (imgs.length < 2) throw new Error("Need two readable PDFs"); return aiCall("compare", imgs.slice(0, 2), {}); }).then(function (t) { return aiOut("Scope: this browser preview compares the FIRST page of each document only. The desktop app compares full page ranges.\n\n" + t, "comparison.txt"); }); } },
     "grammar-and-spell-check": { accept: ".pdf,application/pdf", multi: false, min: 1,
       run: function (f) { return pageImgsB64(f[0], 2).then(function (imgs) { if (!imgs.length) throw new Error("No readable pages"); return aiCall("grammar-check", imgs, {}); }).then(function (t) { return aiOut(t, "grammar-check.txt"); }); } },
     "pdf-qa-assistant": { accept: ".pdf,application/pdf", multi: false, min: 1,

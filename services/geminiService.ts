@@ -3,6 +3,15 @@ import type { ToolID } from '../src/types';
 import { getAuthToken } from './authService';
 import { isInternalDesktopDistribution } from '../src/config/distribution';
 import { getInternalAiHeaders } from './internalDeviceAuth';
+import {
+  makeCoverage,
+  parseTablePayload,
+  parseRedactPayload,
+  parseTextPayload,
+  extractJson,
+  type PageRef,
+  type AiCoverage,
+} from '@/shared/ai/aiContract';
 
 const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL || 'https://prism-worker.prismfilehero.workers.dev';
 
@@ -48,51 +57,87 @@ interface ImageInput {
   docLabel?: string;
 }
 
+/** Result every AI consumer reads. `data` is the canonical payload; the extra
+ *  keys are legacy aliases so nothing breaks while callers migrate to `.data`. */
+export interface ProcessAIResult {
+  data: unknown;            // excel: {rows, document_metadata} · redact: regions[] · text: string
+  coverage: AiCoverage;     // never silent: complete | partial | failed with failedPages
+  notice?: string;          // human note when coverage is partial
+  // legacy aliases (safe during migration):
+  rows?: unknown[];
+  document_metadata?: Record<string, unknown>;
+  regions?: unknown[];
+  text?: string;
+  summary?: string;
+}
+
+function pagesOf(images: ImageInput[], doc: string): PageRef[] {
+  return images.map(im => ({ doc: im.docLabel || doc, page: im.pageNumber }));
+}
+
 /**
- * Process images through AI with concurrent batch processing.
- * Uses p-limit to serialize metered batches.
- * Batches images into groups of MAX_IMAGES_PER_REQUEST (2) per API call.
- * Gracefully handles partial batch failures by merging successful results.
+ * Process images through the metered AI endpoint with FULL requested coverage.
+ *
+ * - Batches of MAX_IMAGES_PER_REQUEST pages, all batches attempted (no silent cap).
+ * - `compare` pairs page N of document A with page N of document B so every request
+ *   actually contains BOTH versions — previously each 2-image batch held pages from
+ *   a single document, so the model could never see the change to compare.
+ * - A batch that fails is retried once; if it still fails the run is reported
+ *   PARTIAL with the exact missing pages in `coverage.failedPages` — never a silent
+ *   success built from only the batches that happened to work.
  */
 export async function processWithAI(
   toolId: ToolID,
   images: ImageInput[],
   options?: Record<string, unknown>
-): Promise<any> {
+): Promise<ProcessAIResult> {
   const batches: ImageInput[][] = [];
-  for (let i = 0; i < images.length; i += MAX_IMAGES_PER_REQUEST) {
-    batches.push(images.slice(i, i + MAX_IMAGES_PER_REQUEST));
+  if (toolId === 'compare') {
+    for (const batch of buildCompareBatches(images)) batches.push(batch);
+  } else {
+    for (let i = 0; i < images.length; i += MAX_IMAGES_PER_REQUEST) {
+      batches.push(images.slice(i, i + MAX_IMAGES_PER_REQUEST));
+    }
   }
 
-  const results = await Promise.allSettled(
-    batches.map(batch => limit(() => callGroqAPI(toolId, batch, options)))
+  // Each batch tracks the pages it is responsible for so failures are attributable.
+  const tracked = batches.map(batch => ({ batch, pages: pagesOf(batch, 'A') }));
+  let settled = await Promise.allSettled(
+    tracked.map(t => limit(() => callGroqAPI(toolId, t.batch, options)))
   );
 
-  const succeeded = results
-    .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
-    .map(r => r.value);
-
-  const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-  if (failed.length > 0) {
-    console.warn(`[AI] ${failed.length}/${batches.length} batch(es) failed.`, failed.map(f => f.reason));
+  // Retry ONLY the batches that failed (missing pages), once.
+  const firstPass = settled.map((r, i) => ({ r, t: tracked[i] }));
+  const retryIdx = firstPass.filter(x => x.r.status === 'rejected').map(x => tracked.indexOf(x.t));
+  if (retryIdx.length > 0) {
+    const retries = await Promise.allSettled(
+      retryIdx.map(i => limit(() => callGroqAPI(toolId, tracked[i].batch, options)))
+    );
+    retries.forEach((rr, k) => { settled[retryIdx[k]] = rr; });
   }
+
+  const succeeded: any[] = [];
+  const failedPages: PageRef[] = [];
+  settled.forEach((res, i) => {
+    if (res.status === 'fulfilled') succeeded.push(res.value);
+    else failedPages.push(...tracked[i].pages);
+  });
 
   if (succeeded.length === 0) {
-    const firstReason = failed[0]?.reason;
-    const msg =
-      (firstReason instanceof Error ? firstReason.message : String(firstReason || '')) ||
-      '';
-    console.error('[AI] Batch processing failed:', firstReason);
-
-    // Always propagate the actual descriptive error reason to the user
-    if (msg) {
-      throw new Error(`All AI batches failed: ${msg}`);
-    }
-
-    throw new Error('All AI batches failed. Check network and API keys.');
+    const firstReason = settled.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+    const msg = firstReason?.reason instanceof Error ? firstReason.reason.message : String(firstReason?.reason ?? '');
+    console.error('[AI] Batch processing failed:', firstReason?.reason);
+    throw new Error(msg ? `All AI batches failed: ${msg}` : 'All AI batches failed. Check network and API keys.');
   }
 
-  return mergeResults(toolId, succeeded);
+  const requested = tracked.reduce((n, t) => n + t.pages.length, 0);
+  const coverage = makeCoverage(requested, Math.max(0, requested - failedPages.length), failedPages);
+  const notice = coverage.status === 'partial'
+    ? `Some pages could not be processed (${failedPages.map(p => `${p.doc}#${p.page}`).join(', ')}); the result is partial.`
+    : undefined;
+
+  const merged = mergeResults(toolId, succeeded);
+  return { data: merged.data, coverage, notice, ...merged.legacy };
 }
 
 async function callGroqAPI(
@@ -115,6 +160,8 @@ async function callGroqAPI(
       const length = options?.summaryLength ? `Summary length: ${options.summaryLength}.` : '';
       const focus = options?.summaryFocus ? `Focus area: ${options.summaryFocus}.` : '';
       promptText = `Generate a document summary. ${length} ${focus}`.trim();
+    } else if (toolId === 'compare') {
+      promptText = 'Two versions of the SAME document are attached (document A then document B, same page). List every change, addition and deletion between them.';
     }
     content.push({ type: 'text', text: promptText });
 
@@ -176,39 +223,65 @@ function isRetryableError(err: any): boolean {
 function parseAIResponse(data: any, toolId: ToolID): any {
   const text = data.choices?.[0]?.message?.content || data.data || data;
 
-  if (toolId === 'pdf-to-excel' || toolId === 'redact') {
-    try {
-      const jsonMatch = typeof text === 'string' ? text.match(/```(?:json)?\s*([\s\S]*?)\s*```/) : null;
-      const jsonString = jsonMatch ? jsonMatch[1] : text;
-      return JSON.parse(typeof jsonString === 'string' ? jsonString : JSON.stringify(jsonString));
-    } catch (e) {
-      console.warn('Failed to parse JSON from AI response, returning raw text', e);
-      return { rawText: text };
-    }
-  }
-  return text;
+  // Delegated to the shared contract so an empty / malformed model reply is a
+  // TYPED failure (thrown → the batch is retried, then counted as a missing page)
+  // instead of a silent {} / "" that downstream merges into a fake success.
+  if (toolId === 'pdf-to-excel') return parseTablePayload(extractJsonSafe(String(text)));
+  if (toolId === 'redact') return parseRedactPayload(extractJsonSafe(String(text)));
+  return parseTextPayload(String(text));
 }
 
-function mergeResults(toolId: ToolID, results: any[]): any {
+function extractJsonSafe(s: string) {
+  try {
+    return extractJson(s);
+  } catch {
+    // Let the parser produce the canonical MALFORMED error with a stable message.
+    return s;
+  }
+}
+
+/**
+ * compare batches must each contain the SAME page from BOTH documents, otherwise
+ * the model never sees a before/after pair (BUG-14: batches held pages from one doc).
+ * Images arrive as [...docA, ...docB] tagged with docLabel "A"/"B"; pair by page.
+ */
+function buildCompareBatches(images: ImageInput[]): ImageInput[][] {
+  const label = (im: ImageInput) => im.docLabel || 'A';
+  const a = images.filter(im => label(im) === 'A');
+  const b = images.filter(im => label(im) !== 'A');
+  const pool = a.length >= b.length ? { first: a, second: b } : { first: b, second: a };
+  const batches: ImageInput[][] = [];
+  for (let i = 0; i < pool.first.length; i++) {
+    const pair = [pool.first[i]];
+    if (i < pool.second.length) pair.push(pool.second[i]);
+    if (pair.length === 2) batches.push(pair); // only true A/B pairs are comparable
+  }
+  // If callers didn't label docs, fall back to consecutive 2-page batches.
+  if (batches.length === 0) {
+    for (let i = 0; i < images.length; i += MAX_IMAGES_PER_REQUEST) {
+      batches.push(images.slice(i, i + MAX_IMAGES_PER_REQUEST));
+    }
+  }
+  return batches;
+}
+
+function mergeResults(toolId: ToolID, results: any[]): { data: unknown; legacy: Record<string, unknown> } {
   if (toolId === 'pdf-to-excel') {
-    const allRows: any[] = [];
-    let metadata: Record<string, any> = {};
+    const rows: any[] = [];
+    let document_metadata: Record<string, any> = {};
     results.forEach(res => {
-      if (res.rows) allRows.push(...res.rows);
-      if (res.document_metadata && Object.keys(metadata).length === 0) {
-        metadata = res.document_metadata;
-      }
+      if (Array.isArray(res.rows)) rows.push(...res.rows);
+      if (res.documentMetadata && Object.keys(document_metadata).length === 0) document_metadata = res.documentMetadata;
     });
-    return { rows: allRows, document_metadata: metadata };
+    return { data: { rows, document_metadata }, legacy: { rows, document_metadata } };
   }
 
   if (toolId === 'redact') {
-    const allRegions: any[] = [];
-    results.forEach(res => {
-      if (res.regions) allRegions.push(...res.regions);
-    });
-    return { regions: allRegions };
+    const regions: any[] = [];
+    results.forEach(res => { if (Array.isArray(res.regions)) regions.push(...res.regions); });
+    return { data: regions, legacy: { regions } };
   }
 
-  return { text: results.map(r => typeof r === 'string' ? r : r.rawText || JSON.stringify(r)).join('\n\n---\n\n') };
+  const text = results.map(r => (typeof r === 'string' ? r : r?.text ?? JSON.stringify(r))).join('\n\n---\n\n');
+  return { data: text, legacy: { text, summary: text } };
 }

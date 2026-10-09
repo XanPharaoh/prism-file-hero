@@ -163,11 +163,12 @@ export const TOOL_REGISTRY: ToolHandler[] = [
             throw new Error('NO_IMAGES');
           }
           const aiResult = await processWithAI('pdf-to-excel', images);
+          const tableData = aiResult?.data as { rows?: Record<string, unknown>[]; document_metadata?: Record<string, unknown> } | undefined;
           const aiRows =
-            (aiResult?.data?.rows as Record<string, unknown>[] | undefined) ||
+            tableData?.rows ||
             (aiResult?.rows as Record<string, unknown>[] | undefined);
           if (aiRows?.length) {
-            const meta = (aiResult?.data?.document_metadata ||
+            const meta = (tableData?.document_metadata ||
               aiResult?.document_metadata ||
               {}) as Record<string, unknown>;
             result = {
@@ -512,14 +513,14 @@ export const TOOL_REGISTRY: ToolHandler[] = [
       if (files.length !== 2) throw new Error('Comparison requires exactly 2 PDF files.');
       // convertPdfToImages statically imported
       // processWithAI statically imported
-      const docAImages = await convertPdfToImages(files[0], undefined, 20, true);
-      const docBImages = await convertPdfToImages(files[1], undefined, 20, true);
+      const docAImages = (await convertPdfToImages(files[0], undefined, 20, true)).map(im => ({ ...im, docLabel: 'A' }));
+      const docBImages = (await convertPdfToImages(files[1], undefined, 20, true)).map(im => ({ ...im, docLabel: 'B' }));
       onProgress?.(40);
-      const combinedImages = [...docAImages, ...docBImages];
-      const aiResult = await processWithAI('compare', combinedImages);
-      const report = (aiResult.data ?? 'Comparison failed to generate details.') as string;
-      const blob = new Blob([report], { type: 'text/plain' });
-      return { blob, filename: `Comparison_Report_${Date.now()}.txt`, data: report };
+      const aiResult = await processWithAI('compare', [...docAImages, ...docBImages]);
+      const report = (aiResult.data as string) || 'Comparison failed to generate details.';
+      const finalReport = aiResult.notice ? `${report}\n\nNOTE: ${aiResult.notice}` : report;
+      const blob = new Blob([finalReport], { type: 'text/plain' });
+      return { blob, filename: `Comparison_Report_${Date.now()}.txt`, data: finalReport };
     },
   },
   {
