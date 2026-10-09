@@ -593,7 +593,7 @@
     function onChange(l) { listeners.push(l); if (inst) { try { l(inst); } catch (e) {} } }
     function getToken() { return ensure().then(function (c) { return (c && c.isSignedIn && c.session) ? c.session.getToken() : null; }).catch(function () { return null; }); }
     return {
-      enabled: !!pk(), ensure: ensure, getToken: getToken, onChange: onChange,
+      enabled: !!pk(), ensure: ensure, getToken: getToken, onChange: onChange, clerkDomain: clerkDomain,
       mountSignIn: function (el) { return ensure().then(function (c) { if (c) { c.isSignedIn ? c.mountUserButton(el) : c.mountSignIn(el); } }); },
       mountSignUp: function (el) { return ensure().then(function (c) { if (c) c.mountSignUp(el); }); },
       mountUserButton: function (el) { return ensure().then(function (c) { if (c) c.mountUserButton(el); }); },
@@ -608,17 +608,25 @@
     var fb = document.getElementById("auth-fallback");
     function fail() { if (fb) { fb.hidden = false; } }
     if (!(window.PRFAuth && window.PRFAuth.enabled)) { fail(); return; }
-    var wantSignUp = /[?&]mode=signup/.test(location.search);
+    var origin = location.origin;
+    function hosted(kind) { return "https://" + window.PRFAuth.clerkDomain() + "/" + kind + "?redirect_url=" + encodeURIComponent(origin + "/account"); }
+    function entry() {
+      root.innerHTML =
+        '<div class="auth-entry">' +
+          '<a class="auth-cta" href="' + hosted("sign-in") + '">Sign in</a>' +
+          '<a class="auth-cta2" href="' + hosted("sign-up") + '">Create account</a>' +
+          '<p class="auth-entry-note">You’ll be taken to Prism’s secure sign-in and returned here.</p>' +
+        '</div>';
+    }
     window.PRFAuth.ensure().then(function (c) {
-      if (!c) { fail(); return; }
+      if (!c) { entry(); return; }
       if (c.isSignedIn) {
-        root.innerHTML = '<p class="clerk-signed">You\u2019re signed in.</p>';
-        var ub = document.createElement("div"); root.appendChild(ub);
-        try { c.mountUserButton(ub); } catch (e) {}
-      } else {
-        try { wantSignUp ? c.mountSignUp(root) : c.mountSignIn(root); } catch (e) { fail(); }
-      }
-    }).catch(fail);
+        var email = ""; try { email = (c.user && c.user.primaryEmailAddress && c.user.primaryEmailAddress.emailAddress) || ""; } catch (e) {}
+        root.innerHTML = '<p class="clerk-signed">Signed in' + (email ? " as " + email : "") + '.</p><div id="clerk-user-btn"></div><button type="button" id="clerk-signout" class="auth-cta2" style="margin-top:.8rem;">Sign out</button>';
+        var ub = document.getElementById("clerk-user-btn"); try { c.mountUserButton(ub); } catch (e) {}
+        var so = document.getElementById("clerk-signout"); if (so) so.addEventListener("click", function () { window.PRFAuth.signOut().then(function () { location.href = "/"; }); });
+      } else { entry(); }
+    }).catch(entry);
   }
 
 
