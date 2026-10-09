@@ -8,8 +8,7 @@ import type { DocumentType } from './extractionPipeline';
 import { getAuthToken } from './authService';
 import { isInternalDesktopDistribution } from '../src/config/distribution';
 import { getInternalAiHeaders } from './internalDeviceAuth';
-
-const WORKER_BASE_URL = (import.meta as any).env?.VITE_WORKER_URL || 'https://prism-worker.prismfilehero.workers.dev';
+import { WORKER_BASE_URL } from './apiConfig';
 const CHUNK_SIZE = 40; // Process 40 rows at a time
 
 async function getAiHeaders(): Promise<Record<string, string>> {

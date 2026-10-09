@@ -13,8 +13,7 @@ import {
 } from './usageConfig';
 import { getAuthToken } from './authService';
 import { isInternalDesktopDistribution } from '../src/config/distribution';
-
-const WORKER_BASE_URL = (import.meta as any).env?.VITE_WORKER_URL || 'https://prism-worker.prismfilehero.workers.dev';
+import { WORKER_BASE_URL } from './apiConfig';
 const LOCAL_CACHE_KEY = 'pfh_usage_cache_v2';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -288,13 +287,24 @@ export async function reportUsage(
 
   try {
     const token = await resolveToken();
+    // The Worker's UsageReportSchema is .strict() and has NO featureType field —
+    // sending it made every report fail validation (400). featureType is derived
+    // server-side; the client sends only schema fields.
+    const wirePayload = {
+      toolId: payload.toolId,
+      pagesProcessed: payload.pagesProcessed,
+      status: payload.status ?? 'SUCCESS',
+      ...(payload.fileSizeBytes != null ? { fileSizeBytes: payload.fileSizeBytes } : {}),
+      ...(payload.fileName ? { fileName: payload.fileName } : {}),
+      ...(payload.error ? { error: payload.error } : {}),
+    };
     const response = await fetch(`${WORKER_BASE_URL}/api/usage/report`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(wirePayload),
     });
 
     if (response.ok) {

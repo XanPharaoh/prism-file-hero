@@ -222,3 +222,40 @@ site), with results carrying **coverage** so a partial run is reported as partia
 - **Verification** — `npx vitest run` → **607 passed / 2 skipped** (64 files, 1 skipped) exit 0;
   `npx tsc --noEmit -p tsconfig.json` → **0** app errors; `npm run build` → exit 0; `node --check
   site/assets/tool.js` → OK; Worker `tsc` unchanged (64 errors, 0 in `worker/src`). Nothing deployed.
+
+## 14. Batch 04 (partial) — endpoint authority + usage-report schema
+
+This slice is fully local and verified. The remaining Batch 04 items (quota authority —
+finite cloud credits, removing shared zero-AI/paid-daily limits, qualified SQL columns, the
+plan catalog + forward migration) live in the Worker + Supabase and are **deploy/infra-gated**
+(see §15).
+
+- **Single API URL source** — `services/apiConfig.ts` now owns `WORKER_BASE_URL` via a pure,
+  unit-tested `resolveWorkerBaseUrl(configured, isDev)`. Production builds MUST resolve to an
+  `https://` origin; a non-https / `localhost` `VITE_WORKER_URL` in production THROWS instead of
+  silently binding to a dev machine. Localhost is allowed only when `import.meta.env.DEV`.
+- **De-duplicated URL constants** — five services (`geminiService`, `aiExtractionService`,
+  `internalDeviceAuth`, `semanticCellParser`, `usageTrackingService`) each re-declared their own
+  `WORKER_BASE_URL` with a hardcoded default; all now import the single source.
+- **Usage-report schema FIXED** — `reportUsage` POSTed `featureType`, but the Worker's
+  `UsageReportSchema` is `.strict()` with no such field, so **every usage report was rejected
+  (400)**. The client now sends only schema fields (`toolId`, `pagesProcessed`, `status`, and
+  optional `fileName`/`fileSizeBytes`/`error`); `featureType` is derived server-side.
+- **Tests** — `tests/apiAndUsageContract.test.ts` (6): prod https default, https override trim,
+  prod rejects localhost, dev allows localhost, report body has no featureType + only schema keys,
+  optional fields pass through.
+- **Verification** — `npx vitest run` → **613 passed / 2 skipped** (65 files, 1 skipped) exit 0;
+  app `tsc` → **0** errors; `npm run build` → exit 0. Nothing deployed.
+
+## 15. Deploy/infra-gated backlog (needs separate authorization to verify)
+
+These later-batch acceptance criteria cannot be honestly verified without deploying the
+Worker/Supabase and using paid provider/processor sandboxes; they are recorded, NOT claimed done:
+- Batch 04 (rest): cloud-credit quota authority, plan catalog + forward migration, qualified SQL
+  columns → needs a deployed Worker + Supabase migration applied (`worker/src/migrations`, `supabase/migrations`).
+- Batch 05: Paddle checkout/webhook/portal + signature + durable inbox → needs Paddle sandbox +
+  a deployed Worker.
+- Batch 07: OCR offline bundling (wasm core + `eng.traineddata` vendored) and the app-side transcript-only
+  OCR-PDF rewrite are local-able; cloud conversion parity is not.
+- Batch 09: Office/form/edit/sign cloud converters + job leasing/deletion → deployed jobs service.
+- Batch 10: public SEO/analytics/redirects → deploy + live crawls.

@@ -12,8 +12,7 @@ import {
   type PageRef,
   type AiCoverage,
 } from '@/shared/ai/aiContract';
-
-const WORKER_BASE_URL = import.meta.env.VITE_WORKER_URL || 'https://prism-worker.prismfilehero.workers.dev';
+import { WORKER_BASE_URL } from './apiConfig';
 
 const TOOL_PROMPTS: Record<string, string> = {
   'pdf-to-excel': `Extract ALL data from these images into a clean spreadsheet structure.
