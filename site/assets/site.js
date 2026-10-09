@@ -573,10 +573,16 @@
       if (!key) return Promise.resolve(null);
       if (inst) return Promise.resolve(inst);
       if (loading) return loading;
-      loading = import("https://cdn.jsdelivr.net/npm/@clerk/clerk-js@6/+esm")
-        .then(function (mod) {
-          var C = mod && (mod.Clerk || (mod.default && mod.default.Clerk));
-          if (typeof C !== "function") throw new Error("Clerk unavailable");
+      loading = new Promise(function (res, rej) {
+        if (typeof window.Clerk === "function") { res(); return; }
+        var s = document.createElement("script"); s.async = true; s.crossOrigin = "anonymous";
+        s.src = "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js";
+        s.onload = function () { res(); }; s.onerror = function () { rej(new Error("Clerk script failed to load")); };
+        document.head.appendChild(s);
+      })
+        .then(function () {
+          var C = window.Clerk;
+          if (typeof C !== "function") throw new Error("Clerk class unavailable");
           inst = new C(key);
           return inst.load();
         })
