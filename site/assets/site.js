@@ -575,9 +575,9 @@
       if (loading) return loading;
       loading = import("https://cdn.jsdelivr.net/npm/@clerk/clerk-js@6/+esm")
         .then(function (mod) {
-          var Ctor = (mod && (mod.Clerk || (mod.default && mod.default.Clerk))) || window.Clerk;
-          if (typeof Ctor !== "function") throw new Error("Clerk unavailable");
-          inst = new Ctor(key);
+          var C = mod && (mod.Clerk || (mod.default && mod.default.Clerk));
+          if (typeof C !== "function") throw new Error("Clerk unavailable");
+          inst = new C(key);
           return inst.load();
         })
         .then(function () { fire(); return inst; })
@@ -599,6 +599,9 @@
   function mountAuth() {
     var form = document.getElementById("auth-form");
     if (!form) return;
+    // Safety: this static form must NEVER native-submit (it would put the
+    // password into the URL). Guard applies regardless of which path runs next.
+    form.addEventListener("submit", function (e) { e.preventDefault(); });
 
     // Primary path: real Clerk. Only if the key is present. On any load failure we
     // un-hide the static shell below so the page never goes blank.
@@ -614,7 +617,7 @@
       window.PRFAuth.ensure().then(function (c) {
         if (c && c.isSignedIn) { host.innerHTML = '<p class="clerk-signed">Signed in. AI tools are unlocked for your plan.</p>'; var ub = document.createElement("div"); host.appendChild(ub); try { c.mountUserButton(ub); } catch (e) {} toggle.hidden = true; }
         else { mount(); }
-      }).catch(function () { form.hidden = false; host.remove(); toggle.remove(); });
+      }).catch(function () { host.innerHTML = '<p class="clerk-err">Sign-in is unavailable right now. Please refresh, or use the desktop app.</p>'; toggle.hidden = true; });
       switchBtn.addEventListener("click", function () { mode = mode === "signin" ? "signup" : "signin"; this.textContent = mode === "signin" ? "Create one" : "Use an existing account"; mount(); });
       return;
     }
