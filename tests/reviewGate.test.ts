@@ -19,7 +19,7 @@ function baseResult(metadata: Partial<DocumentServiceResult['metadata']>): Docum
 
 describe('finance review gate (Batch 01)', () => {
     it('keeps a clean, reconciling bank statement export-ready (no review)', () => {
-        const gated = applyReviewGate(baseResult({ documentType: 'bank-statement', reconciles: true }));
+        const gated = applyReviewGate(baseResult({ documentType: 'bank-statement', reconciles: true, openingBalance: '100', closingBalance: '90' }));
         expect(gated.metadata.requiresReview).toBe(false);
         expect(gated.metadata.reviewReasons ?? []).toHaveLength(0);
     });
@@ -69,5 +69,45 @@ describe('finance review gate (Batch 01)', () => {
         const gated = applyReviewGate(baseResult({ openingBalance: null, closingBalance: null }));
         expect(gated.rows[0]).toMatchObject({ balance: 100 });
         expect(gated.metadata.openingBalance ?? null).toBe(null);
+    });
+
+    it('exposes four distinct states: processing/validation/review, export chosen later', () => {
+        const clean = applyReviewGate(baseResult({ documentType: 'bank-statement', reconciles: true, openingBalance: '100', closingBalance: '90' }));
+        expect(clean.metadata.processingComplete).toBe(true);
+        expect(clean.metadata.validationPassed).toBe(true);
+        expect(clean.metadata.reviewRequired).toBe(false);
+        expect(clean.metadata.exportMode).toBeUndefined(); // chosen at export time, not here
+
+        const dirty = applyReviewGate(baseResult({ documentType: 'bank-statement', reconciles: false, ledgerHealth: { isValid: false } }));
+        expect(dirty.metadata.validationPassed).toBe(false);
+        expect(dirty.metadata.reviewRequired).toBe(true);
+    });
+
+    it('missing or unparseable amount triggers review (never zero-filled to pass)', () => {
+        const res: DocumentServiceResult = {
+            rows: [
+                { date: '2026-01-01', description: 'OK', amount: -10, balance: 100 },
+                { date: '2026-01-02', description: 'BLANK', amount: '', balance: 100 },
+            ],
+            metadata: baseResult({ documentType: 'bank-statement', reconciles: true }).metadata,
+        };
+        const gated = applyReviewGate(res);
+        expect(gated.metadata.requiresReview).toBe(true);
+        expect((gated.metadata.reviewReasons ?? []).some(r => /missing or unparseable amount/i.test(r))).toBe(true);
+    });
+
+    it('unknown opening/closing balance on a bank statement triggers review', () => {
+        const gated = applyReviewGate(baseResult({ documentType: 'bank-statement', reconciles: true, openingBalance: null, closingBalance: null }));
+        expect((gated.metadata.reviewReasons ?? []).some(r => /opening or closing balance is unknown/i.test(r))).toBe(true);
+    });
+
+    it('existing reasons survive processing and are not dropped when other checks pass', () => {
+        const gated = applyReviewGate(baseResult({
+            documentType: 'bank-statement',
+            reconciles: true,
+            reviewReasons: ['ABSA: fee column merged with amount'],
+        }));
+        expect(gated.metadata.reviewReasons).toContain('ABSA: fee column merged with amount');
+        expect(gated.metadata.validationPassed).toBe(false); // preserved reason keeps it unverified
     });
 });

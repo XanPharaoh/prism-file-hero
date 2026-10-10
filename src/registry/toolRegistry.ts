@@ -352,7 +352,7 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     allowedFileTypes: ['application/pdf'],
     maxFiles: 1,
     supportsBatchProcessing: false,
-    handler: async ({ files, options, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
+    handler: async ({ files, options, onProgress, signal }: ToolExecutionPayload): Promise<ToolResult> => {
       let piiRegions: Array<{ page: number; text: string; category: string; x: number; y: number; width: number; height: number }> = [];
       const customKeywords = typeof options?.redactKeywords === 'string'
         ? options.redactKeywords.split(/[,;\n]+/).map((k: string) => k.trim()).filter((k: string) => k.length > 1)
@@ -451,8 +451,15 @@ export const TOOL_REGISTRY: ToolHandler[] = [
         };
       });
 
-      const redactedBlob = await redactPdf(files[0], absoluteRegions);
-      return { blob: redactedBlob, filename: `${files[0].name.replace(/\.pdf$/i, '')}_Redacted.pdf` };
+      const redactedBlob = await redactPdf(files[0], absoluteRegions, { signal });
+      return {
+        blob: redactedBlob,
+        filename: `${files[0].name.replace(/\.pdf$/i, '')}_Redacted.pdf`,
+        // Redaction rasterizes every page: the output has no selectable/searchable
+        // text and loses interactive form fields; a digitally signed document will
+        // NOT retain its original valid signature. This caveat is surfaced to the UI.
+        data: 'Rasterized redaction: searchable text and form fields are removed; any original digital signature is no longer valid.',
+      };
     },
   },
   {

@@ -12,6 +12,11 @@ import {
   cellFor,
   SelectionError,
 } from '@/shared/pdf/pageSelection';
+import {
+  rasterScale,
+  topBoxToPdfRect,
+  paintOpaqueBlackout,
+} from '@/shared/pdf/redactGeometry';
 
 /**
  * Simple main-thread image preprocessing for OCR enhancement.
@@ -361,10 +366,6 @@ export async function compressPdf(
 }
 
 /**
- * Security: Redact PDF by placing permanent opaque blackouts over
- * sensitive terms, search matches, and specified coordinates without rendering artifacts.
- */
-/**
  * Security: Redact PDF — GENUINE removal via raster reconstruction.
  *
  * Renders every page to pixels, paints opaque black over the selected regions,
@@ -385,106 +386,118 @@ export async function compressPdf(
  */
 export async function redactPdf(
   file: File,
-  regions: { page: number; x: number; y: number; width: number; height: number; text?: string }[]
+  regions: { page: number; x: number; y: number; width: number; height: number; text?: string }[],
+  opts?: { signal?: AbortSignal }
 ): Promise<Blob> {
   const bytes = new Uint8Array(await file.arrayBuffer());
+  const signal = opts?.signal;
   let src: any = null;
   const clean = await PDFDocument.create();
-  const maxPixels = 16_000_000;
 
-  const paintRect = (ctx: CanvasRenderingContext2D, rect: number[]) => {
-    const x = Math.min(rect[0], rect[2]) - 1;
-    const y = Math.min(rect[1], rect[3]) - 1;
-    const w = Math.abs(rect[2] - rect[0]) + 2;
-    const h = Math.abs(rect[3] - rect[1]) + 2;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(x, y, w, h);
+  const abortIfNeeded = () => {
+    if (signal?.aborted) throw new DOMException('Redaction cancelled', 'AbortError');
   };
 
   try {
+    abortIfNeeded();
     src = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
 
     for (let pNum = 1; pNum <= src.numPages; pNum++) {
+      abortIfNeeded();
       const jsPage = await src.getPage(pNum);
       const visible = jsPage.getViewport({ scale: 1 });
-      const scale = Math.min(2, Math.sqrt(maxPixels / Math.max(1, visible.width * visible.height)));
+      const scale = rasterScale(visible.width, visible.height);
       const raster = jsPage.getViewport({ scale });
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.ceil(raster.width));
       canvas.height = Math.max(1, Math.ceil(raster.height));
       const ctx = canvas.getContext('2d');
-      if (!ctx) { jsPage.cleanup?.(); continue; }
+      // Never silently drop a page: if it cannot be rasterized, the whole redaction
+      // fails. Returning a document that is missing (or shows un-redacted) pages
+      // would present a partial result as a completed redaction.
+      if (!ctx) { jsPage.cleanup?.(); throw new Error(`Redaction failed: page ${pNum} could not be rasterized.`); }
 
-      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await jsPage.render({ canvasContext: ctx, viewport: raster, background: '#ffffff' }).promise;
+      try {
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await jsPage.render({ canvasContext: ctx, viewport: raster, background: '#ffffff' }).promise;
 
-      const pageRegions = (regions || []).filter(r => (r.page || 1) === pNum);
-      let textContentCache: any[] | null = null;
-      const getTextItems = async () => {
-        if (textContentCache === null) {
-          const tc = await jsPage.getTextContent();
-          textContentCache = (tc.items || []) as any[];
-        }
-        return textContentCache;
-      };
-      for (const region of pageRegions) {
-        if (region.text && region.text.trim().length > 0) {
-          const items = await getTextItems();
-          const needle = region.text.trim().toLowerCase();
-          let matched = false;
-
-          // 1. Whole phrase sits inside one text item.
-          for (const item of items) {
-            if (!item || typeof item.str !== 'string') continue;
-            if (!item.str.trim().toLowerCase().includes(needle)) continue;
-            const tx = item.transform ? item.transform[4] : 0;
-            const ty = item.transform ? item.transform[5] : 0;
-            const fs = Math.abs(item.transform?.[3] || 12) || item.height || 12;
-            const w = item.width || Math.max(10, item.str.trim().length * fs * 0.6);
-            const h = item.height || fs;
-            paintRect(ctx, raster.convertToViewportRectangle([tx, ty, tx + w, ty + h]));
-            matched = true;
+        const pageRegions = (regions || []).filter(r => (r.page || 1) === pNum);
+        let textContentCache: any[] | null = null;
+        const getTextItems = async () => {
+          if (textContentCache === null) {
+            const tc = await jsPage.getTextContent();
+            textContentCache = (tc.items || []) as any[];
           }
+          return textContentCache;
+        };
+        for (const region of pageRegions) {
+          if (region.text && region.text.trim().length > 0) {
+            const items = await getTextItems();
+            const needle = region.text.trim().toLowerCase();
+            let matched = false;
 
-          // 2. Phrase spans consecutive items on the same baseline (e.g. "John Doe"
-          // split across separate text runs).
-          if (!matched && needle.includes(' ')) {
-            const itemsWithPos = items.filter(
-              it => it && typeof it.str === 'string' && it.transform && it.str.trim().length > 0
-            );
-            for (let i = 0; i < itemsWithPos.length; i++) {
-              let combined = '';
-              let startTX = 0, startTY = 0, endX = 0, endTY = 0, maxFS = 0, baseY = 0;
-              for (let j = i; j < Math.min(i + 16, itemsWithPos.length); j++) {
-                const it = itemsWithPos[j];
-                const tx = it.transform[4], ty = it.transform[5];
-                if (j === i) {
-                  baseY = ty;
-                  startTX = tx; startTY = ty;
-                } else if (Math.abs(ty - baseY) > Math.max(3, maxFS * 0.5)) {
-                  break; // different baseline — stop extending the window
-                }
-                const fs = Math.abs(it.transform[3] || 12) || it.height || 12;
-                maxFS = Math.max(maxFS, fs);
-                const w = it.width || Math.max(10, it.str.trim().length * fs * 0.6);
-                endX = tx + w; endTY = ty;
-                combined += (combined ? ' ' : '') + it.str.trim();
-                if (combined.toLowerCase().includes(needle)) {
-                  const y0 = Math.min(startTY, endTY);
-                  const h0 = maxFS * 1.3;
-                  paintRect(ctx, raster.convertToViewportRectangle([startTX, y0 - maxFS * 0.25, endX, y0 + h0]));
-                  matched = true;
-                  break;
-                }
-              }
-              if (matched) break;
+            // 1. Whole phrase sits inside one text item.
+            for (const item of items) {
+              if (!item || typeof item.str !== 'string') continue;
+              if (!item.str.trim().toLowerCase().includes(needle)) continue;
+              const tx = item.transform ? item.transform[4] : 0;
+              const ty = item.transform ? item.transform[5] : 0;
+              const fs = Math.abs(item.transform?.[3] || 12) || item.height || 12;
+              const w = item.width || Math.max(10, item.str.trim().length * fs * 0.6);
+              const h = item.height || fs;
+              paintOpaqueBlackout(ctx, raster, [tx, ty, tx + w, ty + h]);
+              matched = true;
             }
+
+            // 2. Phrase spans consecutive items on the same baseline (e.g. "John Doe"
+            // split across separate text runs).
+            if (!matched && needle.includes(' ')) {
+              const itemsWithPos = items.filter(
+                it => it && typeof it.str === 'string' && it.transform && it.str.trim().length > 0
+              );
+              for (let i = 0; i < itemsWithPos.length; i++) {
+                let combined = '';
+                let startTX = 0, startTY = 0, endX = 0, endTY = 0, maxFS = 0, baseY = 0;
+                for (let j = i; j < Math.min(i + 16, itemsWithPos.length); j++) {
+                  const it = itemsWithPos[j];
+                  const tx = it.transform[4], ty = it.transform[5];
+                  if (j === i) {
+                    baseY = ty;
+                    startTX = tx; startTY = ty;
+                  } else if (Math.abs(ty - baseY) > Math.max(3, maxFS * 0.5)) {
+                    break; // different baseline — stop extending the window
+                  }
+                  const fs = Math.abs(it.transform[3] || 12) || it.height || 12;
+                  maxFS = Math.max(maxFS, fs);
+                  const w = it.width || Math.max(10, it.str.trim().length * fs * 0.6);
+                  endX = tx + w; endTY = ty;
+                  combined += (combined ? ' ' : '') + it.str.trim();
+                  if (combined.toLowerCase().includes(needle)) {
+                    const y0 = Math.min(startTY, endTY);
+                    const h0 = maxFS * 1.3;
+                    paintOpaqueBlackout(ctx, raster, [startTX, y0 - maxFS * 0.25, endX, y0 + h0]);
+                    matched = true;
+                    break;
+                  }
+                }
+                if (matched) break;
+              }
+            }
+          } else if (region.width > 0 && region.height > 0) {
+            // Caller box: top-origin points on the visible page → PDF rect → raster pixels.
+            const pdfRect = topBoxToPdfRect(
+              { x: region.x, y: region.y, width: region.width, height: region.height },
+              visible.height
+            );
+            paintOpaqueBlackout(ctx, raster, pdfRect);
           }
-        } else if (region.width > 0 && region.height > 0) {
-          const x0 = region.x;
-          const y0 = visible.height - region.y - region.height;
-          paintRect(ctx, raster.convertToViewportRectangle([x0, y0, x0 + region.width, y0 + region.height]));
         }
+      } catch (err) {
+        // A render/paint failure on ANY page aborts the whole operation — never emit
+        // a document that silently omits or under-redacts a page.
+        canvas.width = 0; canvas.height = 0;
+        jsPage.cleanup?.();
+        throw err;
       }
 
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);

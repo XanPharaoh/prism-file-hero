@@ -63,9 +63,12 @@ export default function ProcessingView({
   }
 
   async function confirmReviewExport() {
-    const blob = await getExcelBlob(s.extractedTransactions, { ...s.extractionMetadata, requiresReview: false });
-    s.setReviewConfirmed(true);
-    await onDownloadBlob(blob, `Reviewed_${Date.now()}.xlsx`);
+    // This is an EXPLICIT DRAFT export, not a pass. Acknowledging the warning must
+    // NOT clear validation or the review gate — the recorded reasons survive, and the
+    // file is labelled as an unverified draft.
+    const meta = { ...s.extractionMetadata, exportMode: 'draft' as const };
+    const blob = await getExcelBlob(s.extractedTransactions, meta);
+    await onDownloadBlob(blob, `UNVERIFIED_DRAFT_${Date.now()}.xlsx`);
   }
 
   function clearBatchAndExtractionReview() {
@@ -873,8 +876,12 @@ export default function ProcessingView({
           exportAllowed={!requiresReview}
           onClearReview={s.clearExtractionReview}
           onSave={async (rows) => {
-            const b = await getExcelBlob(rows as any);
-            if (b) await onDownloadBlob(b, `Reviewed_${Date.now()}.xlsx`);
+            // Final only when the recorded validation actually passed; otherwise this is
+            // an unverified draft and the export is labelled and stamped as such.
+            const validated = s.extractionMetadata.validationPassed !== false && !s.extractionMetadata.requiresReview;
+            const meta = { ...s.extractionMetadata, exportMode: (validated ? 'final' : 'draft') as 'final' | 'draft' };
+            const b = await getExcelBlob(rows as any, meta);
+            if (b) await onDownloadBlob(b, `${validated ? '' : 'UNVERIFIED_DRAFT_'}Reviewed_${Date.now()}.xlsx`);
           }}
         />
       )}

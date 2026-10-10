@@ -105,8 +105,19 @@ export async function getExcelBlob(rows: any[], metadata?: any): Promise<Blob> {
     return clean;
   });
 
+  const isDraft = metadata?.exportMode === 'draft'
+    || metadata?.requiresReview === true
+    || (metadata?.validationPassed === false);
+
   const ws = wb.addWorksheet('Transactions');
   ws.columns = headers.map(h => ({ header: h, key: h, width: Math.max(h.length, 15) }));
+  if (isDraft) {
+    // Visible, unavoidable marker: an unverified draft must never be mistaken for
+    // filing-grade output. Acknowledging a warning does not change validation.
+    const banner = ws.insertRow(1,
+      ['UNVERIFIED DRAFT — not validated; review required before use', ...Array(Math.max(0, headers.length - 1)).fill('')]);
+    banner.font = { bold: true, color: { argb: 'FF9C0006' } };
+  }
   cleanRows.forEach(r => ws.addRow(r));
 
   // FIX F: RawLines sheet
@@ -143,6 +154,21 @@ export async function getExcelBlob(rows: any[], metadata?: any): Promise<Blob> {
       summary['Balance Mismatches'] = r.mismatches ?? 0;
       summary['Reconciliation Rate'] = r.rate ?? 'N/A';
     }
+
+    // Distinct gate states + evidence (Batch 01). Validation status is preserved,
+    // never inferred from "user acknowledged this".
+    const validationPassed = metadata.validationPassed !== false && !metadata.requiresReview;
+    const draft = metadata.exportMode === 'draft' || !validationPassed;
+    summary['Processing'] = metadata.processingComplete === false ? 'Incomplete' : 'Completed';
+    summary['Validation'] = validationPassed ? 'Passed' : 'Not verified';
+    summary['Review Required'] = metadata.requiresReview || metadata.reviewRequired ? 'Yes' : 'No';
+    summary['Export Type'] = draft ? 'UNVERIFIED DRAFT' : 'Verified';
+    if (Array.isArray(metadata.reviewReasons) && metadata.reviewReasons.length > 0) {
+      summary['Review Reasons'] = metadata.reviewReasons.join(' | ');
+    }
+    // Preserve the source balances used for verification (never zero-filled).
+    if (metadata.openingBalance != null) summary['Opening Balance (source)'] = metadata.openingBalance;
+    if (metadata.closingBalance != null) summary['Closing Balance (source)'] = metadata.closingBalance;
 
     const summaryWs = wb.addWorksheet('Summary');
     const keys = Object.keys(summary);

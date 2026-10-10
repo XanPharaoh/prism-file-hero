@@ -44,8 +44,9 @@ Missing / gaps (recorded precisely, not assumed):
 - **No `.nvmrc`, no `packageManager` field** → the guide's proposed CI (`node-version-file: .nvmrc`) and any version pinning are not satisfiable as-is. Node here is v26.
 - **No `typecheck` script** in root package.json.
 - **OCR runs *locally* but is NOT *offline*.** These are two different claims and the copy must not conflate them:
-  - *Local* — the page pixels are rasterized and recognised in the browser; the document itself is never uploaded. This is **true**.
-  - *Offline* — the tool works with no network. This is **false** for OCR. Only `tesseract.min.js` (the JS glue) is vendored; the **wasm core and `eng.traineddata` language model are fetched from jsdelivr at runtime**, so a first OCR run on an air-gapped or CDN-blocked device fails. Marketing copy "Runs on your device / never uploaded" is accurate about *privacy/locality* but must not be read as *fully self-contained/offline*. Guide §7.1 requires bundling worker/core/font/lang to make the offline claim true.
+  - *Local* — the page pixels are rasterized and recognised in the browser (the OCR engine runs on-device). This is **true by code inspection**.
+  - *Offline* — the tool works with no network. This is **false** for OCR. Only `tesseract.min.js` (the JS glue) is vendored; the **wasm core and `eng.traineddata` language model are fetched from jsdelivr at runtime**, so a first OCR run on an air-gapped or CDN-blocked device fails. Guide §7.1 requires bundling worker/core/font/lang to make the offline claim true.
+  - ⚠ **Evidence limitation:** the "the document is never uploaded" claim was assessed from the code path (pixels are fed to a local worker, no `fetch` of document bytes in the OCR runner), **not** from a live network capture — this audit sandbox has no outbound network. A browser DevTools / packet capture during a real OCR run is still a **required manual check** before the "never uploaded" wording ships. Marketing copy "Runs on your device / never uploaded" is accurate about *locality* but must not be read as *fully self-contained/offline*.
 - **No Paddle/billing code or routes** in the Worker (guide BUG-04/§9) — no checkout/webhook/portal exists.
 
 ## 4. Snapshot vs actual files (master `complete source code with updates.md`)
@@ -259,3 +260,53 @@ Worker/Supabase and using paid provider/processor sandboxes; they are recorded, 
   OCR-PDF rewrite are local-able; cloud conversion parity is not.
 - Batch 09: Office/form/edit/sign cloud converters + job leasing/deletion → deployed jobs service.
 - Batch 10: public SEO/analytics/redirects → deploy + live crawls.
+
+## 16. Batch 01 hardening — meets the restated acceptance bar (2026-10-10)
+
+The original Batch 01 (§11) shipped raster redaction + a review gate but did NOT yet satisfy
+every item in the restated spec. This pass closes the named gaps. Repository files are the
+source of truth; the master `.md` mirror is updated in lockstep.
+
+Redaction (`services/pdfService.ts` + `shared/pdf/redactGeometry.ts`):
+- **One tested coordinate path.** New `shared/pdf/redactGeometry.ts` centralizes `rasterScale`,
+  `topBoxToPdfRect`, `pdfRectToRaster`, `paintOpaqueBlackout`. Rotation + preview scale + PDF
+  points + raster pixels all flow through pdf.js's rotation-aware `convertToViewportRectangle`;
+  `tests/redactGeometry.test.ts` (5) proves scale clamp, top-origin→PDF flip, 90° stays on-sheet,
+  positive-area output.
+- **No silent page loss.** The old `if (!ctx) continue;` silently DROPPED a page whose canvas
+  failed — replaced with a throw. Any render/paint failure on any page aborts the whole op, so a
+  partial document is never returned as a completed redaction.
+- **Cancellation.** `redactPdf(file, regions, { signal })` checks between pages and throws
+  `AbortError`; the app `redact` handler threads `payload.signal` through it.
+- **Disclosed before/at run.** The app handler returns the caveat: searchable text and form
+  fields are removed, and an original digital signature is no longer valid.
+- **Non-mocked coverage** (`tests/redactionHardening.test.ts`, 5): a TEXT-FREE scanned PDF is
+  verified **visually** (render output, sample pixels: redacted region <40 luma, preserved region
+  >120 luma) — because text extraction alone cannot prove a redaction; 90°-rotated page preserves
+  600×400 orientation and drops the secret; mixed page sizes preserved with the unselected page
+  kept; pre-abort and mid-abort both throw and produce no output. Existing
+  `tests/redactionRemoval.test.ts` still proves the token is present before / absent after.
+
+Finance gate (`services/documentService.ts` `applyReviewGate`, `services/excelService.ts`,
+`src/components/views/ProcessingView.tsx`):
+- **Four distinct states** on metadata: `processingComplete`, `validationPassed`,
+  `reviewRequired` (=`requiresReview`), and `exportMode` chosen at EXPORT time, never here.
+- **Reasons preserved + extended, no duplicates**; added triggers: unreconciled bank ledger
+  (carries the "do not reconcile" phrase that disables pass-review), **missing/unparseable
+  amounts** (never coerced to 0), **unknown opening/closing balance**, low confidence, parser
+  disagreement, raw-text/alignment fallback, validation issues.
+- **Acknowledgment ≠ validation.** The "Export with warning" path is now an explicit DRAFT: it no
+  longer calls `setReviewConfirmed(true)` nor forces `requiresReview:false`; validation state is
+  untouched.
+- **Draft is visibly unverified.** `getExcelBlob` stamps an "UNVERIFIED DRAFT" banner row on the
+  Transactions sheet and adds Summary rows (Processing / Validation / Review Required / Export
+  Type / Review Reasons / source Opening & Closing balances). Draft exports are named
+  `UNVERIFIED_DRAFT_*.xlsx`.
+- `tests/reviewGate.test.ts` grew to 10 cases (distinct states, missing amount, unknown balance,
+  reasons survive processing, no-zero-fill).
+
+Verification (this pass): `npx vitest run` → **627 passed / 2 skipped** (67 files, 1 skipped) exit
+0; `npx tsc --noEmit -p tsconfig.json` → **0**; `npm run build` → exit 0 (known oversized-chunk
+warning). Worker `tsc` unchanged (§10): 64 errors all in `@cloudflare/workers-types`, 0 in
+`worker/src`. Still-required MANUAL check: a real browser run to eyeball rotated/mixed redaction
+output and the drafted workbook (sandbox has no display). Nothing deployed.

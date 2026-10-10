@@ -56,6 +56,11 @@ export interface DocumentServiceResult {
     validationIssues?: string[];
     requiresReview?: boolean;
     reviewReasons?: string[];
+    // Distinct gate states (Batch 01): never collapsed into one another.
+    processingComplete?: boolean;
+    validationPassed?: boolean;
+    reviewRequired?: boolean;
+    exportMode?: 'final' | 'draft';
     parserDisagreement?: boolean;
     alignment?: TableAlignmentResult;
   };
@@ -265,18 +270,15 @@ async function buildSpatialRescue(
 }
 
 export function applyReviewGate(result: DocumentServiceResult): DocumentServiceResult {
-    // The finance review gate is a *quality state*, not an export block. It stays
-    // honest about whether the ledger can be trusted, without ever fabricating
-    // balances (no zero-fill) or silently shipping a "filing-grade" number that a
-    // deterministic check could not re-derive.
-    //
-    // States surfaced through metadata:
-    //   - processing/validation: reconciles + ledgerHealth + parseErrors
-    //   - review: requiresReview + reviewReasons (consumed by ProcessingView)
-    //   - draft: rows are always returned so the user can inspect/fix locally.
-    //
-    // Existing review reasons set by bank-specific extractors are preserved and
-    // de-duplicated; generic signals are appended below.
+    // Four SEPARATE states — never collapsed:
+    //   processingComplete : the pipeline finished and produced rows.
+    //   validationPassed   : deterministic checks (reconcile, amounts present,
+    //                        known opening/closing) all hold.
+    //   reviewRequired     : a human must review before this is trusted for filing.
+    //   exportMode         : 'final' | 'draft' — chosen at EXPORT time, never here.
+    // Acknowledging a warning or merely opening the result MUST NOT flip
+    // validationPassed/reviewRequired; only a genuine fix (re-reconcile) does, and an
+    // explicit draft export stays visibly unverified.
     const m = result.metadata;
     const reasons: string[] = Array.isArray(m.reviewReasons) ? [...m.reviewReasons] : [];
     const addReason = (reason: string) => {
@@ -294,6 +296,22 @@ export function applyReviewGate(result: DocumentServiceResult): DocumentServiceR
     if (isBankStatement && m.reconciles === false && ledgerInvalid) {
         addReason('Rows do not reconcile from opening to closing balance. Fix or confirm before export.');
     }
+    // Missing / unparseable amounts must NOT be coerced to zero to pass. Flag instead.
+    const blankAmounts = (result.rows || []).filter(r => {
+        const amt = (r as any).amount ?? (r as any).Amount;
+        const debit = (r as any).debit; const credit = (r as any).credit;
+        const hasSide = (debit !== undefined && debit !== null && `${debit}`.trim() !== '')
+            || (credit !== undefined && credit !== null && `${credit}`.trim() !== '');
+        if (amt === undefined || amt === null || `${amt}`.trim() === '') return !hasSide;
+        return Number.isNaN(Number(String(amt).replace(/[^0-9.\-]/g, '')));
+    }).length;
+    if (blankAmounts > 0) {
+        addReason(`${blankAmounts} row(s) have a missing or unparseable amount. Enter the value — a blank must never be treated as zero.`);
+    }
+    // A bank statement with no known opening or closing balance cannot be validated.
+    if (isBankStatement && (m.openingBalance == null || m.closingBalance == null)) {
+        addReason('Opening or closing balance is unknown, so the ledger cannot be independently verified.');
+    }
     if (conf > 0 && conf < 0.6) {
         addReason(`Low extraction confidence (${Math.round(conf * 100)}%). Verify each row before export.`);
     }
@@ -306,14 +324,16 @@ export function applyReviewGate(result: DocumentServiceResult): DocumentServiceR
     if (m.source === 'spatial-alignment-rescue') {
         addReason('Columns were aligned heuristically. Confirm debits/credits before export.');
     }
-
     const validationIssues = Array.isArray(m.validationIssues) ? m.validationIssues : [];
     for (const issue of validationIssues) {
         if (issue && typeof issue === 'string') addReason(issue);
     }
 
     m.reviewReasons = reasons;
+    m.processingComplete = true;
+    m.validationPassed = reasons.length === 0;
     m.requiresReview = reasons.length > 0;
+    m.reviewRequired = reasons.length > 0;
     return result;
 }
 
