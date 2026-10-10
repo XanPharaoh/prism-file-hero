@@ -26,3 +26,6 @@ android/app/google-services.json
 *.njsproj
 *.sln
 *.sw?
+
+# browser-evidence artifacts (regenerate: npm run browser:evidence)
+/evidence/
