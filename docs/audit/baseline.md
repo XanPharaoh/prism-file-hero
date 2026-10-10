@@ -112,6 +112,15 @@ single batch.
 
 ## 10. Worker typecheck — verbatim diagnostics (evidence for §1)
 
+> **RESOLVED 2026-10-10.** The preexisting failure below was fixed by giving
+> `worker/tsconfig.json` an explicit `"lib": ["ES2022"]` (no DOM) while keeping
+> `"types": ["@cloudflare/workers-types"]`, so the browser and Worker compilation
+> contexts stay separate and the two global-definition sets no longer collide. No
+> diagnostic was suppressed and no check weakened. Actual result now: `worker &&
+> npm run typecheck` → **exit 0**; `npx wrangler deploy --dry-run` → **exit 0**
+> (bundling unaffected, as predicted). A `typecheck` + `check` script was added to
+> `worker/package.json`.
+
 Running `cd worker && npx tsc --noEmit` (exit **2**). The full output is ~64 `error TS`
 lines and **every one** is inside `node_modules/@cloudflare/workers-types/index.d.ts`;
 `grep -E '^src/'` over the output returns **0 lines**. Representative first lines:
