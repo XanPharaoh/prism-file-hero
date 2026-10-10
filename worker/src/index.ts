@@ -3,6 +3,7 @@ import { getUsageSummary, checkServerLimit, reportAndSummarize, reserveUsage, se
 import { isAiTool, isFreeTool } from '../../services/usageConfig';
 import { activationCodeMatches, issueDeviceToken, revokeDeviceToken, sha256Base64Url, verifyDeviceToken } from './deviceTokens';
 import { validateClerkClaims } from './jwtValidation';
+import { verifyPaddleSignature } from './billing/paddleVerify';
 
 interface Env {
   NVIDIA_API_KEY: string;
@@ -19,6 +20,8 @@ interface Env {
   ALLOWED_ORIGIN?: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  /** Paddle webhook shared secret (sandbox or prod). Absent => webhook signature always fails. */
+  PADDLE_WEBHOOK_SECRET?: string;
   CLERK_JWKS_URL: string;
   /** Optional explicit claim configuration; issuer defaults to the JWKS origin. */
   CLERK_JWT_ISSUER?: string;
@@ -500,6 +503,47 @@ export default {
       // Health check
       if (url.pathname === '/api/health' && (request.method === 'GET' || request.method === 'HEAD')) {
         return Response.json({ status: 'ok' }, { headers: cors });
+      }
+
+      // --- POST /api/paddle/webhook (public; authenticated by raw-body signature) ---
+      // Paddle sends no Origin, so it passes the CORS gate above. The RAW body is verified
+      // before any JSON handling; a failed signature is 401 and never mutates state. Applying
+      // goes through the Postgres `apply_billing_event` RPC (event_id PK) so dedup + ordering
+      // survive process restarts. A browser checkout completion never hits this path, so it can
+      // never grant entitlement on its own — only a verified webhook projects subscription state.
+      if (url.pathname === '/api/paddle/webhook' && request.method === 'POST') {
+        const raw = await request.text();
+        const sig = request.headers.get('Paddle-Signature') ?? request.headers.get('Webhook-Signature');
+        const ok = await verifyPaddleSignature(raw, sig, env.PADDLE_WEBHOOK_SECRET || '');
+        if (!ok) return Response.json({ error: 'invalid signature' }, { status: 401 });
+
+        let evt: { event_id?: string; event_type?: string; occurred_at?: string; data?: { id?: string; customer_id?: string; subscription_id?: string } };
+        try { evt = JSON.parse(raw); } catch { return Response.json({ error: 'malformed body' }, { status: 400 }); }
+        const eventId = String(evt.event_id ?? '');
+        const subId = String(evt.data?.id ?? evt.data?.subscription_id ?? '') || null;
+        if (!eventId || !evt.event_type) return Response.json({ error: 'missing event_id/type' }, { status: 400 });
+
+        const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/apply_billing_event`, {
+          method: 'POST',
+          headers: {
+            'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_event_id: eventId,
+            p_event_type: evt.event_type,
+            p_occurred_at: evt.occurred_at ?? new Date().toISOString(),
+            p_subscription_id: subId,
+            p_customer_id: evt.data?.customer_id ?? null,
+            p_payload: evt,
+          }),
+        });
+        if (!res.ok) {
+          console.error('[billing] apply_billing_event failed', res.status, await res.text());
+          return Response.json({ error: 'projection failed' }, { status: 502 });
+        }
+        return Response.json({ status: 'ok' }); // 200 ack for applied / duplicate / out_of_order
       }
 
       // --- POST /api/internal/activate ---

@@ -25,6 +25,10 @@ CLERK_JWKS_URL = "https://clerk.prismfilehero.com/.well-known/jwks.json"
 #   wrangler secret put MISTRAL_API_KEY_3
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 #   wrangler secret put INTERNAL_ACTIVATION_CODE
+#   wrangler secret put PADDLE_WEBHOOK_SECRET      # Paddle webhook signature secret (sandbox or prod)
+# Billing (Batch 05): the Worker POST /api/paddle/webhook verifies the raw-body signature with
+# PADDLE_WEBHOOK_SECRET and persists via the apply_billing_event RPC (event_id PK = dedupe that
+# survives restarts). Point Paddle's webhook URL at https://<worker>/api/paddle/webhook.
 # Optional non-secret vars: INTERNAL_DEVICE_TOKEN_TTL_DAYS = "90", INTERNAL_MAX_ACTIVE_DEVICES = "10"
 # KV must be bound as KV; see docs-internal-desktop.md before deployment.
 
