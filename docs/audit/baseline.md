@@ -379,3 +379,29 @@ output and the drafted workbook (sandbox has no display). Nothing deployed.
 - **Verification** — `npx vitest run` → **644 passed / 2 skipped** (69 files, 1 skipped) exit 0;
   app `tsc` → 0; `npm run build` → exit 0. No live data/US fixtures were used (synthetic only).
   Nothing deployed.
+
+## 19. Batch 06 — shared tool catalog + advertised-vs-runner parity (2026-10-10)
+
+- **`shared/catalog/toolCatalog.ts`** reconciles the three namespaces that had drifted:
+  the marketing `slug` (`features.data.js`), the site in-browser runner key (`tool.js`
+  `TOOLS`), and the app handler id (`toolRegistry.ts`). 43 advertised slugs → canonical
+  entries with explicit `siteSlug` / `runner` / `appId` (nullable = a DECLARED gap, never a
+  dangling reference).
+- **Parity is enforced, not asserted by the list alone** (`tests/toolCatalogParity.test.ts`,
+  reads the real files): every catalog siteSlug is advertised; every advertised slug is in
+  the catalog; every declared runner exists in `tool.js`; every declared app id exists in
+  `toolRegistry`; a tool claiming browser/web-ai MUST have a site runner except an
+  explicitly-declared pending set; the test asserts that pending set EXACTLY, so a new gap
+  OR an undocumented fix fails the suite.
+- **Findings (honest current state):**
+  - Site-runner side is CLEAN: all 40 browser/web-ai-capable tools have a real runner; 0
+    orphan runners.
+  - **Declared pending site capability (3):** `bank-statement-to-xlsx`, `vat-ready-workbooks`,
+    `portfolio-statements` advertise web-ai but have NO live browser runner (app/AI only).
+  - **Declared desktop-only, no app handler (2):** `per-client-rules-engine`,
+    `industry-templates`.
+  - These are recorded as gaps in the catalog, not papered over. Wiring the 3 web-ai finance
+    tools to a shared typed job (guide §7 "all five missing website capabilities") is follow-on
+    work (see §15).
+- **Verification** — `npx vitest run` → **650 passed / 2 skipped** (70 files, 1 skipped) exit 0;
+  app `tsc` → 0; `npm run build` → exit 0. Catalog parity is file-derived and runs in CI.
