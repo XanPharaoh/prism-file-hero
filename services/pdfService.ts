@@ -751,6 +751,69 @@ export async function createTextPdf(text: string, title?: string): Promise<Blob>
   return new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
 }
 
+export interface SearchableWord {
+  text: string;
+  // Pixel coordinates in the SOURCE page image, top-left origin.
+  x: number; y: number; width: number; height: number;
+}
+export interface SearchablePage {
+  image: Uint8Array;
+  imageType: 'png' | 'jpg';
+  pixelWidth: number; pixelHeight: number;   // size of `image` in pixels
+  pdfWidth: number; pdfHeight: number;       // display size in PDF points (from viewport)
+  words: SearchableWord[];
+}
+
+/**
+ * Batch 07 — Create a genuine searchable PDF from a scanned document: the ORIGINAL page
+ * image is preserved as the visible content, and an INVISIBLE (opacity 0) text layer is
+ * overlaid at each word's measured position so the page becomes selectable/searchable
+ * WITHOUT replacing the scanned image with a transcript.
+ *
+ * Coordinate contract: word boxes are given in source-image pixels (top-left origin);
+ * they map to PDF points by scaleX = pdfWidth/pixelWidth, scaleY = pdfHeight/pixelHeight,
+ * then flipped to PDF's bottom-left origin. Text width is fit to the box via xScale so the
+ * invisible layer aligns with the glyphs underneath.
+ */
+export async function createSearchablePdf(pages: SearchablePage[]): Promise<Blob> {
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  const sanitize = (s: string): string =>
+    s.replace(/[\u2018\u2019\u201A]/g, "'").replace(/[\u201C\u201D\u201E]/g, '"')
+      .replace(/\u2026/g, '...').replace(/\u2013/g, '-').replace(/\u2014/g, '--')
+      .replace(/\u2022/g, '*').replace(/\u00A0/g, ' ').replace(/[^\x20-\x7E\u00A0-\u00FF]/g, ' ');
+
+  for (const page of pages) {
+    if (!page || page.pdfWidth <= 0 || page.pdfHeight <= 0) continue;
+    const embedded = page.imageType === 'png'
+      ? await pdfDoc.embedPng(page.image)
+      : await pdfDoc.embedJpg(page.image);
+
+    const out = pdfDoc.addPage([page.pdfWidth, page.pdfHeight]);
+    // Preserve the scanned page exactly — drawn full-bleed, untouched.
+    out.drawImage(embedded, { x: 0, y: 0, width: page.pdfWidth, height: page.pdfHeight });
+
+    const scaleX = page.pdfWidth / Math.max(1, page.pixelWidth);
+    const scaleY = page.pdfHeight / Math.max(1, page.pixelHeight);
+
+    for (const w of page.words || []) {
+      const text = sanitize(String(w.text ?? ''));
+      if (!text.trim()) continue;
+      const fontSize = Math.max(1, w.height * scaleY);
+      const px = w.x * scaleX;
+      // PDF y is bottom-origin: top of the word box minus the font height.
+      const py = page.pdfHeight - (w.y * scaleY) - fontSize;
+      try {
+        out.drawText(text, { x: px, y: py, size: fontSize, font, opacity: 0, color: rgb(0, 0, 0) });
+      } catch { /* skip a word that cannot be encoded rather than crash the page */ }
+    }
+  }
+
+  const bytes = await pdfDoc.save();
+  return new Blob([bytes as BlobPart], { type: 'application/pdf' });
+}
+
 /**
  * Structural manipulation: Delete specified pages (e.g., '1, 3-5') and return remaining PDF
  */

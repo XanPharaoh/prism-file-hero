@@ -405,3 +405,42 @@ output and the drafted workbook (sandbox has no display). Nothing deployed.
     work (see §15).
 - **Verification** — `npx vitest run` → **650 passed / 2 skipped** (70 files, 1 skipped) exit 0;
   app `tsc` → 0; `npm run build` → exit 0. Catalog parity is file-derived and runs in CI.
+
+## 20. Batch 07 — OCR offline loading + searchable PDF layer (2026-10-10)
+
+Split into what is IMPLEMENTED + LOCALLY VERIFIED vs what is PENDING (needs assets/network/
+browser this environment lacks). Not called "verified" while external checks are outstanding.
+
+**Implemented + locally verified**
+- `pdfService.createSearchablePdf(pages)` — preserves each scanned page IMAGE (embed +
+  full-bleed `drawImage`) and overlays an INVISIBLE (`opacity 0`) positioned text layer per
+  word box (pixel→PDF-point mapping with the bottom-origin flip). This replaces the
+  transcript-only approach as the app's searchable primitive.
+- `tests/searchablePdf.test.ts` (2, non-mocked): a raster page with a black band + supplied
+  word boxes → output is 1 page, the words are **extractable** (searchable layer present) AND
+  the black band is still **visibly dark** on render (the scanned image was preserved, not
+  re-typeset) — directly refuting "transcript PDF". Invalid/zero-size page skipped, no crash.
+- `shared/ocr/assets.ts` — the offline asset contract: `resolveOcrAssetPaths(base, offline)`
+  (same-origin when offline; explicit CDN only when not offline), `REQUIRED_OCR_ASSETS` (the
+  concrete worker + wasm core variants + `eng.traineddata.gz` a build must vendor),
+  `missingOcrAssets(...)`. `tests/ocrAssets.test.ts` (5) proves the offline resolver never
+  emits a `https:`/jsdelivr URL and that missing files are enumerated.
+- Confirmed the SITE `ocr-to-searchable-pdf` runner already preserves the image + overlays
+  invisible positioned text (so the app now has parity with the site's approach).
+
+**Pending (external prerequisites — NOT done, NOT claimed verified)**
+- Vendoring the actual multi-MB binaries (`tesseract-core*.wasm.js`, `eng.traineddata.gz`,
+  worker bundle) under `site/assets/vendor/tesseract/` — requires a network download at build
+  time; this sandbox has no egress and binaries must not be hand-fabricated. Exact missing
+  files are the `REQUIRED_OCR_ASSETS` list.
+- Rewiring the APP `ocr` tool away from the AI transcript path to `createSearchablePdf` with
+  local-Tesseract word boxes. Deferred deliberately: the current handler is AI-based and
+  exercised by AI-path/stress tests with a mocked transport; switching it to run real
+  Tesseract (which needs the vendored wasm) would regress those tests here and cannot be
+  verified without a browser. This is a code step to land together with the vendored assets.
+- **Verification "with network disabled and an empty browser cache"** and the visual
+  searchable-layer check require a real browser (Playwright/devtools) with DevTools network
+  offline — cannot run in this environment. Manual + CI-browser check pending.
+
+- **Local verification of what shipped** — `npx vitest run` → **657 passed / 2 skipped**
+  (72 files, 1 skipped) exit 0; app `tsc` → 0; `npm run build` → exit 0. Nothing deployed.
