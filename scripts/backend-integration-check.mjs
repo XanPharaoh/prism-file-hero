@@ -89,6 +89,7 @@ const uid = (n) => `11111111-0000-4000-8000-${String(n).padStart(12, '0')}`;
 // ── 3. Live usage ledger (the path /api/ai actually calls): reserve→settle ───
 {
   const tk = `ip:usage-${Date.now()}`;
+  await del(SR, 'usage_logs', `request_id=in.(cccccccc-0000-4000-8000-000000000001)`); // re-runnable
   const r1 = await rpc(SR, 'reserve_usage', { p_request_id: 'cccccccc-0000-4000-8000-000000000001', p_user_id: null, p_tracking_key: tk, p_ip_address: '10.0.0.1', p_tool_id: 'ocr', p_ai_pages: 1, p_operations: 0, p_page_count: 1 });
   ok('usage: reserve_usage allowed (free plan, within per-tool caps)', r1.json[0] && r1.json[0].allowed === true, JSON.stringify(r1.json));
   await rpc(SR, 'settle_usage', { p_request_id: 'cccccccc-0000-4000-8000-000000000001', p_status: 'SUCCESS' });
@@ -101,6 +102,16 @@ const uid = (n) => `11111111-0000-4000-8000-${String(n).padStart(12, '0')}`;
   // settle of an unknown id errors (authoritative, not silent)
   const bad = await rpc(SR, 'settle_usage', { p_request_id: 'dddddddd-0000-4000-8000-000000000000', p_status: 'SUCCESS' });
   ok('usage: settle of unknown reservation is rejected (not swallowed)', bad.status >= 400, `status=${bad.status}`);
+}
+
+// ── 3b. Authenticated reserve path (p_user_id NOT NULL) — regression for the "plan ambiguous" bug ─
+{
+  const u = uid(9050);
+  await del(SR, 'user_plans', `user_id=eq.${u}`);
+  await del(SR, 'usage_logs', `user_id=eq.${u}`);
+  await ins(SR, 'user_plans', [{ user_id: u, plan: 'pro', subscription_status: 'active' }]);
+  const r = await rpc(SR, 'reserve_usage', { p_request_id: 'eeeeeeee-0000-4000-8000-000000000001', p_user_id: u, p_tracking_key: u, p_ip_address: '10.0.0.9', p_tool_id: 'ocr', p_ai_pages: 1, p_operations: 0, p_page_count: 1 });
+  ok('usage: authenticated reserve (non-null user_id) resolves plan without SQL ambiguity', r.json[0] && r.json[0].allowed === true && r.json[0].plan === 'pro', JSON.stringify(r.json).slice(0, 200));
 }
 
 // ── 4. Billing: verified event grants the LIVE plan; dedupe/out-of-order ─────
