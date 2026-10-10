@@ -18,6 +18,7 @@ import { detectBank as registryDetectBank } from './bankRegistry';
 import { ocrPdfToTextItems } from './ocrService';
 import { extractDocument, type ExtractionOptions } from './extractionPipeline';
 import { reconcileRows, type ReconciliationResult } from './reconciliationService';
+import { toCents, parseDate } from '@/shared/finance/locale';
 import { calculateConfidence } from './confidenceScoring';
 import { validatePDF, hasCompressionIssues } from './pdfValidator';
 import { extractGenericStatement } from './genericStatementExtractor';
@@ -297,16 +298,28 @@ export function applyReviewGate(result: DocumentServiceResult): DocumentServiceR
         addReason('Rows do not reconcile from opening to closing balance. Fix or confirm before export.');
     }
     // Missing / unparseable amounts must NOT be coerced to zero to pass. Flag instead.
+    // Uses the shared integer-cents parser so the gate and the finance engine agree.
+    const currencyLocale = (m as any).currencyLocale === 'de-DE' || (m as any).currencyLocale === 'en-ZA'
+        ? (m as any).currencyLocale : 'en-US';
     const blankAmounts = (result.rows || []).filter(r => {
         const amt = (r as any).amount ?? (r as any).Amount;
-        const debit = (r as any).debit; const credit = (r as any).credit;
-        const hasSide = (debit !== undefined && debit !== null && `${debit}`.trim() !== '')
-            || (credit !== undefined && credit !== null && `${credit}`.trim() !== '');
+        const debit = (r as any).debit ?? (r as any).Debit;
+        const credit = (r as any).credit ?? (r as any).Credit;
+        const hasSide = toCents(debit, { locale: currencyLocale }) !== null
+            || toCents(credit, { locale: currencyLocale }) !== null;
         if (amt === undefined || amt === null || `${amt}`.trim() === '') return !hasSide;
-        return Number.isNaN(Number(String(amt).replace(/[^0-9.\-]/g, '')));
+        return toCents(amt, { locale: currencyLocale }) === null;
     }).length;
     if (blankAmounts > 0) {
         addReason(`${blankAmounts} row(s) have a missing or unparseable amount. Enter the value — a blank must never be treated as zero.`);
+    }
+    // Ambiguous dates (day/month both ≤12 and disagreeing) cannot be filed as-is.
+    const ambiguousDates = (result.rows || []).filter(r => {
+        const d = (r as any).date ?? (r as any).Date ?? (r as any)['post date'];
+        return parseDate(d, currencyLocale).ambiguous;
+    }).length;
+    if (ambiguousDates > 0) {
+        addReason(`${ambiguousDates} row(s) have an ambiguous or missing date (day/month order unclear). Confirm the date.`);
     }
     // A bank statement with no known opening or closing balance cannot be validated.
     if (isBankStatement && (m.openingBalance == null || m.closingBalance == null)) {

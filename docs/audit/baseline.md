@@ -349,3 +349,33 @@ output and the drafted workbook (sandbox has no display). Nothing deployed.
 - **Verification** — `npx vitest run` → **629 passed / 2 skipped** (68 files, 1 skipped) exit 0;
   app `tsc` → 0; `npm run build` → exit 0. Worker `tsc` → exit 0 (resolved in §10). Pending
   manual: a real browser run of site redaction removal + the drafted workbook appearance.
+
+## 18. Batch 08 — US money/date profiles + integer cents (2026-10-10)
+
+- **`shared/finance/locale.ts`** is the new canonical money/date primitive:
+  - `toCents` → **integer cents**; handles `$ R € £`, locale thousands/decimal (incl. EU
+    `1.234,56`), accounting parentheses, leading/trailing minus, and Dr/Cr. Returns
+    **`null` for missing/unparseable** — never `0`. `formatCents` renders per profile and
+    round-trips with `toCents`.
+  - `parseDate` → explicit ORDER (`en-US` mdy, `en-ZA` dmy, ISO ymd). Flags **`ambiguous:true`**
+    when day/month are each ≤ 12 and the two readings differ, and when a value is
+    missing/unparseable. Never silently guesses.
+  - `preserveIdentifier` / `normalizeZip` keep leading zeros + length as **strings**
+    (`02134`, `0012345`).
+  - `PROFILES` keeps US ≠ ZA: `en-US`→USD/mdy, `en-ZA`→ZAR/dmy, so US mode never inherits
+    ZAR/dd-mm.
+- **Wired into the review gate** (`documentService.applyReviewGate`): missing/unparseable
+  amounts now use `toCents` (agrees with the engine) → a review reason; **ambiguous/missing
+  dates** now also raise a review reason. A blank is never treated as zero.
+- **Tests** — `tests/financeLocale.test.ts` (15): 2-decimal exactness + anti float-drift sums,
+  negatives, parentheses, symbols/Dr/Cr, EU decimal-comma, NULL on missing/unparseable/NaN,
+  `formatCents` round-trip, ISO/US/ZA resolution, ambiguity, invalid dates, 2-digit-year
+  pivot, identifier + ZIP leading-zero preservation, US-not-ZAR profiles.
+- **Status — implemented + locally verified; broader wiring pending.** The locale module and
+  the gate integration are done and tested. Full region-filtering of the ZA-centric
+  `bankRegistry` and routing every one of the 8 bank extractors through `toCents`/`parseDate`
+  end-to-end is a larger follow-on (tracked in §15/§20 below) — until then US statements are
+  gated on ambiguity but the legacy `parseMoney` still backs some per-bank paths.
+- **Verification** — `npx vitest run` → **644 passed / 2 skipped** (69 files, 1 skipped) exit 0;
+  app `tsc` → 0; `npm run build` → exit 0. No live data/US fixtures were used (synthetic only).
+  Nothing deployed.
