@@ -67,9 +67,18 @@ describe('catalog ↔ advertised ↔ runner consistency', () => {
       const t = TOOL_CATALOG.find(x => x.id === id)!;
       expect(advertised.get(t.siteSlug) || []).not.toContain('browser');
     }
-    // Genuinely unimplemented capabilities (no runner, no app id, no pipeline impl).
-    const unimplemented = TOOL_CATALOG.filter(t => !t.runner && !t.appId && !t.impl).map(t => t.id);
-    expect(unimplemented).toEqual(['industry-templates', 'portfolio-statements']);
+    // Genuinely unimplemented capabilities (no runner, no app id, no pipeline impl). portfolio-
+    // statements is wired to services/investmentExtractService, so only industry-templates remains.
+    const unimplemented = TOOL_CATALOG.filter((t) => !t.runner && !t.appId && !t.impl).map((t) => t.id);
+    expect(unimplemented).toEqual(['industry-templates']);
+    // Whatever is marked available:false must be the SAME thing the unimplemented set reports —
+    // the UI cannot present it as working while the catalog says it is not implemented.
+    const unavailable = TOOL_CATALOG.filter((t) => t.available === false).map((t) => t.id);
+    expect(unavailable).toEqual(['industry-templates']);
+    for (const id of unavailable) {
+      const t = TOOL_CATALOG.find((x) => x.id === id)!;
+      expect(advertised.get(t.siteSlug) || []).not.toContain('browser');
+    }
   });
 });
 
@@ -99,5 +108,22 @@ describe('invoke the ACTUAL handlers and inspect outputs (functional parity, not
     const rdoc = await (await import('pdfjs-dist')).getDocument({ data: new Uint8Array(await red.blob.arrayBuffer()) }).promise;
     const txt = await (await rdoc.getPage(1)).getTextContent();
     expect((txt.items as any[]).map(i => i.str).join(' ')).not.toContain('S-1');
+  }, 60000);
+
+  it('portfolio-statements handler runs the real investment extractor and emits an XLSX', async () => {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const d = await PDFDocument.create(); const f = await d.embedFont(StandardFonts.Helvetica);
+    const p = d.addPage([595, 842]);
+    const lines = ['Allan Gray Portfolio Statement', 'Investor: TEST HOLDINGS', 'Valuation Date 28/02/2026',
+      'Fund Name Units Unit Price Market Value', 'GLENNAKER 1000.25 15.50 15503.88', 'Total Market Value 15503.88'];
+    lines.forEach((t, i) => p.drawText(t, { x: 40, y: 780 - i * 24, size: 12, font: f }));
+    const file = new File([await d.save()], 'portfolio.pdf', { type: 'application/pdf' });
+
+    const handler = handlerFor('portfolio-statements');
+    expect(typeof handler).toBe('function');
+    const res = await handler!({ files: [file], options: {} } as any);
+    expect(res.filename).toMatch(/_Portfolio\.xlsx$/);
+    const bytes = new Uint8Array(await res.blob.arrayBuffer());
+    expect(new TextDecoder().decode(bytes.slice(0, 2))).toBe('PK'); // a real xlsx (zip) container
   }, 60000);
 });

@@ -12,7 +12,8 @@ export type ToolID =
   | 'metadata-edit' | 'remove-blank-pages' | 'flatten-pdf'
   | 'pdf-to-docx' | 'pdf-qa' | 'pdf-summary'
   | 'sanitize' | 'extract-images' | 'n-up'
-  | 'scan-effect' | 'invert-colors' | 'auto-rotate' | 'stamp';
+  | 'scan-effect' | 'invert-colors' | 'auto-rotate' | 'stamp'
+  | 'portfolio-statements';
 
 export interface PDFTool {
   id: ToolID;

@@ -34,6 +34,12 @@ export interface CatalogTool {
    * or Worker-only must NOT carry a `browser` claim.
    */
   siteExecutable?: boolean;
+  /**
+   * False ONLY where the capability is advertised on the marketing site but has NO real
+   * implementation anywhere yet. The parity test enforces that such a tool never claims browser
+   * execution and stays reported in the unimplemented set — so the UI cannot overclaim it.
+   */
+  available?: boolean;
 }
 
 export const TOOL_CATALOG: CatalogTool[] = [
@@ -96,8 +102,8 @@ export const TOOL_CATALOG: CatalogTool[] = [
   { id: 'vat-ready-workbooks', siteSlug: 'vat-ready-workbooks', runner: null, appId: null, family: 'Finance', exec: ['desktop', 'web-ai'], impl: 'pipeline/workbookPreProcessor.mjs (CLI; not a UI handler)', siteExecutable: false },
   { id: 'per-client-rules-engine', siteSlug: 'per-client-rules-engine', runner: null, appId: null, family: 'Finance', exec: ['desktop'], impl: 'pipeline/clientRulesEngine.mjs (CLI; not a UI handler)', siteExecutable: false },
   // NOT implemented anywhere — the site/app must present this as unavailable, not as a feature.
-  { id: 'industry-templates', siteSlug: 'industry-templates', runner: null, appId: null, family: 'Finance', exec: ['desktop'], impl: null, siteExecutable: false },
-  { id: 'portfolio-statements', siteSlug: 'portfolio-statements', runner: null, appId: null, family: 'Finance', exec: ['desktop', 'web-ai'], impl: null, siteExecutable: false },
+  { id: 'industry-templates', siteSlug: 'industry-templates', runner: null, appId: null, family: 'Finance', exec: ['desktop'], impl: null, siteExecutable: false, available: false },
+  { id: 'portfolio-statements', siteSlug: 'portfolio-statements', runner: null, appId: 'portfolio-statements', family: 'Finance', exec: ['desktop', 'web-ai'], impl: 'services/investmentExtractService (app handler)', siteExecutable: false },
 ];
 
 export const CATALOG_BY_SLUG: Record<string, CatalogTool> = (() => {

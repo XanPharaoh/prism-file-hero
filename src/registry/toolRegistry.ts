@@ -12,6 +12,7 @@ import {
 import { processWithAI } from '../../services/geminiService';
 import { processDocumentExcel } from '../../services/documentService';
 import { getExcelBlob, downloadAsExcel } from '../../services/excelService';
+import { extractInvestmentStatement } from '../../services/investmentExtractService';
 
 export const TOOL_REGISTRY: ToolHandler[] = [
   {
@@ -1000,6 +1001,27 @@ export const TOOL_REGISTRY: ToolHandler[] = [
       const dateStamp = options?.stampDate !== false;
       const blob = await stampPdf(files[0], stampText, { color, dateStamp });
       return { blob, filename: `${files[0].name.replace(/\.pdf$/i, '')}_Stamped.pdf` };
+    },
+  },
+  {
+    id: 'portfolio-statements',
+    category: 'Convert',
+    name: 'Portfolio Statements',
+    description: 'Extract holdings, units and values from unit-trust / investment statements into a workbook.',
+    icon: 'TrendingUp',
+    color: 'bg-emerald-600',
+    requiresAuth: false,
+    allowedFileTypes: ['application/pdf'],
+    maxFiles: 1,
+    supportsBatchProcessing: false,
+    handler: async ({ files }: ToolExecutionPayload): Promise<ToolResult> => {
+      const result = await extractInvestmentStatement(files[0]);
+      const blob = await getExcelBlob(result.rows, result.metadata);
+      return {
+        blob,
+        filename: `${files[0].name.replace(/\.pdf$/i, '')}_Portfolio.xlsx`,
+        data: { holdings: result.holdings, transactions: result.transactions, metadata: result.metadata },
+      } as ToolResult;
     },
   },
 ];

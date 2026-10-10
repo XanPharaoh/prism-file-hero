@@ -217,7 +217,7 @@
     "ocr-to-markdown": "ocr-to-md", "compare-pdf": "compare", "grammar-and-spell-check": "grammar-check",
     "pdf-qa-assistant": "pdf-qa", "pdf-summary": "pdf-summary",
     "bank-statement-to-xlsx": "__bank", "vat-ready-workbooks": "__app", "ledger-guard": "__app",
-    "per-client-rules-engine": "__app", "industry-templates": "__app", "portfolio-statements": "__app"
+    "per-client-rules-engine": "__app", "industry-templates": "__app", "portfolio-statements": "portfolio-statements"
   };
   function appHref(slug) {
     var id = APP_ID[slug];
