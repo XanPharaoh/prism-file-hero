@@ -60,9 +60,21 @@ export default function ExtractionReview({ transactions: initialTransactions, on
   async function exportAll() {
     const data = exportTransactions();
     const recon = reconcileCanonical(data);
+    // Derive the REAL validation state from the live reconciliation so an
+    // unverified ledger can never be exported as a normal (implied-verified) file.
+    const validationPassed = recon.errors.size === 0 && recon.checked > 0 && recon.passed === recon.checked;
     const metadata = {
       confidence: data.length > 0 ? data.reduce((s, t) => s + t.confidence, 0) / data.length / 100 : 0,
       rowCount: data.length,
+      processingComplete: true,
+      validationPassed,
+      requiresReview: !validationPassed,
+      reviewRequired: !validationPassed,
+      exportMode: validationPassed ? 'final' : 'draft',
+      reviewReasons: validationPassed ? [] : [
+        ...(recon.errors.size > 0 ? [`${recon.errors.size} row(s) failed balance reconciliation.`] : []),
+        ...(recon.checked === 0 ? ['No balances available to verify.'] : []),
+      ],
       reconciliation: {
         checked: recon.checked,
         passed: recon.passed,
@@ -70,7 +82,7 @@ export default function ExtractionReview({ transactions: initialTransactions, on
         rate: recon.checked > 0 ? `${Math.round((recon.passed / recon.checked) * 100)}%` : 'N/A',
       },
     };
-    await downloadAsExcel(data, 'extraction.xlsx', metadata);
+    await downloadAsExcel(data, validationPassed ? 'extraction.xlsx' : 'UNVERIFIED_DRAFT_extraction.xlsx', metadata);
   }
 
   const dataGrid = (

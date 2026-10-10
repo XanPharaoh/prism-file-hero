@@ -6,6 +6,7 @@ import {
   deleteExtractionRecord,
 } from '../../services/historyService';
 import { downloadAsExcel } from '../../services/excelService';
+import { reconcileCanonical } from '../utils/reconcileCanonical';
 
 type Props = {
   onBack: () => void;
@@ -45,15 +46,37 @@ export default function HistoryDashboard({ onBack }: Props) {
   }
 
   async function handleDownloadExcel(record: ExtractionHistoryRecord) {
-    const metadata = {
+    // Reuse the STORED validation state so a re-export keeps the same review
+    // labeling as the original. If the record predates gate metadata, derive it
+    // from a fresh reconciliation so an unverified ledger is still labelled a draft.
+    const rows = record.extracted_data.rows;
+    const storedMeta = record.extracted_data.metadata || {};
+    const hasValidation =
+      storedMeta.validationPassed !== undefined || storedMeta.requiresReview !== undefined;
+    let meta: Record<string, any> = {
       confidence: record.confidence / 100,
-      rowCount: record.extracted_data.rows.length,
+      rowCount: rows.length,
       bankCode: record.bank_code,
+      ...storedMeta,
     };
+    if (!hasValidation) {
+      const recon = reconcileCanonical(rows as any);
+      const validationPassed = recon.errors.size === 0 && recon.checked > 0 && recon.passed === recon.checked;
+      meta = {
+        ...meta,
+        processingComplete: true,
+        validationPassed,
+        requiresReview: !validationPassed,
+        reviewRequired: !validationPassed,
+        exportMode: validationPassed ? 'final' : 'draft',
+        reviewReasons: validationPassed ? [] : ['Restored from history without recorded validation — re-verify before filing.'],
+      };
+    }
+    const draftLabel = meta.exportMode === 'draft' || meta.requiresReview === true || meta.validationPassed === false;
     await downloadAsExcel(
-      record.extracted_data.rows,
-      record.filename.replace(/\.pdf$/i, '') + '_Extracted.xlsx',
-      metadata
+      rows,
+      record.filename.replace(/\.pdf$/i, '') + (draftLabel ? '_UNVERIFIED_DRAFT.xlsx' : '_Extracted.xlsx'),
+      meta
     );
   }
 

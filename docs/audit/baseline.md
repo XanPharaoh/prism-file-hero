@@ -319,3 +319,33 @@ Verification (this pass): `npx vitest run` → **627 passed / 2 skipped** (67 fi
 warning). Worker `tsc` unchanged (§10): 64 errors all in `@cloudflare/workers-types`, 0 in
 `worker/src`. Still-required MANUAL check: a real browser run to eyeball rotated/mixed redaction
 output and the drafted workbook (sandbox has no display). Nothing deployed.
+
+## 17. Batch 01 recheck across entry points (2026-10-10)
+
+- **App + site redaction both genuinely remove content + abort on partial.** App: rasterize +
+  throw on any page failure + AbortError (Batch 01 hardening). Site (`redact-pdf` runner):
+  renders → paints black → re-embeds JPEG into a NEW image-only PDF, so matched text is not
+  extractable; the per-page render/paint runs in a sequential promise chain, so ANY page
+  failure rejects the whole run and the runner shows an error instead of downloading a partial
+  document; it also throws when nothing matched rather than emitting an un-redacted copy.
+  Feature-depth difference (not a security gap): the site matches per text item only, while the
+  app adds cross-item phrase runs + explicit coordinate boxes. A live browser run of the site
+  redaction remains a pending manual check.
+- **Every finance export path now labels honestly.** `getExcelBlob` is the single writer and
+  stamps an `UNVERIFIED DRAFT` banner + Summary rows whenever `validationPassed === false` or
+  `requiresReview`/`exportMode:'draft'`. Call-site audit:
+  - `toolRegistry` pdf-to-excel result → passes the gated `result.metadata` (labeled).
+  - `ProcessingView.confirmReviewExport` (acknowledge path) → explicit DRAFT; does NOT set
+    `reviewConfirmed(true)` nor flip `requiresReview`; filename `UNVERIFIED_DRAFT_*`.
+  - `ProcessingView` ExtractionReview `onSave` → final only when `validationPassed`; else draft.
+  - `ExtractionReview.exportAll` → **was exporting unlabeled**; now derives
+    validation from the live `reconcileCanonical` and marks drafts (fixed).
+  - `HistoryDashboard.handleDownloadExcel` → **was re-exporting unlabeled**; now reuses the
+    stored gate metadata and falls back to a fresh reconciliation (conservatively a draft when
+    validation can't be proven) (fixed).
+  - Acknowledgment never changes validation status in any path.
+- **Tests** — `tests/exportLabeling.test.ts` (2): parse the REAL exceljs output; unverified →
+  banner + Summary "UNVERIFIED DRAFT" + reasons present; verified → no banner + "Verified".
+- **Verification** — `npx vitest run` → **629 passed / 2 skipped** (68 files, 1 skipped) exit 0;
+  app `tsc` → 0; `npm run build` → exit 0. Worker `tsc` → exit 0 (resolved in §10). Pending
+  manual: a real browser run of site redaction removal + the drafted workbook appearance.
