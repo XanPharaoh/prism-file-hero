@@ -15,6 +15,7 @@
     "check:worker": "node scripts/worker-routes-check.mjs",
     "check:offline-ocr": "node scripts/offline-ocr-check.mjs",
     "check:app": "node scripts/app-evidence.mjs",
+    "check:paddle-sandbox": "node scripts/paddle-sandbox-check.mjs",
     "check:conversions": "vitest run tests/libreofficeConversion.test.ts tests/libreofficeProvider.test.ts",
     "browser:evidence": "node scripts/browser-evidence.mjs",
     "tauri": "tauri",

@@ -583,3 +583,57 @@ To convert the EV-pending rows to verified, run BOTH the Worker and the database
 - No outbound network in this sandbox → `vendor:ocr` download unrun; OCR-while-offline unverified.
 - Paddle SANDBOX `PADDLE_WEBHOOK_SECRET` + test products not supplied → webhook live replay unverified.
 - AI provider (NVIDIA/Groq/Mistral) keys for a live `/api/ai` round-trip not exercised (transport stubbed).
+
+## 26. Local staging EXECUTED (2026-10-10) — supersedes the §25 blockers that are now resolved
+
+Ran the isolated LOCAL stack (Docker): `supabase start` + `supabase db reset --local` (never
+`--linked`; project_id `prism-file-hero`, NOT the remote `vejdrvnymmowvjxleefm`) and `wrangler dev`
+(port 8787) pointed at it via gitignored `worker/.dev.vars`. Both Worker and DB ran locally on
+localhost, talking to each other. Exit codes are from actual runs, not claimed.
+
+Promoted from "code only" to LOCALLY VERIFIED by real execution:
+- **Migrations** — fresh apply of all 6 (…000004) exit 0; **upgrade from previous schema**
+  (20260626+20260806 kept, legacy rows preserved) exit 0. `scripts/backend-integration-check.mjs`.
+- **Backend authority (27/27)** — reserve/settle/refund, 20→5 concurrent no-oversell, idempotent
+  replay, usage-ledger reserve/settle, billing dedupe/out-of-order, **RLS cross-user isolation with
+  real authenticated PostgREST tokens**, and PostgREST-restart durability. Found + fixed 2 real
+  defects: (a) `user_plans`/`usage_logs` had RLS DISABLED (any client could read/write all users) →
+  migration 000003; (b) `get_user_entitlement` read the orphan `user_plan` and did not demote on
+  cancel → migrations 000002 + a cancel-aware rework.
+- **Worker routes over HTTP (13/13)** — `scripts/worker-routes-check.mjs`: health; JWT auth (401 +
+  200-with-plan via a local Clerk RS256 stand-in `scripts/local-jwks.mjs`); quota preflight;
+  `/api/ai` reserve→settle(ERROR) recovery; concurrent 15-way quota with no stranded PENDING;
+  webhook bad-sig 401 / good-sig grants the LIVE plan / replay deduped. Surfaced + fixed a LATENT
+  SQL bug (only on authenticated requests): `check_usage_limit` "column plan is ambiguous" →
+  migration 000004. In-memory `creditLedger.ts` remains a MODEL, not the authority; the authority is
+  the Postgres RPCs, now proven.
+- **Conversions** — real LibreOffice office→pdf via the actual `libreOfficeProvider.convert()` in a
+  container (`prism-lo`, soffice 7.4 + poppler): docx→3-page PDF verified by `pdfinfo`, xlsx→pdf, and
+  `pdftotext` confirms rendered text; unsupported/oversize rejected; temp workspace cleaned. Found +
+  fixed the provider reading `out.pdf` (engine writes `in.pdf`). 6/6 `tests/libreofficeConversion.test.ts`
+  + 5/5 `tests/libreofficeProvider.test.ts`.
+- **OCR offline (E)** — vendored pinned Tesseract worker + 4 core WASM + `eng.traineddata` (fixed the
+  404 path 0.1.0→1.0.0) with SHA-256 lock; `scripts/offline-ocr-check.mjs` drives the real site OCR
+  page with **all non-local network aborted**: searchable text recovered, **0 external requests
+  attempted**. The "runs offline" claim is now verified.
+- **Browser (F)** — static site (`browser-evidence.mjs`: redact removes secret, merge→5 pages) AND the
+  actual built Vite app (`app-evidence.mjs`: React `/merge-pdf` download → 5-page PDF) run headless
+  with generated documents inspected. `npm run build` exit 0.
+- **G1/G2/G3** — strict integer-cent parser wired through every money path (currencyParser,
+  moneyLocale, all named bank extractors, reconciliation, gate) + serialization tests (JSON history
+  boundary, xlsx export boundary, out-of-range/foreign/conflicting rejected); US region filtering
+  (4 US banks, region-scoped `detectBank`, region→profile) with synthetic fixtures; portfolio-
+  statements wired to its real extractor; industry-templates marked `available:false`. Full suite
+  **708 passed / 5 skipped**; app + worker `tsc` **0**; `npm run build` **0**.
+
+STILL EXTERNALLY VERIFIED-ONLY (require credentials/deploy — honestly NOT done):
+- Real **Paddle SANDBOX** checkout→entitlement replay: harness prepared
+  (`scripts/paddle-sandbox-check.mjs`, `npm run check:paddle-sandbox`), GATED to exit 2 (PENDING)
+  without a real `PADDLE_WEBHOOK_SECRET`. Needs: a Paddle sandbox secret + test product + a way to
+  link Paddle `customer_id → user_id` (billing_customers) at checkout handoff — the customer→user
+  linkage is a product gap (checkout must set it; today only the webhook side is wired).
+- Real **AI provider** round-trip through `/api/ai` (NVIDIA/Groq/Mistral) — needs paid keys; the
+  deterministic stand-in proves the reserve→settle→recovery path, not model output fidelity.
+- **Deployed** Worker + **remote** Supabase: prior-schema UPGRADE against the real production dump,
+  RLS under real JWT roles, CORS/redirects/crawlers. A hosted Worker cannot reach this dev machine's
+  localhost DB — production deploy is a separate authorized decision and was NOT performed.
