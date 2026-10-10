@@ -17,6 +17,8 @@
  * - Many more...
  */
 
+import { parseMoneyDetailed } from '../shared/finance/locale';
+
 export interface ParsedAmount {
   value: number | null;
   currency: string;
@@ -179,6 +181,18 @@ function normalizeNumber(text: string): string {
  * @param amountStr Raw amount string (e.g., "1,234.56", "1.234,56", "R 1000")
  * @returns ParsedAmount with numeric value, currency, and indicators
  */
+/**
+ * Choose the money profile by which separator is the DECIMAL. A trailing comma followed by exactly
+ * two digits ("1.234,56" or "1234,56") ⇒ comma-decimal (de-DE). A comma run of 3 digits ("1,234")
+ * is US/ZA thousands, not a decimal. Everything else ⇒ dot-decimal (en-US grouping via commas).
+ */
+function localeFromSeparators(s: string): 'de-DE' | 'en-US' {
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+  if (lastComma > lastDot && /^\d{1,2}$/.test(s.slice(lastComma + 1))) return 'de-DE';
+  return 'en-US';
+}
+
 export function parseAmount(amountStr: string): ParsedAmount {
   const raw = amountStr.trim();
 
@@ -202,13 +216,11 @@ export function parseAmount(amountStr: string): ParsedAmount {
   const isCr = hasCrIndicator(raw);
   const isDr = hasDrIndicator(raw);
 
-  // Normalize number
-  const normalized = normalizeNumber(raw);
-
-  // Parse numeric value
-  const numericValue = parseFloat(normalized);
-
-  if (isNaN(numericValue)) {
+  // Parse the numeric magnitude via the strict, float-free integer-cents parser (never parseFloat):
+  // malformed grouping / conflicting separators / out-of-safe-range → INVALID, never a wrong number.
+  // This parser is multi-format, so pick the profile by which separator acts as the decimal point.
+  const strict = parseMoneyDetailed(raw, { allowForeignCurrency: true, locale: localeFromSeparators(raw) });
+  if (strict.ok === false) {
     return {
       value: null,
       currency,
@@ -221,11 +233,11 @@ export function parseAmount(amountStr: string): ParsedAmount {
     };
   }
 
-  // Check if negative
-  const isNegative = numericValue < 0;
+  const isNegative = strict.cents < 0;
 
-  // Return absolute value (sign determined by isCr/isDr/isNegative)
-  const value = Math.abs(numericValue);
+  // Return absolute value (sign determined by isCr/isDr/isNegative). cents/100 is the shortest
+  // round-trip display value; authoritative arithmetic stays in integer cents downstream.
+  const value = Math.abs(strict.cents) / 100;
 
   return {
     value,

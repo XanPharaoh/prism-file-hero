@@ -32,7 +32,7 @@ begin
   if p_ai_pages < 0 or p_operations < 0 or p_page_count <= 0 then
     return query select false, 'Invalid usage request', v_plan, 0::bigint, v_month_limit, 0::bigint, 0, 0::bigint, 0, v_day_start + interval '1 day'; return;
   end if;
-  if p_tool_id not in ('merge','split','compress','rotate','protect','watermark','jpg-to-pdf','pdf-to-jpg','fnb-statement','pdf-to-excel','ocr','ocr-to-md','pdf-to-word','redact','compare','grammar-check') then
+  if p_tool_id not in ('merge','split','compress','rotate','protect','watermark','jpg-to-pdf','pdf-to-jpg','fnb-statement','pdf-to-excel','ocr','ocr-to-md','pdf-to-word','redact','compare','grammar-check','portfolio-statements') then
     return query select false, 'Unknown tool', v_plan, 0::bigint, v_month_limit, 0::bigint, 0, 0::bigint, 0, v_day_start + interval '1 day'; return;
   end if;
   v_feature := case when p_ai_pages > 0 then 'ai' else 'local' end;

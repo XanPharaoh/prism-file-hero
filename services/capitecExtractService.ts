@@ -1,4 +1,5 @@
 import * as pdfjs from 'pdfjs-dist';
+import { moneyToNumber } from '../shared/finance/locale';
 
 /**
  * Capitec Bank Statement Extractor
@@ -598,10 +599,11 @@ export function convertCapitecToExcelRows(transactions: CapitecTransaction[]): R
 
     if (isBusiness) {
         return transactions.map(tx => {
-            const moneyInVal = tx.MoneyIn ? parseFloat(tx.MoneyIn.replace(/[,\s]/g, '')) : null;
-            const moneyOutVal = tx.MoneyOut ? parseFloat(tx.MoneyOut.replace(/[,\s]/g, '')) : null;
-            const feesVal = tx.Fees ? parseFloat(tx.Fees.replace(/[,\s]/g, '')) : null;
-            const balanceVal = tx.Balance ? parseFloat(tx.Balance.replace(/[,\s]/g, '')) : null;
+            const za = { locale: 'en-ZA' as const };
+            const moneyInVal = tx.MoneyIn ? moneyToNumber(tx.MoneyIn.replace(/[,\s]/g, ''), za) : null;
+            const moneyOutVal = tx.MoneyOut ? moneyToNumber(tx.MoneyOut.replace(/[,\s]/g, ''), za) : null;
+            const feesVal = tx.Fees ? moneyToNumber(tx.Fees.replace(/[,\s]/g, ''), za) : null;
+            const balanceVal = tx.Balance ? moneyToNumber(tx.Balance.replace(/[,\s]/g, ''), za) : null;
 
             return {
                 Date: tx.Date || tx.PostDate || '',

@@ -27,6 +27,7 @@ export const TOOL_COSTS: Record<string, ToolCost> = {
   'watermark':     { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Watermark' },
   'jpg-to-pdf':    { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'JPG to PDF' },
   'pdf-to-jpg':    { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'PDF to JPG' },
+  'portfolio-statements': { aiPagesPerPage: 0, aiPagesFlat: 0, operationCost: 1, category: 'free', featureType: 'local', displayName: 'Portfolio Statements' },
   // Local extraction is attempted first, but scan/compression recovery sends pages
   // to the AI worker. Keep its entitlement aligned with that reachable AI path.
   'pdf-to-excel':  { aiPagesPerPage: 1, aiPagesFlat: 0, operationCost: 0, category: 'ai', featureType: 'ai', displayName: 'PDF to Excel' },

@@ -4,8 +4,8 @@ import type { ToolID, ToolCategory } from '../src/types';
 import { TOOL_COSTS, isAiTool } from '../services/usageConfig';
 
 describe('Tool Registry', () => {
-  it('should have all 37 tools registered', () => {
-    expect(TOOL_REGISTRY.length).toBe(37);
+  it('should have all 38 tools registered', () => {
+    expect(TOOL_REGISTRY.length).toBe(38);
   });
 
   it('keeps usage configuration limited to registered UI tools', () => {

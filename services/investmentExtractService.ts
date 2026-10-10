@@ -1,4 +1,5 @@
 import { pdfjsLib } from './pdfjsClient';
+import { moneyToNumber } from '../shared/finance/locale';
 
 /**
  * Investment Portfolio Statement Extractor
@@ -99,8 +100,8 @@ export function parseInvestmentMoney(str: string | null | undefined): number | n
   if (/^\(.*\)$/.test(clean)) {
     clean = '-' + clean.slice(1, -1);
   }
-  const n = Number(clean);
-  return Number.isFinite(n) ? n : null;
+  const n = moneyToNumber(clean, { locale: 'en-ZA', allowForeignCurrency: true });
+  return n;
 }
 
 function parseInvestmentDate(str: string): string | null {

@@ -160,6 +160,19 @@ export function toCents(raw: unknown, opts: AmountOptions = {}): number | null {
   return r.ok ? r.cents : null;
 }
 
+/**
+ * Exact decimal `value` from a monetary string, computed via integer cents (never `Number*100`).
+ * Returns null on ANY strict-parse failure (malformed grouping, conflicting separators, foreign
+ * symbol under policy, out-of-safe-range) so a caller NEVER silently gets a wrong number. The
+ * division `cents/100` is the shortest round-trip display value; authoritative math stays in cents.
+ */
+export function moneyToNumber(raw: unknown, opts: AmountOptions = {}): number | null {
+  const r = parseMoneyDetailed(raw, opts);
+  if (!r.ok) return null;
+  const abs = Math.abs(r.cents);
+  return r.cents < 0 ? -(abs / 100) : abs / 100;
+}
+
 /** Render integer cents back to a locale string. */
 export function formatCents(cents: number, locale: FinanceLocale = 'en-US'): string {
   const p = PROFILES[locale];

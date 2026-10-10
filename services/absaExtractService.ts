@@ -1,4 +1,5 @@
 import { pdfjsLib } from './pdfjsClient';
+import { moneyToNumber } from '../shared/finance/locale';
 
 /**
  * ABSA Bank South Africa Statement Extractor
@@ -72,9 +73,9 @@ function cleanDescription(desc: string): string {
 }
 
 function extractMoneyTokens(text: string): number[] {
-  return [...text.matchAll(/\d[\d ]*\.\d{2}/g)].map((m) =>
-    Number(m[0].replace(/ /g, ''))
-  );
+  return [...text.matchAll(/\d[\d ]*\.\d{2}/g)]
+    .map((m) => moneyToNumber(m[0].replace(/ /g, ''), { locale: 'en-ZA' }))
+    .filter((v): v is number => v !== null);
 }
 
 function extractMetadataFromText(text: string): {
@@ -100,10 +101,10 @@ function extractMetadataFromText(text: string): {
   if (periodMatch) statementPeriod = periodMatch[1].trim();
 
   const openMatch = text.match(/(?:bal\s+brought\s+forward|opening\s+balance)[:\s]*R?\s*([\d\s]+\.\d{2})/i);
-  if (openMatch) openingBalance = Number(openMatch[1].replace(/\s/g, ''));
+  if (openMatch) openingBalance = moneyToNumber(openMatch[1].replace(/\s/g, ''), { locale: 'en-ZA' });
 
   const closeMatch = text.match(/(?:closing\s+balance)[:\s]*R?\s*([\d\s]+\.\d{2})/i);
-  if (closeMatch) closingBalance = Number(closeMatch[1].replace(/\s/g, ''));
+  if (closeMatch) closingBalance = moneyToNumber(closeMatch[1].replace(/\s/g, ''), { locale: 'en-ZA' });
 
   return {
     accountNumber,

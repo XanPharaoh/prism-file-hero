@@ -3,6 +3,8 @@
  * Locale hint comes from bankRegistry (ZA banks → 'za-ZAR', etc.)
  */
 
+import { moneyToNumber } from '../shared/finance/locale';
+
 export type MoneyLocale = 'za-ZAR' | 'en-US' | 'de-DE' | 'auto';
 
 export interface ParsedMoney {
@@ -59,8 +61,8 @@ export function parseMoney(raw: string | null | undefined, locale: MoneyLocale =
   if (normalized.startsWith('-')) { sign = -1; hasDebitMarker = true; normalized = normalized.slice(1); }
   else if (normalized.startsWith('+')) { normalized = normalized.slice(1); }
 
-  const value = parseFloat(normalized);
-  if (isNaN(value)) return null;
+  const value = moneyToNumber(normalized, { locale: 'en-US', allowForeignCurrency: true });
+  if (value === null) return null;
   if (value === 0 && !/0(\.0+)?$/.test(normalized)) return null;  // reject garbage zeros
 
   return { value, sign, hasCreditMarker, hasDebitMarker, currencyHint };

@@ -11,6 +11,8 @@
  * - Opening/closing balance extraction and simple reconciliation
  */
 
+import { moneyToNumber } from '../shared/finance/locale';
+
 export interface TymeBankTransaction {
   date: string;
   description: string;
@@ -88,8 +90,8 @@ export function parseTymeMoney(raw: string | null | undefined): number | null {
     if (!m) return null;
     s = m[0];
   }
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
+  const n = moneyToNumber(s, { locale: 'en-ZA', allowForeignCurrency: true });
+  return n;
 }
 
 function extractMoneyTokens(line: string): string[] {

@@ -1,4 +1,5 @@
 import { pdfjsLib } from './pdfjsClient';
+import { moneyToNumber } from '../shared/finance/locale';
 
 /**
  * Bank-specific configuration for FNB (First National Bank, South Africa).
@@ -116,8 +117,8 @@ export function parseMoney(str: string | null | undefined): number | null {
     clean = clean.slice(0, -2).trim();
   }
 
-  const num = parseFloat(clean);
-  if (isNaN(num)) return null;
+  const num = moneyToNumber(clean, { locale: 'en-US' });
+  if (num === null) return null;
   return isNegative ? -Math.abs(num) : Math.abs(num);
 }
 

@@ -1,4 +1,5 @@
 import { pdfjsLib } from './pdfjsClient';
+import { moneyToNumber } from '../shared/finance/locale';
 
 /**
  * Standard Bank South Africa Statement Extractor
@@ -131,8 +132,7 @@ function parseStandardBankDate(dayStr: string, monthStr: string, yearStr: string
 export function parseStandardBankMoney(str: string | null | undefined): number | null {
   if (!str) return null;
   const clean = str.replace(/[R\s,]/gi, '');
-  const num = Number(clean);
-  return Number.isFinite(num) ? num : null;
+  return moneyToNumber(clean, { locale: 'en-ZA', allowForeignCurrency: true });
 }
 
 function extractMetadataFromText(text: string): {

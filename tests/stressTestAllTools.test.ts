@@ -81,10 +81,10 @@ describe('PDF Tool Stress-Tester & Quality Auditor - All 37 Registered Tools', (
     testFile = loadFixture('Test.pdf');
   });
 
-  it('verifies all 37 registered tools exist in the registry with valid metadata', () => {
-    expect(TOOL_REGISTRY.length).toBe(37);
+  it('verifies all 38 registered tools exist in the registry with valid metadata', () => {
+    expect(TOOL_REGISTRY.length).toBe(38);
     const uniqueIds = new Set(TOOL_REGISTRY.map(t => t.id));
-    expect(uniqueIds.size).toBe(37);
+    expect(uniqueIds.size).toBe(38);
 
     for (const tool of TOOL_REGISTRY) {
       expect(tool.id).toBeTruthy();
