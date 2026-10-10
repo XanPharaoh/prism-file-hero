@@ -529,26 +529,57 @@ browser this environment lacks). Not called "verified" while external checks are
   app `tsc` → 0; worker `tsc` → 0; `npm run build` → exit 0; `node --check site/assets/tool.js`
   → OK. Nothing deployed.
 
-## 23. Consolidated status (as of 2026-10-10)
+## 23. Consolidated status — four levels, never conflated (updated 2026-10-10)
 
-| Area | Implemented | Locally verified | External/deploy-pending |
-|---|---|---|---|
-| Worker typecheck | ✅ | ✅ exit 0 | none |
-| Batch 01 redaction | ✅ | ✅ app+site, pixel/rotation/cancel | browser eyeball |
-| Batch 01 gate/exports | ✅ | ✅ 4 states + all export paths | browser workbook view |
-| Batch 02 page ops | ✅ | ✅ | none |
-| Batch 03 AI contract | ✅ | ✅ client coverage/compare/malformed | live Worker (deploy) |
-| Batch 04 endpoint/URL | ✅ | ✅ https/no-localhost | deployed Worker |
-| Batch 04 plan+credits | ✅ | ✅ in-memory + isolated-PG concurrency | prior-schema upgrade; live RLS roles; deploy |
-| Batch 05 billing | ✅ (verify+reducer+migration) | ✅ sig/inbox unit | Paddle SANDBOX secret + checkout e2e; deploy |
-| Batch 06 catalog | ✅ | ✅ file-derived parity | wire 3 pending site capabilities |
-| Batch 07 OCR/searchable | ✅ builder + manifest | ✅ overlay + resolver | vendor binaries; network-disabled browser; handler rewire |
-| Batch 08 US locale | ✅ module + gate | ✅ 15 tests | region-filter bankRegistry e2e |
-| Batch 09 converters | ✅ seam | ✅ NOT_CONFIGURED | engine selection + fixtures (blocked) |
-| Batch 10 SEO | ✅ robots/sitemap/canonical | ✅ 4 tests | crawler/GSC/redirects (deploy) |
+Levels: **H** = helper/logic implemented · **F** = user flow integrated (handler/route/UI actually
+calls it) · **LV** = locally verified (a check was executed here + result recorded) · **EV** =
+externally verified (needs deploy / real provider / browser — NOT done unless marked).
+"locally verified" NEVER implies "externally verified".
 
-Required env to finish the external checks: Cloudflare Worker deploy (wrangler, authenticated),
-Supabase deploy + `supabase db start` for prior-schema/RLS role tests, a Paddle SANDBOX
-`PADDLE_WEBHOOK_SECRET` + test products, a selectable conversion engine (LibreOffice/Docling/
-commercial) with storage for private jobs, tesseract WASM+traineddata vendored at build, and a
-headful browser (Playwright chromium) for the offline/redaction/workbook visual checks.
+| Area | H | F | LV (executed here) | EV status |
+|---|:-:|:-:|---|---|
+| Worker typecheck | ✅ | ✅ build | ✅ `tsc` exit 0 + `wrangler --dry-run` 0 | — (nothing to deploy-check beyond build) |
+| Batch 01 redaction | ✅ | ✅ app+site handlers | ✅ text/pixel/rotation/mixed/cancel + **headless browser: secret not extractable from the downloaded PDF** | browser eyeball of the rendered scan (PNG saved, not auto-diffed) |
+| Batch 01 finance gate + exports | ✅ | ✅ all 5 export paths wired to `getExcelBlob` | ✅ `exportLabeling` parses real xlsx; ack≠validation; 4 states | workbook visually opened in a spreadsheet app (manual) |
+| Batch 02 page ops | ✅ | ✅ | ✅ service + parser tests | — |
+| Batch 03 AI contract | ✅ | ✅ client processWithAI + consumers | ✅ coverage/partial/retry/compare/malformed (fetch-stubbed) | **EV pending**: live `/api/ai` responses (needs deployed Worker) |
+| Batch 04 endpoint/URL | ✅ | ✅ 5 services import single source | ✅ https/no-localhost/report-schema | deployed env config |
+| Batch 04 plan+credits | ✅ | ✅ `/api/ai`→reserve/settle RPC (already live path) + `getUserPlan` server-side | ✅ 10 unit + **isolated Postgres concurrency 20→12/8, no oversell** | **EV pending**: full HTTP via local Supabase stack; prior-schema upgrade; RLS roles w/ real JWT |
+| Batch 05 billing | ✅ | ✅ `/api/paddle/webhook` route + durable inbox + migration | ✅ sig accept/reject, dedupe/out-of-order, **isolated PG: dedupe survives a NEW connection (restart-survival)**, entitlement lookup | **EV pending**: real Paddle SANDBOX webhook + checkout→entitlement e2e |
+| Batch 06 catalog + runtime | ✅ | ✅ app handlers resolve via catalog; site runners | ✅ parity (no exemption) + **runtime: merge/delete/redact handlers produce inspectable correct outputs** | implement the 2 unimplemented (industry-templates, portfolio-statements) |
+| Batch 07 OCR/searchable | ✅ | ✅ app `ocr` default = searchable overlay (transcript opt-in) | ✅ placement test + `ocrAssets` resolver; **headless browser ran the site redact flow** | **EV pending**: `vendor:ocr` download (no egress) + network-disabled + empty-cache browser OCR |
+| Batch 08 US locale | ✅ | ✅ reconciliation + review gate use integer cents | ✅ 20 parser tests + integration unchanged | region-filter `bankRegistry` + all 8 extractors on real US fixtures |
+| Batch 09 converter | ✅ | ✅ LibreOffice adapter in `processing/` jobs svc | ✅ argv/limits/cleanup/PDF-verify; **live conversion SKIPPED (no soffice here)** | **EV pending**: run office→pdf where LibreOffice exists + fixtures |
+| Batch 10 SEO | ✅ | ✅ generated into every page | ✅ robots/sitemap/canonical tests | crawler/GSC/redirects (deploy) |
+
+**This session's commits**: worker tsc fix `76e4ecb`; batch-01 recheck `cb4cc85`; batch-08 `0f1c58e`;
+batch-06 `af8970f`; batch-07 `d2ec386`; batch-04/05 `a907015`; item-1 `f9a60fc`; item-2 `1beaa54`;
+item-3 `c7a0d22`; item-4 `a33eae3`; item-5 `07de53d`; item-6 `6390d07`. Suite is **694 passed / 2
+skipped**; app + worker tsc **0**; build **0**; headless browser evidence passes.
+
+## 24. Local staging plan (corrected) — no production deploy
+
+To convert the EV-pending rows to verified, run BOTH the Worker and the database LOCALLY:
+
+- **Local stack via `supabase start`** (Docker): gives local Postgres + PostgREST (`/rest/v1/rpc/...`)
+  + GoTrue at `http://127.0.0.1:54321`. Apply migrations with `supabase db push` against the LOCAL
+  project only (never the linked remote `vejdrvnymmowvjxleefm`).
+- **Worker via `wrangler dev`** pointed at the local stack: set `SUPABASE_URL=http://127.0.0.1:54321`
+  + the local service-role key + stub/sandbox AI keys + `PADDLE_WEBHOOK_SECRET` (sandbox).
+- **Both local, talking to each other on localhost.** A HOSTED (Cloudflare) Worker CANNOT reach this
+  dev machine's `localhost` Postgres — so either both run locally (this plan), or both run on isolated
+  HOSTED staging resources (a staging Supabase project + a staging Worker). Do not mix a hosted
+  Worker with a localhost DB.
+- Tests that turn EV→verified here: `tests/*` already cover logic; add Playwright + `wrangler dev`
+  HTTP tests for concurrency/cross-user/duplicate/provider-failure/reservation-recovery, Paddle
+  sandbox webhook replay, network-disabled OCR, and `browser:evidence` for the workbook/scan visuals.
+- `soffice`/LibreOffice, Tesseract assets, and a headful browser must be installed in the staging/dev
+  image for the converter + OCR EV rows.
+
+## 25. Blocker list (unchanged-by-code items)
+- Local Docker stack: Postgres available (used here); full `supabase start` (PostgREST/GoTrue) not
+  installed — needed for the `/api/ai`+`/api/paddle/webhook` HTTP integration tests.
+- `soffice` binary absent → live office→pdf unverified (adapter + skip tested).
+- No outbound network in this sandbox → `vendor:ocr` download unrun; OCR-while-offline unverified.
+- Paddle SANDBOX `PADDLE_WEBHOOK_SECRET` + test products not supplied → webhook live replay unverified.
+- AI provider (NVIDIA/Groq/Mistral) keys for a live `/api/ai` round-trip not exercised (transport stubbed).
