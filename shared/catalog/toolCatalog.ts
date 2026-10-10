@@ -24,6 +24,16 @@ export interface CatalogTool {
   appId: string | null;    // toolRegistry id, or null if there is no app handler yet
   family: string;
   exec: Exec[];
+  /** Real implementation location when not a registry handler (pipeline module / AI). */
+  impl?: string;
+  /** Site AI adapter present in tool.js (calls the Worker /api/ai for this slug). */
+  siteAi?: boolean;
+  /**
+   * Accurate site availability: a tool is browser-executable on the site only if it has a live
+   * runner OR a site AI adapter. Recorded so the UI/tests never overclaim. A tool that is app-
+   * or Worker-only must NOT carry a `browser` claim.
+   */
+  siteExecutable?: boolean;
 }
 
 export const TOOL_CATALOG: CatalogTool[] = [
@@ -71,18 +81,23 @@ export const TOOL_CATALOG: CatalogTool[] = [
   { id: 'ocr-searchable', siteSlug: 'ocr-to-searchable-pdf', runner: 'ocr-to-searchable-pdf', appId: null, family: 'OCR', exec: ['desktop', 'web-ai', 'offline'] },
   { id: 'ocr-to-md', siteSlug: 'ocr-to-markdown', runner: 'ocr-to-markdown', appId: 'ocr-to-md', family: 'OCR', exec: ['web-ai', 'desktop'] },
   { id: 'ocr', siteSlug: 'ocr-to-markdown', runner: null, appId: 'ocr', family: 'OCR', exec: ['desktop'] },
-  { id: 'compare', siteSlug: 'compare-pdf', runner: 'compare-pdf', appId: 'compare', family: 'AI Labs', exec: ['web-ai', 'desktop'] },
-  { id: 'grammar-check', siteSlug: 'grammar-and-spell-check', runner: 'grammar-and-spell-check', appId: 'grammar-check', family: 'AI Labs', exec: ['web-ai'] },
-  { id: 'pdf-qa', siteSlug: 'pdf-qa-assistant', runner: 'pdf-qa-assistant', appId: 'pdf-qa', family: 'AI Labs', exec: ['web-ai'] },
-  { id: 'pdf-summary', siteSlug: 'pdf-summary', runner: 'pdf-summary', appId: 'pdf-summary', family: 'AI Labs', exec: ['web-ai'] },
+  // AI Labs — these four have a real site AI adapter (tool.js aiCall) + app handler.
+  { id: 'compare', siteSlug: 'compare-pdf', runner: 'compare-pdf', appId: 'compare', family: 'AI Labs', exec: ['web-ai', 'desktop'], siteAi: true, siteExecutable: true },
+  { id: 'grammar-check', siteSlug: 'grammar-and-spell-check', runner: 'grammar-and-spell-check', appId: 'grammar-check', family: 'AI Labs', exec: ['web-ai'], siteAi: true, siteExecutable: true },
+  { id: 'pdf-qa', siteSlug: 'pdf-qa-assistant', runner: 'pdf-qa-assistant', appId: 'pdf-qa', family: 'AI Labs', exec: ['web-ai'], siteAi: true, siteExecutable: true },
+  { id: 'pdf-summary', siteSlug: 'pdf-summary', runner: 'pdf-summary', appId: 'pdf-summary', family: 'AI Labs', exec: ['web-ai'], siteAi: true, siteExecutable: true },
 
-  // Finance (advertised; app-side coverage varies — see tests/toolCatalogParity.test.ts)
-  { id: 'ledger-guard', siteSlug: 'ledger-guard', runner: 'ledger-guard', appId: null, family: 'Finance', exec: ['desktop', 'web-ai'] },
-  { id: 'bank-statement-to-xlsx', siteSlug: 'bank-statement-to-xlsx', runner: null, appId: null, family: 'Finance', exec: ['desktop', 'web-ai'] },
-  { id: 'vat-ready-workbooks', siteSlug: 'vat-ready-workbooks', runner: null, appId: null, family: 'Finance', exec: ['desktop', 'web-ai'] },
-  { id: 'per-client-rules-engine', siteSlug: 'per-client-rules-engine', runner: null, appId: null, family: 'Finance', exec: ['desktop'] },
-  { id: 'industry-templates', siteSlug: 'industry-templates', runner: null, appId: null, family: 'Finance', exec: ['desktop'] },
-  { id: 'portfolio-statements', siteSlug: 'portfolio-statements', runner: null, appId: null, family: 'Finance', exec: ['desktop', 'web-ai'] },
+  // Finance — availability recorded HONESTLY. `siteExecutable:false` + no runner/adapter means
+  // the SITE cannot run them today (they open the desktop app). `impl` is where the capability
+  // actually lives; a null impl means it is NOT implemented anywhere (an advertised-but-missing
+  // capability the UI must not present as working).
+  { id: 'ledger-guard', siteSlug: 'ledger-guard', runner: 'ledger-guard', appId: null, family: 'Finance', exec: ['desktop', 'web-ai'], impl: 'services/ledgerGuard + reconciliationService', siteExecutable: true },
+  { id: 'bank-statement-to-xlsx', siteSlug: 'bank-statement-to-xlsx', runner: null, appId: 'pdf-to-excel', family: 'Finance', exec: ['desktop', 'web-ai'], impl: 'services/documentService (app only)', siteExecutable: false },
+  { id: 'vat-ready-workbooks', siteSlug: 'vat-ready-workbooks', runner: null, appId: null, family: 'Finance', exec: ['desktop', 'web-ai'], impl: 'pipeline/workbookPreProcessor.mjs (CLI; not a UI handler)', siteExecutable: false },
+  { id: 'per-client-rules-engine', siteSlug: 'per-client-rules-engine', runner: null, appId: null, family: 'Finance', exec: ['desktop'], impl: 'pipeline/clientRulesEngine.mjs (CLI; not a UI handler)', siteExecutable: false },
+  // NOT implemented anywhere — the site/app must present this as unavailable, not as a feature.
+  { id: 'industry-templates', siteSlug: 'industry-templates', runner: null, appId: null, family: 'Finance', exec: ['desktop'], impl: null, siteExecutable: false },
+  { id: 'portfolio-statements', siteSlug: 'portfolio-statements', runner: null, appId: null, family: 'Finance', exec: ['desktop', 'web-ai'], impl: null, siteExecutable: false },
 ];
 
 export const CATALOG_BY_SLUG: Record<string, CatalogTool> = (() => {
