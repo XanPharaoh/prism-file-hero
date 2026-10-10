@@ -14,7 +14,7 @@ import {
 import { extractStandardBankStatement, convertStandardBankToExcelRows } from './standardBankExtractService';
 import { extractAbsaStatement, convertAbsaToExcelRows } from './absaExtractService';
 import { extractInvestmentStatement, convertInvestmentToExcelRows } from './investmentExtractService';
-import { detectBank as registryDetectBank } from './bankRegistry';
+import { detectBank as registryDetectBank, getBankRegion, getFinanceLocaleForCountry } from './bankRegistry';
 import { ocrPdfToTextItems } from './ocrService';
 import { extractDocument, type ExtractionOptions } from './extractionPipeline';
 import { reconcileRows, type ReconciliationResult } from './reconciliationService';
@@ -303,7 +303,7 @@ export function applyReviewGate(result: DocumentServiceResult): DocumentServiceR
     const currencyLocale: 'en-ZA' | 'en-US' | 'de-DE' =
         (m as any).currencyLocale === 'en-US' || (m as any).currencyLocale === 'de-DE'
             ? (m as any).currencyLocale
-            : 'en-ZA'; // bank statements are ZA-convention by default (R, Dr/Cr) — matches reconcileRows
+            : getFinanceLocaleForCountry(getBankRegion(m.bankCode)) as 'en-ZA' | 'en-US' | 'de-DE'; // region from the detected bank (US→en-US, ZA→en-ZA); unknown defaults to en-ZA
     const sidePresent = (r: any): boolean =>
         parseMoneyDetailed(r.debit ?? r.Debit, { locale: currencyLocale }).ok
         || parseMoneyDetailed(r.credit ?? r.Credit, { locale: currencyLocale }).ok;

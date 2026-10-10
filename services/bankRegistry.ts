@@ -415,6 +415,43 @@ const BANK_PATTERNS: Record<string, BankPattern> = {
     decimalSeparator: '.',
     thousandsSeparator: ',',
   },
+
+  // ── United States banks (Batch 08 / Item G2 — US locale region) ──────────────
+  CHASE_US: {
+    code: 'CHASE_US', name: 'Chase (JPMorgan) United States', country: 'US', language: 'en',
+    headerPatterns: [/\bCHASE\b/i, /JPMorgan Chase/i, /Checking Account Statement/i, /Chase Account/i],
+    footerPatterns: [/Direct Deposit/i, /Total Deposits/i, /Total Withdrawals/i, /Beginning Balance/i, /Ending Balance/i],
+    columnHints: ['Date', 'Description', 'Payment', 'Deposit', 'Balance'],
+    balanceIndicators: ['Balance', 'Ending Balance'],
+    dateFormat: 'MM/DD/YYYY', currencySymbol: '$', decimalSeparator: '.', thousandsSeparator: ',',
+  },
+
+  BOA_US: {
+    code: 'BOA_US', name: 'Bank of America United States', country: 'US', language: 'en',
+    headerPatterns: [/Bank of America/i, /\bBOA\b/i, /Statement Period/i],
+    footerPatterns: [/Previous Balance/i, /New Balance/i, /Total Credits/i, /Total Debits/i],
+    columnHints: ['Date', 'Description', 'Amount', 'Balance'],
+    balanceIndicators: ['Balance', 'New Balance'],
+    dateFormat: 'MM/DD/YYYY', currencySymbol: '$', decimalSeparator: '.', thousandsSeparator: ',',
+  },
+
+  WELLSFARGO_US: {
+    code: 'WELLSFARGO_US', name: 'Wells Fargo United States', country: 'US', language: 'en',
+    headerPatterns: [/Wells Fargo/i, /Account Transactions/i],
+    footerPatterns: [/Beginning Ledger Balance/i, /Ending Ledger Balance/i, /Total Credits/i, /Total Debits/i],
+    columnHints: ['Date', 'Description', 'Withdrawal', 'Deposit', 'Balance'],
+    balanceIndicators: ['Balance', 'Ending Ledger Balance'],
+    dateFormat: 'MM/DD/YYYY', currencySymbol: '$', decimalSeparator: '.', thousandsSeparator: ',',
+  },
+
+  CITIBANK_US: {
+    code: 'CITIBANK_US', name: 'Citibank United States', country: 'US', language: 'en',
+    headerPatterns: [/Citibank/i, /\bCITI\b/i, /Account Activity/i],
+    footerPatterns: [/Opening Balance/i, /Closing Balance/i, /Total Deposits/i, /Total Withdrawals/i],
+    columnHints: ['Date', 'Description', 'Debit', 'Credit', 'Balance'],
+    balanceIndicators: ['Balance', 'Closing Balance'],
+    dateFormat: 'MM/DD/YYYY', currencySymbol: '$', decimalSeparator: '.', thousandsSeparator: ',',
+  },
 };
 
 
@@ -423,7 +460,8 @@ const BANK_PATTERNS: Record<string, BankPattern> = {
  * @param text Full statement text
  * @returns DetectionResult with bank info and confidence
  */
-export function detectBank(text: string): DetectionResult {
+export function detectBank(text: string, opts?: { region?: string }): DetectionResult {
+  const region = opts?.region;
   const brandKeywords: Array<{ code: string; name: string; pattern: RegExp }> = [
     { code: 'CAPITEC_SA', name: 'Capitec Bank South Africa', pattern: /\bCapitec\b/i },
     { code: 'FNB_SA', name: 'FNB South Africa', pattern: /First\s+National\s+Bank|\bFNB\b/i },
@@ -440,12 +478,17 @@ export function detectBank(text: string): DetectionResult {
     { code: 'SANLAM_SA', name: 'Sanlam South Africa', pattern: /Sanlam|Glacier\s+by\s+Sanlam/i },
     { code: 'INVESTMENT_PORTFOLIO_SA', name: 'Investment Portfolio South Africa', pattern: /Allan\s+Gray|Coronation|Ninety\s+One|Stanlib|Portfolio\s+Valuation|Portfolio\s+Statement|Investment\s+Statement|Unit\s+Trust\s+Statement/i },
     { code: 'ICICI_IN', name: 'ICICI Bank India', pattern: /\bICICI\b/i },
+    { code: 'CHASE_US', name: 'Chase (JPMorgan) United States', pattern: /\bCHASE\b|JPMorgan Chase/i },
+    { code: 'BOA_US', name: 'Bank of America United States', pattern: /Bank of America/i },
+    { code: 'WELLSFARGO_US', name: 'Wells Fargo United States', pattern: /Wells Fargo/i },
+    { code: 'CITIBANK_US', name: 'Citibank United States', pattern: /\bCITIBANK\b|\bCITI\b/i },
   ];
 
 
   // Restrict brand search to the header portion (first 4KB) and prefer the earliest hit
   const headerSlice = text.slice(0, 4096);
   const brandMatches = brandKeywords
+    .filter((b) => !region || BANK_PATTERNS[b.code]?.country === region)
     .map(b => ({ brand: b, index: headerSlice.search(b.pattern) }))
     .filter(m => m.index >= 0)
     .sort((a, b) => a.index - b.index);
@@ -465,6 +508,7 @@ export function detectBank(text: string): DetectionResult {
   let highestScore = 0;
 
   for (const [, pattern] of Object.entries(BANK_PATTERNS)) {
+    if (region && pattern.country !== region) continue; // region-filter the candidate banks
     let score = 0;
     const matchedPatterns: string[] = [];
 
@@ -532,6 +576,25 @@ export function getAllBankPatterns(): Record<string, BankPattern> {
   return BANK_PATTERNS;
 }
 
+/** Patterns restricted to one country/region (e.g. 'US') — powers region-scoped detection. */
+export function getBankPatternsForRegion(country: string): BankPattern[] {
+  return Object.values(BANK_PATTERNS).filter((p) => p.country === country);
+}
+
+/** The country/region a bank code belongs to, or undefined for UNKNOWN. */
+export function getBankRegion(bankCode: string): string | undefined {
+  return getBankPattern(bankCode)?.country;
+}
+
+/** Map a detected region to the strict money/date profile used by the finance parser. */
+export function getFinanceLocaleForCountry(country: string | undefined): 'en-US' | 'en-ZA' | 'de-DE' {
+  switch (country) {
+    case 'ZA': return 'en-ZA';
+    case 'DE': return 'de-DE';
+    default: return 'en-US'; // US + anything else defaults to the US profile
+  }
+}
+
 /**
  * Check if a line matches footer patterns for a bank
  * @param line Line to check
@@ -552,6 +615,9 @@ export default {
   getBankPattern,
   getAllBankCodes,
   getAllBankPatterns,
+  getBankPatternsForRegion,
+  getBankRegion,
+  getFinanceLocaleForCountry,
   isFooterLine,
   BANK_PATTERNS,
 };
