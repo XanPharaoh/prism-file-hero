@@ -13,6 +13,7 @@
     "vendor:ocr:update": "node scripts/vendor-ocr-assets.mjs --update",
     "check:backend": "node scripts/backend-integration-check.mjs",
     "check:worker": "node scripts/worker-routes-check.mjs",
+    "check:offline-ocr": "node scripts/offline-ocr-check.mjs",
     "check:conversions": "vitest run tests/libreofficeConversion.test.ts tests/libreofficeProvider.test.ts",
     "browser:evidence": "node scripts/browser-evidence.mjs",
     "tauri": "tauri",

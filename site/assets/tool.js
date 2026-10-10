@@ -36,6 +36,9 @@
   function pdfEncrypt() { if (!encP) encP = import(B + "assets/vendor/pdfencrypt/pdf-encrypt.mjs").then(function (m) { return m.encryptPDF; }); return encP; }
   var tessP = null;
   function tessLib() { if (!tessP) tessP = window.Tesseract ? Promise.resolve(window.Tesseract) : loadScript(B + "assets/vendor/tesseract.min.js").then(function () { return window.Tesseract; }); return tessP; }
+  // Same-origin vendored OCR assets (scripts/vendor-ocr-assets.mjs) so OCR runs OFFLINE, not from
+  // the jsdelivr CDN. A missing file 404s and surfaces loudly rather than silently fetching.
+  var OCR_OPTS = { workerPath: B + "assets/vendor/tesseract/tesseract-worker.min.js", corePath: B + "assets/vendor/tesseract/core", langPath: B + "assets/vendor/tesseract/langdata" };
 
   function bytes(file) { return file.arrayBuffer().then(function (b) { return new Uint8Array(b); }); }
   function canvasJpeg(page, scale, quality) {
@@ -551,6 +554,9 @@
 
   var tessP = null;
   function tessLib() { if (!tessP) tessP = window.Tesseract ? Promise.resolve(window.Tesseract) : loadScript(B + "assets/vendor/tesseract.min.js").then(function () { return window.Tesseract; }); return tessP; }
+  // Same-origin vendored OCR assets (scripts/vendor-ocr-assets.mjs) so OCR runs OFFLINE, not from
+  // the jsdelivr CDN. A missing file 404s and surfaces loudly rather than silently fetching.
+  var OCR_OPTS = { workerPath: B + "assets/vendor/tesseract/tesseract-worker.min.js", corePath: B + "assets/vendor/tesseract/core", langPath: B + "assets/vendor/tesseract/langdata" };
   function tessWords(data) {
     if (data && data.words && data.words.length) return data.words;
     var ws = [];
@@ -561,7 +567,7 @@
     "ocr-to-markdown": { accept: ".pdf,application/pdf,image/jpeg,image/png", multi: false, min: 1,
       run: function (f) { return Promise.all([pdfJs(), tessLib()]).then(function (r) { var js = r[0], T = r[1];
         return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) {
-          return T.createWorker("eng", 1).then(function (w) {
+          return T.createWorker("eng", 1, OCR_OPTS).then(function (w) {
             var md = "", seq = Promise.resolve();
             for (var n = 1; n <= doc.numPages; n++) (function (n) { seq = seq.then(function () { return doc.getPage(n).then(function (p) {
               var vp = p.getViewport({ scale: 2 }); var c = document.createElement("canvas"); c.width = Math.max(1, Math.round(vp.width)); c.height = Math.max(1, Math.round(vp.height));
@@ -572,7 +578,7 @@
     "ocr-to-searchable-pdf": { accept: ".pdf,application/pdf,image/jpeg,image/png", multi: false, min: 1,
       run: function (f) { return Promise.all([pdfJs(), pdfLib(), tessLib()]).then(function (rr) { var js = rr[0], L = rr[1], T = rr[2];
         return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) {
-          return Promise.all([T.createWorker("eng", 1), L.PDFDocument.create()]).then(function (p2) { var w = p2[0], out = p2[1];
+          return Promise.all([T.createWorker("eng", 1, OCR_OPTS), L.PDFDocument.create()]).then(function (p2) { var w = p2[0], out = p2[1];
             return out.embedFont(L.StandardFonts.Helvetica).then(function (HFONT) {
               var seq = Promise.resolve(), pagesSeen = 0;
               for (var n = 1; n <= doc.numPages; n++) (function (n) { seq = seq.then(function () { return doc.getPage(n).then(function (p) {
