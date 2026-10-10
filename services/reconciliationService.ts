@@ -3,6 +3,8 @@
  * Validates and normalizes extracted data across all document types
  */
 
+import { toCents } from '@/shared/finance/locale';
+
 export interface ReconciledRow {
   [key: string]: any;
   _math_reconciled?: boolean;
@@ -120,8 +122,21 @@ export function reconcileRows(
 /**
  * Bank statement reconciliation - validates running balance
  */
+// Integer-cent accessor for reconciliation math. Uses the strict, drift-free parser with the
+// ZA profile (statement convention: R symbol, Dr/Cr suffixes, '.'-decimal). Returns 0 only for
+// genuinely empty/absent cells; a value that fails to parse is treated as 0 here, while the
+// review gate flags it separately (so we never mis-sum, and never silently pass on bad data).
+function centsIn(row: any, key: string): number {
+  const v = key ? row?.[key] : undefined;
+  if (v === undefined || v === null || `${v}`.trim() === '') return 0;
+  return toCents(v, { locale: 'en-ZA' }) ?? 0;
+}
+function nearlyCents(a: number, b: number, tol = 1): boolean {
+  return Math.abs(a - b) <= tol; // 1-cent tolerance absorbs prior HALF-UP rounding, no float drift
+}
+
 function reconcileBankStatement(rows: any[], openingBalanceStr: string): ReconciledRow[] {
-  let runningBalance = parseMoney(openingBalanceStr);
+  let runningC = toCents(openingBalanceStr, { locale: 'en-ZA' }) ?? 0;
   const keys = Object.keys(rows[0]);
 
   const debitKey = findKey(keys, ['debit', 'debits', 'debiet', 'uit', 'withdrawals', 'withdrawal']);
@@ -132,93 +147,74 @@ function reconcileBankStatement(rows: any[], openingBalanceStr: string): Reconci
 
   return rows.map((row) => {
     const reconciled: ReconciledRow = { ...row };
-    const statedBalance = parseMoney(row[balanceKey] || '0');
+    const statedC = centsIn(row, balanceKey);
 
     // --- OPENING / CLOSING / INFO: no monetary movement ---
     if (isOpeningRow(row) || isClosingRow(row) || isInfoRow(row)) {
       reconciled.Amount = 0;
       reconciled._math_reconciled = true;
       reconciled['Direction'] = '';
-      if (Number.isFinite(statedBalance) && statedBalance !== 0) {
-        runningBalance = statedBalance;
-      }
+      if (statedC !== 0) runningC = statedC;
       return reconciled;
     }
 
-    // --- TRANSACTIONAL ROWS ---
-    const debitVal = parseMoney(row[debitKey] || '0');
-    const creditVal = parseMoney(row[creditKey] || '0');
-    const feeVal = parseMoney(row[feeKey] || '0');
+    // --- TRANSACTIONAL ROWS (all amounts in integer cents) ---
+    const debitC = centsIn(row, debitKey);
+    const creditC = centsIn(row, creditKey);
+    const feeC = centsIn(row, feeKey);
 
-    let netChange: number | null = null;
+    let netC: number | null = null;
     let isReconciled = false;
 
     if (debitKey || creditKey) {
-      // Try: credits - debits - fees
-      const attempt1 = Number((creditVal - debitVal - feeVal).toFixed(2));
-      if (nearly(runningBalance + attempt1, statedBalance)) {
-        netChange = attempt1;
-        isReconciled = true;
-      }
+      const attempt1 = creditC - debitC - feeC;
+      if (nearlyCents(runningC + attempt1, statedC)) { netC = attempt1; isReconciled = true; }
 
-      // Try: credits - debits (fees already included in debit)
       if (!isReconciled) {
-        const attempt2 = Number((creditVal - debitVal).toFixed(2));
-        if (nearly(runningBalance + attempt2, statedBalance)) {
-          netChange = attempt2;
-          isReconciled = true;
-        }
+        const attempt2 = creditC - debitC;
+        if (nearlyCents(runningC + attempt2, statedC)) { netC = attempt2; isReconciled = true; }
       }
 
-      // Try: fee-only row (fee IS the debit, no separate debit column populated)
-      if (!isReconciled && feeVal > 0 && debitVal === 0 && creditVal === 0) {
-        const attempt3 = -Math.abs(feeVal);
-        if (nearly(runningBalance + attempt3, statedBalance)) {
-          netChange = Number(attempt3.toFixed(2));
-          isReconciled = true;
-        }
+      if (!isReconciled && feeC > 0 && debitC === 0 && creditC === 0) {
+        const attempt3 = -Math.abs(feeC);
+        if (nearlyCents(runningC + attempt3, statedC)) { netC = attempt3; isReconciled = true; }
       }
     }
 
     if (!isReconciled && amountKey) {
       const amountRaw = row[amountKey];
-      const amountIsSigned = hasExplicitSign(amountRaw) || parseMoney(amountRaw) < 0;
-      const amountAbs = Math.abs(parseMoney(amountRaw));
-      const feeAbs = Math.abs(feeVal);
+      const amountSigned = hasExplicitSign(amountRaw);
+      const amountC = centsIn(row, amountKey);
+      const amountAbs = Math.abs(amountC);
+      const feeAbs = Math.abs(feeC);
 
-      if (amountIsSigned) {
-        const val = parseMoney(amountRaw);
-        netChange = Number((val - feeAbs).toFixed(2));
+      if (amountSigned) {
+        netC = amountC - feeAbs;
       } else {
-        const sign = chooseSignByBalance(runningBalance, statedBalance, amountAbs, feeAbs);
-        netChange = Number((sign * amountAbs - feeAbs).toFixed(2));
+        const sign = chooseSignByBalance(runningC / 100, statedC / 100, amountAbs / 100, feeAbs / 100);
+        netC = sign * amountAbs - feeAbs;
       }
-
-      if (netChange !== null && nearly(runningBalance + netChange, statedBalance)) {
-        isReconciled = true;
-      }
+      if (netC !== null && nearlyCents(runningC + netC, statedC)) isReconciled = true;
     }
 
     // Strategy 2: Derive from balance difference (fallback)
-    if (!isReconciled || netChange === null) {
-      const derived = Number((statedBalance - runningBalance).toFixed(2));
-      netChange = derived;
+    if (!isReconciled || netC === null) {
+      netC = statedC - runningC;
       isReconciled = true;
-
-      // Sanity check log
-      if (debitVal > 0 && creditVal === 0 && derived > 0) {
-        reconciled._math_error = `Debit row but balance increased by ${derived}`;
+      const derivedDollars = netC / 100;
+      if (debitC > 0 && creditC === 0 && derivedDollars > 0) {
+        reconciled._math_error = `Debit row but balance increased by ${derivedDollars.toFixed(2)}`;
       }
-      if (creditVal > 0 && debitVal === 0 && derived < 0) {
-        reconciled._math_error = `Credit row but balance decreased by ${derived}`;
+      if (creditC > 0 && debitC === 0 && derivedDollars < 0) {
+        reconciled._math_error = `Credit row but balance decreased by ${derivedDollars.toFixed(2)}`;
       }
     }
 
-    reconciled.Amount = Number(netChange.toFixed(2));
+    reconciled.Amount = Number((netC / 100).toFixed(2));
     reconciled._math_reconciled = isReconciled;
-    reconciled['Direction'] = netChange >= 0 ? 'In' : 'Out';
+    reconciled['Direction'] = netC >= 0 ? 'In' : 'Out';
 
-    runningBalance = statedBalance;
+    runningC = statedC;
     return reconciled;
   });
 }

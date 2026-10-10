@@ -34,54 +34,130 @@ export interface AmountOptions {
   locale?: FinanceLocale;
   /** Treat trailing Dr/Cr (banking) as debit/credit signs. Default true. */
   allowBankingSigns?: boolean;
+  /** Accept a currency symbol that is not the profile's own. Default false (reject foreign). */
+  allowForeignCurrency?: boolean;
 }
 
+/** Rounding policy for sub-cent precision: explicit HALF-UP to the cent. Documented, not accidental. */
+export type MoneyErrorCode =
+  | 'MISSING' | 'FOREIGN_CURRENCY' | 'CONFLICTING_SEPARATORS' | 'MALFORMED' | 'OUT_OF_RANGE';
+
+export type MoneyResult =
+  | { ok: true; cents: number; rounded: boolean; currency: string }
+  | { ok: false; code: MoneyErrorCode };
+
+// Symbols we can recognise; mapped to a currency code so foreign ones can be rejected.
+const SYMBOL_TO_CURRENCY: Record<string, string> = {
+  '$': 'USD', 'R': 'ZAR', '£': 'GBP', '€': 'EUR', '¥': 'JPY',
+};
+
 /**
- * Parse a currency string to INTEGER CENTS, or return null if it is missing/unparseable.
- * Handles: symbols ($ R € £), thousands separators (locale-aware), decimal commas,
- * parentheses-as-negative, leading/trailing minus, and Dr/Cr suffixes.
+ * Parse a monetary string into INTEGER CENTS using decimal/BigInt digit math — NO
+ * `Number * 100`, so there is no binary-float rounding error (1.005 and 0.1+0.2 are exact).
+ * Enforces the profile's separator conventions: a '.'-decimal profile REJECTS a lone
+ * decimal comma ('200,00') and a comma-after-period ('1.234,56') instead of silently
+ * producing a different number, and rejects a foreign currency symbol unless allowed.
+ * Sub-cent precision is resolved with the documented HALF-UP policy and flagged `rounded`.
  */
-export function toCents(raw: unknown, opts: AmountOptions = {}): number | null {
-  if (raw === null || raw === undefined) return null;
-
-  // Numbers pass straight through (rounded to cents), unless NaN.
-  if (typeof raw === 'number') {
-    return Number.isFinite(raw) ? Math.round(raw * 100) : null;
-  }
-
-  let s = String(raw).trim();
-  if (s === '' || /^(n\/?a|na|-)$/i.test(s)) return null;
-
+export function parseMoneyDetailed(raw: unknown, opts: AmountOptions = {}): MoneyResult {
   const profile = PROFILES[opts.locale ?? 'en-US'];
-  let negative = false;
+  const allowForeign = opts.allowForeignCurrency === true;
 
-  // Accounting parentheses: (1,234.56) => -1234.56
-  if (s.startsWith('(') && s.endsWith(')')) { negative = true; s = s.slice(1, -1); }
+  if (raw === null || raw === undefined) return { ok: false, code: 'MISSING' };
+
+  let s: string;
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw)) return { ok: false, code: 'MISSING' };
+    s = String(raw); // shortest round-trip, then parse as text (no float*100)
+  } else {
+    s = String(raw).trim();
+  }
+  if (s === '' || /^(n\/?a|na|-|\s+)$/.test(s)) return { ok: false, code: 'MISSING' };
+
+  let negative = false;
+  if (s.startsWith('(') && s.endsWith(')')) { negative = true; s = s.slice(1, -1).trim(); } // accounting parens
 
   const allowBanking = opts.allowBankingSigns !== false;
   if (allowBanking) {
     if (/\bd(r|ebit)\b$/i.test(s)) { negative = true; s = s.replace(/\s*\bd(r|ebit)\b$/i, ''); }
     else if (/\bc(r|redit)\b$/i.test(s)) { s = s.replace(/\s*\bc(r|redit)\b$/i, ''); }
   }
-
-  // Leading / trailing explicit minus.
   if (s.startsWith('-')) { negative = true; s = s.slice(1); }
   else if (s.endsWith('-')) { negative = true; s = s.slice(0, -1); }
 
-  // Strip currency symbols + spaces + any thousands separators, then normalize decimal.
-  s = s.replace(/[$R£€\s]/g, '');
-  if (profile.decimal === ',') {
-    s = s.split(profile.thousand).join('').replace(',', '.');
+  const symbols = Array.from(new Set(s.match(/[$R£€¥]/g) || []));
+  if (symbols.length > 1) return { ok: false, code: 'MALFORMED' };
+  if (symbols.length === 1 && SYMBOL_TO_CURRENCY[symbols[0]] !== profile.currency && !allowForeign) {
+    return { ok: false, code: 'FOREIGN_CURRENCY' };
+  }
+  s = s.replace(/[$R£€¥\s]/g, '');
+
+  const norm = normalizeSeparators(s, profile.decimal, profile.thousand);
+  if (norm.ok === false) return { ok: false, code: norm.code };
+  let { intDigits, fracDigits } = norm;
+  if (!/^\d*$/.test(intDigits) || !/^\d*$/.test(fracDigits)) return { ok: false, code: 'MALFORMED' };
+  if (intDigits === '' && fracDigits === '') return { ok: false, code: 'MALFORMED' };
+  intDigits = intDigits || '0';
+
+  // HALF-UP rounding of sub-cent precision to 2 decimals, via string/BigInt (no float).
+  let rounded = false;
+  if (fracDigits.length > 2) {
+    rounded = true;
+    const nextDigit = fracDigits.charCodeAt(2) - 48;
+    let centsFrac = Number(fracDigits.slice(0, 2));
+    if (nextDigit >= 5) centsFrac += 1;
+    if (centsFrac >= 100) { intDigits = (BigInt(intDigits) + 1n).toString(); centsFrac -= 100; }
+    fracDigits = String(centsFrac).padStart(2, '0');
   } else {
-    // decimal '.': drop thousands commas; also tolerate EU-style 1.234,56 defensively
-    s = s.replace(/,/g, '');
+    fracDigits = fracDigits.padEnd(2, '0');
   }
 
-  if (!/^\d*\.?\d+$/.test(s)) return null; // must end as a plain number
-  const num = Number(s);
-  if (!Number.isFinite(num)) return null;
-  const cents = Math.round(num * 100);
-  return negative ? -cents : cents;
+  let cents: number;
+  try { cents = Number(BigInt(intDigits) * 100n + BigInt(fracDigits || '0')); }
+  catch { return { ok: false, code: 'MALFORMED' }; }
+  if (!Number.isSafeInteger(cents)) return { ok: false, code: 'OUT_OF_RANGE' };
+  const signed = negative ? -cents : cents;
+  if (!Number.isSafeInteger(signed)) return { ok: false, code: 'OUT_OF_RANGE' };
+  return { ok: true, cents: signed, rounded, currency: profile.currency };
+}
+
+/**
+ * Validate + split a numeric string under a profile's decimal/thousand separators.
+ * Rejects conflicting separators (a decimal comma in a '.'-decimal profile, a comma after
+ * a period, doubled separators, or malformed thousands grouping).
+ */
+function normalizeSeparators(
+  s: string, decimal: '.' | ',', thousand: ',' | '.'
+): { ok: true; intDigits: string; fracDigits: string } | { ok: false; code: MoneyErrorCode } {
+  if (s === '') return { ok: false, code: 'MALFORMED' };
+  const wrong = decimal === '.' ? ',' : '.';
+  const decCount = (s.match(new RegExp(`\\${decimal}`, 'g')) || []).length;
+  const wrongCount = (s.match(new RegExp(`\\${wrong}`, 'g')) || []).length;
+  if (decCount > 1) return { ok: false, code: 'MALFORMED' };
+
+  // Decimal present: thousand-separators may only group the integer part, in exact 3s.
+  if (decCount === 1) {
+    const [left, right] = s.split(new RegExp(`\\${decimal}`));
+    if (right.includes(wrong)) return { ok: false, code: 'CONFLICTING_SEPARATORS' };
+    if (left.includes(wrong)) {
+      const groups = left.split(new RegExp(`\\${wrong}`));
+      for (let i = 1; i < groups.length; i++) if (groups[i].length !== 3) return { ok: false, code: 'CONFLICTING_SEPARATORS' };
+    }
+    return { ok: true, intDigits: left.split(wrong).join(''), fracDigits: right };
+  }
+
+  // No decimal: the `wrong` char may only be thousands grouping (3-digit trailing groups).
+  if (wrongCount > 0) {
+    const groups = s.split(new RegExp(`\\${wrong}`));
+    for (let i = 1; i < groups.length; i++) if (groups[i].length !== 3) return { ok: false, code: 'CONFLICTING_SEPARATORS' };
+  }
+  return { ok: true, intDigits: s.split(wrong).join(''), fracDigits: '' };
+}
+
+/** Thin wrapper: integer cents or null on any error (used by validators + math). */
+export function toCents(raw: unknown, opts: AmountOptions = {}): number | null {
+  const r = parseMoneyDetailed(raw, opts);
+  return r.ok ? r.cents : null;
 }
 
 /** Render integer cents back to a locale string. */

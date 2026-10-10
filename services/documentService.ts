@@ -18,7 +18,7 @@ import { detectBank as registryDetectBank } from './bankRegistry';
 import { ocrPdfToTextItems } from './ocrService';
 import { extractDocument, type ExtractionOptions } from './extractionPipeline';
 import { reconcileRows, type ReconciliationResult } from './reconciliationService';
-import { toCents, parseDate } from '@/shared/finance/locale';
+import { toCents, parseMoneyDetailed, parseDate } from '@/shared/finance/locale';
 import { calculateConfidence } from './confidenceScoring';
 import { validatePDF, hasCompressionIssues } from './pdfValidator';
 import { extractGenericStatement } from './genericStatementExtractor';
@@ -297,21 +297,41 @@ export function applyReviewGate(result: DocumentServiceResult): DocumentServiceR
     if (isBankStatement && m.reconciles === false && ledgerInvalid) {
         addReason('Rows do not reconcile from opening to closing balance. Fix or confirm before export.');
     }
-    // Missing / unparseable amounts must NOT be coerced to zero to pass. Flag instead.
-    // Uses the shared integer-cents parser so the gate and the finance engine agree.
-    const currencyLocale = (m as any).currencyLocale === 'de-DE' || (m as any).currencyLocale === 'en-ZA'
-        ? (m as any).currencyLocale : 'en-US';
-    const blankAmounts = (result.rows || []).filter(r => {
+    // Missing / unparseable / foreign / conflicting amounts must NOT be coerced to zero to
+    // pass. The gate uses the SAME strict, integer-cent parser as the finance engine, and
+    // emits a specific reason per failure class. A blank is never treated as zero.
+    const currencyLocale: 'en-ZA' | 'en-US' | 'de-DE' =
+        (m as any).currencyLocale === 'en-US' || (m as any).currencyLocale === 'de-DE'
+            ? (m as any).currencyLocale
+            : 'en-ZA'; // bank statements are ZA-convention by default (R, Dr/Cr) — matches reconcileRows
+    const sidePresent = (r: any): boolean =>
+        parseMoneyDetailed(r.debit ?? r.Debit, { locale: currencyLocale }).ok
+        || parseMoneyDetailed(r.credit ?? r.Credit, { locale: currencyLocale }).ok;
+    const amountCodes = new Map<string, number>();
+    let roundedCount = 0;
+    for (const r of (result.rows || [])) {
         const amt = (r as any).amount ?? (r as any).Amount;
-        const debit = (r as any).debit ?? (r as any).Debit;
-        const credit = (r as any).credit ?? (r as any).Credit;
-        const hasSide = toCents(debit, { locale: currencyLocale }) !== null
-            || toCents(credit, { locale: currencyLocale }) !== null;
-        if (amt === undefined || amt === null || `${amt}`.trim() === '') return !hasSide;
-        return toCents(amt, { locale: currencyLocale }) === null;
-    }).length;
-    if (blankAmounts > 0) {
-        addReason(`${blankAmounts} row(s) have a missing or unparseable amount. Enter the value — a blank must never be treated as zero.`);
+        const blank = amt === undefined || amt === null || `${amt}`.trim() === '';
+        if (blank) {
+            if (!sidePresent(r)) amountCodes.set('MISSING', (amountCodes.get('MISSING') || 0) + 1);
+            continue;
+        }
+        const parsed = parseMoneyDetailed(amt, { locale: currencyLocale });
+        if (parsed.ok === false) amountCodes.set(parsed.code, (amountCodes.get(parsed.code) || 0) + 1);
+        else if (parsed.rounded) roundedCount++;
+    }
+    const reasonFor: Record<string, string> = {
+        MISSING: 'a missing or blank amount (a blank must never be treated as zero)',
+        MALFORMED: 'an unparseable amount',
+        CONFLICTING_SEPARATORS: 'an amount with conflicting/ambiguous separators',
+        FOREIGN_CURRENCY: 'an amount in a currency that conflicts with the document profile',
+        OUT_OF_RANGE: 'an amount outside the safe integer-cent range',
+    };
+    for (const [code, count] of amountCodes) {
+        addReason(`${count} row(s) have ${reasonFor[code] ?? code}. Fix before export.`);
+    }
+    if (roundedCount > 0) {
+        addReason(`${roundedCount} row(s) had sub-cent precision rounded HALF-UP to the cent by policy. Confirm the intended value.`);
     }
     // Ambiguous dates (day/month both ≤12 and disagreeing) cannot be filed as-is.
     const ambiguousDates = (result.rows || []).filter(r => {

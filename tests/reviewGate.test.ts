@@ -93,7 +93,21 @@ describe('finance review gate (Batch 01)', () => {
         };
         const gated = applyReviewGate(res);
         expect(gated.metadata.requiresReview).toBe(true);
-        expect((gated.metadata.reviewReasons ?? []).some(r => /missing or unparseable amount/i.test(r))).toBe(true);
+        expect((gated.metadata.reviewReasons ?? []).some(r => /missing or blank amount/i.test(r))).toBe(true);
+    });
+
+    it('conflicting-separator and foreign-currency amounts each get a specific reason', () => {
+        const res: DocumentServiceResult = {
+            rows: [
+                { date: '2026-01-01', description: 'CONFLICT', amount: '1.234,56', balance: 100 },
+                { date: '2026-01-02', description: 'FOREIGN', amount: '€10.00', balance: 100 },
+            ],
+            metadata: baseResult({ documentType: 'bank-statement', reconciles: true, currencyLocale: 'en-ZA' }).metadata,
+        };
+        const gated = applyReviewGate(res);
+        const reasons = gated.metadata.reviewReasons ?? [];
+        expect(reasons.some(r => /conflicting\/ambiguous separators/i.test(r))).toBe(true);
+        expect(reasons.some(r => /conflicts with the document profile/i.test(r))).toBe(true);
     });
 
     it('unknown opening/closing balance on a bank statement triggers review', () => {
