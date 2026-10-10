@@ -785,10 +785,16 @@ export async function createSearchablePdf(pages: SearchablePage[]): Promise<Blob
       .replace(/\u2022/g, '*').replace(/\u00A0/g, ' ').replace(/[^\x20-\x7E\u00A0-\u00FF]/g, ' ');
 
   for (const page of pages) {
-    if (!page || page.pdfWidth <= 0 || page.pdfHeight <= 0) continue;
+    // Reject invalid geometry instead of silently omitting a page: a returned Blob is not
+    // proof of a correct document, so a page we cannot represent must abort the run.
+    if (!page || !page.image || page.image.length === 0
+      || !(page.pixelWidth > 0) || !(page.pixelHeight > 0)
+      || !(page.pdfWidth > 0) || !(page.pdfHeight > 0)) {
+      throw new Error('createSearchablePdf: a page has invalid dimensions or an empty image; refusing to emit a partial document.');
+    }
     const embedded = page.imageType === 'png'
       ? await pdfDoc.embedPng(page.image)
-      : await pdfDoc.embedJpg(page.image);
+      : await pdfDoc.embedJpg(page.image); // a corrupt raster rejects here -> aborts the whole run
 
     const out = pdfDoc.addPage([page.pdfWidth, page.pdfHeight]);
     // Preserve the scanned page exactly — drawn full-bleed, untouched.

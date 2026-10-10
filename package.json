@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "vendor:ocr": "node scripts/vendor-ocr-assets.mjs",
+    "vendor:ocr:update": "node scripts/vendor-ocr-assets.mjs --update",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

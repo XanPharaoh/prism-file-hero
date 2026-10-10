@@ -64,14 +64,29 @@ describe('createSearchablePdf preserves the scan + adds a positioned text layer'
     expect(await leftBandIsDark(blob)).toBe(true); // scanned raster preserved, not re-typeset
   }, 60000);
 
-  it('empty / zero-size pages are skipped without crashing', async () => {
-    const blob = await createSearchablePdf([
+  it('rejects invalid page dimensions instead of silently omitting a page', async () => {
+    await expect(createSearchablePdf([
       { image: new Uint8Array(), imageType: 'png', pixelWidth: 0, pixelHeight: 0, pdfWidth: 0, pdfHeight: 0, words: [] },
-    ]);
-    // Contract: no exception and a real PDF is produced (invalid rasters are skipped, not
-    // turned into blank/transcript pages).
-    expect(blob).toBeInstanceOf(Blob);
-    expect(blob.type).toBe('application/pdf');
-    expect(blob.size).toBeGreaterThan(0);
+    ])).rejects.toThrow(/invalid dimensions|empty image/i);
   }, 30000);
+
+  it('places each invisible word near its source box (search maps to the scanned position)', async () => {
+    const { png, w, h } = pageImage();
+    const box = { text: 'HELLO', x: 120, y: 40, width: 100, height: 20 }; // right half, away from the band
+    const blob = await createSearchablePdf([{
+      image: png, imageType: 'png', pixelWidth: w, pixelHeight: h, pdfWidth: w, pdfHeight: h, words: [box],
+    }]);
+    const u8 = new Uint8Array(await blob.arrayBuffer());
+    const doc = await pdfjsLib.getDocument({ data: u8.slice(0) }).promise;
+    const tc = await (await doc.getPage(1)).getTextContent();
+    const item = tc.items.find((i: any) => i.str === 'HELLO') as any;
+    expect(item).toBeTruthy();
+    // pdf.js transform is [a,b,c,d,e,f] with e=x, f=y (bottom-origin, viewport scale 1).
+    const exX = item.transform[4];
+    const exYbottom = item.transform[5];
+    // Expected left edge ~ box.x; top edge => baseline y ~ h - (box.y + box.height)
+    expect(exX).toBeGreaterThan(100);
+    expect(exX).toBeLessThan(w);
+    expect(Math.abs(exYbottom - (h - (box.y + box.height)))).toBeLessThan(6); // placed at source box, not arbitrary
+  }, 60000);
 });

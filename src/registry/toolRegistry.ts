@@ -492,17 +492,31 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     allowedFileTypes: ['application/pdf'],
     maxFiles: 1,
     supportsBatchProcessing: false,
-    handler: async ({ files, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
-      // convertPdfToImages + createTextPdf statically imported
-      // processWithAI statically imported
-      const images = await convertPdfToImages(files[0], (p: number) => onProgress?.(Math.round(p * 0.4)), 50, true);
-      onProgress?.(40);
-      const result = await processWithAI('ocr', images);
-      onProgress?.(80);
-      const rawData = result.data ?? result.summary ?? 'No text extracted.';
-      const ocrText = typeof rawData === 'string' ? rawData : JSON.stringify(rawData, null, 2);
-      const blob = await createTextPdf(ocrText, `OCR: ${files[0].name}`);
-      return { blob, filename: `${files[0].name.replace(/\.pdf$/i, '')}_OCR.pdf`, data: ocrText };
+    handler: async ({ files, options, onProgress, signal }: ToolExecutionPayload): Promise<ToolResult> => {
+      // Batch 07: the default is a GENUINE searchable PDF — the scanned page images are
+      // preserved and a positioned invisible text layer is added (local OCR). A plain
+      // transcript is opt-in and clearly labelled so it is never mistaken for the scan.
+      const mode = (options?.ocrMode as string) || 'searchable';
+      if (mode === 'transcript') {
+        const images = await convertPdfToImages(files[0], (p: number) => onProgress?.(Math.round(p * 0.4)), 50, true);
+        onProgress?.(40);
+        const result = await processWithAI('ocr', images);
+        const rawData = result.data ?? result.summary ?? 'No text extracted.';
+        const ocrText = typeof rawData === 'string' ? rawData : JSON.stringify(rawData, null, 2);
+        const blob = await createTextPdf(ocrText, `OCR TRANSCRIPT (not searchable overlay): ${files[0].name}`);
+        return { blob, filename: `${files[0].name.replace(/\.pdf$/i, '')}_OCR_Transcript.pdf`, data: ocrText };
+      }
+      // buildSearchablePdf aborts (throws) on any page failure or invalid geometry; it never
+      // emits a partial document, and a returned Blob is treated as unverified until the
+      // browser run confirms image preservation + text placement.
+      const { buildSearchablePdf } = await import('../../services/ocrService');
+      if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+      const blob = await buildSearchablePdf(files[0], { onProgress: (p) => onProgress?.(p) });
+      return {
+        blob,
+        filename: `${files[0].name.replace(/\.pdf$/i, '')}_Searchable.pdf`,
+        data: 'Searchable overlay: original scanned pages preserved; an invisible text layer is positioned over each word.',
+      };
     },
   },
   {

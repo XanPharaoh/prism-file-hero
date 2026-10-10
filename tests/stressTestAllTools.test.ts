@@ -644,12 +644,16 @@ describe('PDF Tool Stress-Tester & Quality Auditor - All 37 Registered Tools', (
       expect(text).toContain('# Reconstructed Document');
     });
 
-    it('32. ocr: extracts text from scanned pages and creates searchable text PDF', async () => {
+    it('32. ocr (transcript mode): runs the OCR handler and produces a PDF', async () => {
+      // The default OCR output is now a *searchable overlay* (preserved page image +
+      // positioned invisible text) which needs the local Tesseract engine — verified in a
+      // real browser, not under this mocked fetch transport. This case exercises the
+      // explicitly-requested transcript mode, which runs over the mocked AI path.
       const handler = getHandler('ocr');
 
-      const result = await handler(payload([robbieFile]));
+      const result = await handler(payload([robbieFile], { ocrMode: 'transcript' }));
       expect(result.blob).toBeInstanceOf(Blob);
-      expect(result.filename).toMatch(/_OCR\.pdf$/);
+      expect(result.filename).toMatch(/_OCR_Transcript\.pdf$/);
 
       const doc = await parsePdf(result.blob!);
       expect(doc.getPageCount()).toBeGreaterThan(0);

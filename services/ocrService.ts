@@ -7,6 +7,7 @@
 
 import Tesseract from 'tesseract.js';
 import * as pdfjs from 'pdfjs-dist';
+import type { SearchablePage, SearchableWord } from './pdfService';
 import type { DocumentType, ExtractionResult } from './extractionPipeline';
 import type { SpatialTextItem } from './spatialTableExtractor';
 import { discoverColumnBoundaries, assignCells, mergeMultiLineRows } from './spatialTableExtractor';
@@ -584,4 +585,62 @@ export async function extractWithOCR(
     console.error('OCR Spatial extraction failed:', error);
     throw error;
   }
+}
+
+/**
+ * Batch 07 — Local OCR that PRESERVES the scanned page image and adds a correctly positioned
+ * invisible searchable text layer (never a transcript PDF). Each page is rasterized once;
+ * Tesseract word boxes (image-pixel, top-origin) feed createSearchablePdf, which maps them
+ * to PDF points. Any page that fails to render or encode aborts the whole run — a returned
+ * Blob is not treated as proof of a correct document.
+ */
+export async function buildSearchablePdf(
+  file: File,
+  opts: { password?: string; onProgress?: (pct: number) => void; maxPages?: number } = {}
+): Promise<Blob> {
+  const { createSearchablePdf } = await import('./pdfService');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const doc = await pdfjs.getDocument({ data: bytes.slice(0), password: opts.password }).promise;
+  const worker: any = await Tesseract.createWorker('eng');
+  const pages: SearchablePage[] = [];
+  const maxPages = opts.maxPages ?? doc.numPages;
+  try {
+    for (let n = 1; n <= Math.min(maxPages, doc.numPages); n++) {
+      const jsPage = await doc.getPage(n);
+      const ov = jsPage.getViewport({ scale: 1 });              // PDF-point size (preserve orientation)
+      const scale = Math.min(2, Math.sqrt(4_000_000 / Math.max(1, ov.width * ov.height)));
+      const vp = jsPage.getViewport({ scale });                 // raster (image pixel) space
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(vp.width));
+      canvas.height = Math.max(1, Math.round(vp.height));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error(`OCR page ${n}: canvas unavailable`);
+      try {
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await jsPage.render({ canvasContext: ctx, viewport: vp }).promise;
+        const { data } = await worker.recognize(canvas, {}, { blocks: true, text: true });
+        const words: SearchableWord[] = [];
+        for (const block of (data as any).blocks || []) {
+          for (const para of block.paragraphs || []) {
+            for (const line of para.lines || []) {
+              const text = (line.words || []).map((w: any) => w.text).join(' ').trim();
+              const bbox = line.bbox || line.words?.[0]?.bbox;
+              if (text && bbox) words.push({ text, x: bbox.x0, y: bbox.y0, width: bbox.x1 - bbox.x0, height: bbox.y1 - bbox.y0 });
+            }
+          }
+        }
+        const jpg = Uint8Array.from(atob(canvas.toDataURL('image/jpeg', 0.92).split(',')[1]), ch => ch.charCodeAt(0));
+        pages.push({ image: jpg, imageType: 'jpg', pixelWidth: canvas.width, pixelHeight: canvas.height, pdfWidth: ov.width, pdfHeight: ov.height, words });
+      } finally {
+        canvas.width = 0; canvas.height = 0;
+        jsPage.cleanup?.();
+      }
+      opts.onProgress?.(Math.round((n / Math.min(maxPages, doc.numPages)) * 100));
+    }
+  } finally {
+    try { await worker.terminate(); } catch { /* ignore */ }
+    try { await doc.destroy(); } catch { /* ignore */ }
+  }
+  if (pages.length === 0) throw new Error('OCR produced no pages; refusing to emit an empty document.');
+  return createSearchablePdf(pages);
 }
