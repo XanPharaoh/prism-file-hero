@@ -68,7 +68,8 @@ export const libreOfficeProvider: ConversionProvider = {
       const inputPath = join(dir, `in.${ext}`);
       await writeFile(inputPath, new Uint8Array(req.inputBytes));
       await runSoffice(buildSofficeArgs(inputPath, dir, join(dir, 'profile')));
-      const out = new Uint8Array(await readFile(join(dir, 'out.pdf')));
+      // soffice names the output after the INPUT basename: in.<ext> → in.pdf (NOT out.pdf).
+      const out = new Uint8Array(await readFile(join(dir, 'in.pdf')));
       if (!looksLikePdf(out)) throw new Error('conversion produced a non-PDF');
       if (out.byteLength > MAX_OUTPUT_BYTES) throw new Error('output exceeds size limit');
       return { bytes: out, mime: 'application/pdf', engine: 'libreoffice-headless', engineVersion: 'unknown' };

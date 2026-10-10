@@ -28,7 +28,8 @@ const LOCK = join(OUT_DIR, 'ocr-assets.lock.json');
 // Pin exact versions — no floating ranges — for reproducible, auditable offline bundles.
 const TESSERACT_JS_VERSION = '5.1.1';
 const TESSERACT_CORE_VERSION = '5.1.1';
-const TRAINEDDATA_VERSION = '0.1.0';
+// @tesseract.js-data/eng@0.1.0 has no `4.0.0_best_int/` path (404); 1.0.0 does.
+const TRAINEDDATA_VERSION = '1.0.0';
 
 const SOURCES = [
   { file: 'tesseract-worker.min.js', url: `https://cdn.jsdelivr.net/npm/tesseract.js@${TESSERACT_JS_VERSION}/dist/worker.min.js` },

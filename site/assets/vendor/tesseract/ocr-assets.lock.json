@@ -1,0 +1,39 @@
+{
+  "pinned": {
+    "tesseractJs": "5.1.1",
+    "core": "5.1.1",
+    "traineddata": "1.0.0"
+  },
+  "files": {
+    "tesseract-worker.min.js": {
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
+      "sha256": "aca1229639fc9907d86f96e825955a2b7c5716d17f3bc3acd71f9c7ab66181fc",
+      "bytes": 123724
+    },
+    "core/tesseract-core-simd.wasm.js": {
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-simd.wasm.js",
+      "sha256": "63f232c4f7a97b04e52eb940202700b2c6239783a75d0ff0553274fac530cd5c",
+      "bytes": 4735153
+    },
+    "core/tesseract-core.wasm.js": {
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core.wasm.js",
+      "sha256": "2b8c8c92b8788807061fb4bb16c5acdf000c149e100255f879f78d2c58ca9969",
+      "bytes": 4734777
+    },
+    "core/tesseract-core-simd-lstm.wasm.js": {
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-simd-lstm.wasm.js",
+      "sha256": "ce20eda9533cbed1e6c2b4276fbae1e0adc61b6754b5513084be601787b457cf",
+      "bytes": 3938657
+    },
+    "core/tesseract-core-lstm.wasm.js": {
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-lstm.wasm.js",
+      "sha256": "8f04aa0cc81e7bde33f80e92fa01a7a665f0b4884d098acf5de9c7104a11dfaa",
+      "bytes": 3938277
+    },
+    "langdata/eng.traineddata.gz": {
+      "url": "https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int/eng.traineddata.gz",
+      "sha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+      "bytes": 2952873
+    }
+  }
+}

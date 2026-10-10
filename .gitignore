@@ -29,3 +29,18 @@ android/app/google-services.json
 
 # browser-evidence artifacts (regenerate: npm run browser:evidence)
 /evidence/
+
+# Local dev secrets — never commit. Worker reads worker/.dev.vars in `wrangler dev`.
+.dev.vars
+worker/.dev.vars
+*.dev.vars
+.env
+.env.*
+!.env.example
+
+# Supabase local stack state (links/temp), not migrations.
+supabase/.temp/
+supabase/.branches/
+supabase/.local/
+
+.localdev/

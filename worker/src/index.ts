@@ -517,7 +517,7 @@ export default {
         const ok = await verifyPaddleSignature(raw, sig, env.PADDLE_WEBHOOK_SECRET || '');
         if (!ok) return Response.json({ error: 'invalid signature' }, { status: 401 });
 
-        let evt: { event_id?: string; event_type?: string; occurred_at?: string; data?: { id?: string; customer_id?: string; subscription_id?: string } };
+        let evt: { event_id?: string; event_type?: string; occurred_at?: string; data?: { id?: string; customer_id?: string; subscription_id?: string; metadata?: { plan?: string } } };
         try { evt = JSON.parse(raw); } catch { return Response.json({ error: 'malformed body' }, { status: 400 }); }
         const eventId = String(evt.event_id ?? '');
         const subId = String(evt.data?.id ?? evt.data?.subscription_id ?? '') || null;
@@ -537,6 +537,7 @@ export default {
             p_subscription_id: subId,
             p_customer_id: evt.data?.customer_id ?? null,
             p_payload: evt,
+            p_plan: evt.data?.metadata?.plan ?? 'pro',
           }),
         });
         if (!res.ok) {
