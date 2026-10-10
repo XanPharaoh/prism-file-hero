@@ -444,3 +444,56 @@ browser this environment lacks). Not called "verified" while external checks are
 
 - **Local verification of what shipped** — `npx vitest run` → **657 passed / 2 skipped**
   (72 files, 1 skipped) exit 0; app `tsc` → 0; `npm run build` → exit 0. Nothing deployed.
+
+## 21. Batch 04 (credit authority) + Batch 05 (billing) backend — local code + isolated-DB smoke (2026-10-10)
+
+**Implemented + locally verified**
+- `worker/src/planCatalog.ts` — authoritative server-side plans: `free` = finite 50 credits
+  (not zero, not unlimited), `pro` = 1000, `business` = unlimited (-1). `resolveTrustedPlan`
+  funnels ALL plan input through a whitelist and collapses anything unrecognized to `free`, so
+  a client-forged plan string can never grant a higher tier. `hasCredit` is the pure check.
+- `worker/src/creditLedger.ts` — atomic reserve/settle/refund modeled as a serialized critical
+  section (mirrors Postgres row locks). `tests/creditLedger.test.ts` (10) proves: never
+  oversell under 20 concurrent reserves, idempotent by requestId (replay never double-charges),
+  insufficient-credit denial, SUCCESS→used vs ERROR→refund, no double-refund on re-settle,
+  business never credit-limited, and the client-forged-plan funnel.
+- `worker/src/billing/paddleVerify.ts` — raw-body Paddle HMAC-SHA256 signature verification
+  (`ts:<rawBody>`, constant-time compare, never throws on malformed) + a durable-inbox reducer.
+  `tests/paddleVerify.test.ts` (7) proves: correct signature accepted, tampered body / wrong
+  secret / missing-h1 rejected; duplicate event ignored; OUT-OF-ORDER (older) event cannot
+  regress subscription state; payment_failed→past_due, canceled→no entitlement, and a browser
+  "checkout completed" with no verified server event grants NOTHING.
+- `supabase/migrations/20261010000000_authoritative_plan_credits.sql` — forward, additive,
+  idempotent migration: `user_plan` (server-owned, `source` column), `credit_reservations`
+  (request_id PK = idempotency, PENDING/SUCCESS/ERROR), `plan_grants` (month credit),
+  `reserve_credit` / `settle_credit` (SELECT … FOR UPDATE critical section; ERROR refunds;
+  terminal settle is idempotent), RLS (anon no access; authenticated read-own, never write).
+- **ISOLATED-DB SMOKE TEST EXECUTED** against a throwaway Docker Postgres 16 (fresh install;
+  `auth.uid()` stubbed for vanilla PG) — NOT the linked remote DB:
+  - insufficient-credits path: reserve 40 then 20 on a 50-grant → 2nd denied "insufficient". ✅
+  - refund + idempotency: replay of a granted requestId → `replay-granted` (no extra hold);
+    settle ERROR frees the 40 → a fresh 50-credit reserve succeeds. ✅
+  - **concurrency (real parallel connections):** 20 simultaneous `reserve_credit(cost=4)` on a
+    50-grant → **12 granted / 8 denied; 12 PENDING holds = 48 ≤ 50 → never oversold.** ✅
+  - Container was destroyed after the run.
+
+**Pending (external prerequisites — NOT done, NOT claimed verified)**
+- **Prior-schema upgrade run** of the new migration (`upgrade from a representative previous
+  schema`) needs the Supabase-local stack (`supabase db start`, not installed here) because the
+  prior `20260806140000_unify_usage_ledger.sql` references Supabase-only objects; only the
+  fresh-install path was smoke-tested here. Exact requirement: a local Supabase/PG with the
+  prior migration applied.
+- **RLS role verification with a real `auth.uid()`** (anonymous / authenticated / service_role)
+  against a provisioned Supabase — the stub used here returns NULL, so read-own policy was not
+  exercised with a real JWT subject.
+- **Wiring** `reserve_credit`/`settle_credit` + `planCatalog`/`paddleVerify` into the live
+  `worker/src/index.ts` `/api/ai` and a new `/api/paddle/webhook` route, and applying the
+  migration — all DEPLOY actions, out of scope.
+- **Live Paddle SANDBOX** signature check (needs the sandbox `whsec_…` secret + a test event),
+  checkout→webhook→entitlement end-to-end, cancellation/period-end via the Paddle portal.
+  Exact missing credential: `PADDLE_WEBHOOK_SECRET` (sandbox) + sandbox API key + a Paddle
+  test checkout. The reducer is unit-proven; the live integration is not.
+
+- **Verification of what shipped** — `npx vitest run` → **674 passed / 2 skipped**
+  (74 files, 1 skipped) exit 0; app `tsc` → 0; worker `tsc` → 0; isolated Postgres migration +
+  concurrency smoke as above. Nothing deployed; no linked remote touched.
