@@ -497,3 +497,58 @@ browser this environment lacks). Not called "verified" while external checks are
 - **Verification of what shipped** — `npx vitest run` → **674 passed / 2 skipped**
   (74 files, 1 skipped) exit 0; app `tsc` → 0; worker `tsc` → 0; isolated Postgres migration +
   concurrency smoke as above. Nothing deployed; no linked remote touched.
+
+## 22. Batch 09 (converter seam) + Batch 10 (SEO) — local (2026-10-10)
+
+**Batch 10 — implemented + locally verified**
+- `site/robots.txt` and `site/sitemap.xml` (50 URLs: 7 core + all 43 feature pages) generated
+  by `site/tools/generate-sitemap.mjs` from `PRISM.ALL`; canonical origin `PRF_SITE_URL`
+  (default `https://prismfilehero.com`) so staging gets a matching sitemap.
+- `generate-features.mjs` now emits `<link rel="canonical">`, absolute `og:url`, and absolute
+  `og:image`/`twitter:image` (relative OG URLs are invalid to crawlers). All 43 pages
+  regenerated.
+- `tests/seoMetadata.test.ts` (4): sample page has absolute canonical + og:url; every
+  advertised slug has a physical page; sitemap is well-formed and lists every feature + core
+  page with balanced `<url>` tags; robots.txt allows-all + points at the sitemap.
+- PENDING (deploy-time, cannot run here): a real crawler/`site:` check, Google Search Console
+  submission, Lighthouse meta pass, and redirect (www/apex) verification.
+
+**Batch 09 — contract scaffolded; providers pending**
+- `worker/src/processing/converterProvider.ts`: ConversionJob catalog (office-to-pdf,
+  advanced pdf-to-office, pdf-to-pdfa, pdf-forms, pdf-sign, pdf-edit) each with the engine it
+  needs + in-browser flag; `ConversionRegistry` that throws a typed `NOT_CONFIGURED` (never a
+  silent corrupt file) when no provider is wired. `tests/converterRegistry.test.ts` (3) proves
+  the seam.
+- UNAVAILABLE checks (explicit): no conversion engine is bundled (LibreOffice headless,
+  Docling, Ghostscript/veraPDF, a signing service, or a commercial API). "Pin and evaluate a
+  legally usable engine" + private-upload job leasing + scheduled deletion + malformed/
+  encrypted/macro/archive-bomb fixtures are all blocked on selecting/provisioning a provider
+  (a deploy + cost decision). No live conversion was performed or claimed.
+
+- **Verification** — `npx vitest run` → **681 passed / 2 skipped** (76 files, 1 skipped) exit 0;
+  app `tsc` → 0; worker `tsc` → 0; `npm run build` → exit 0; `node --check site/assets/tool.js`
+  → OK. Nothing deployed.
+
+## 23. Consolidated status (as of 2026-10-10)
+
+| Area | Implemented | Locally verified | External/deploy-pending |
+|---|---|---|---|
+| Worker typecheck | ✅ | ✅ exit 0 | none |
+| Batch 01 redaction | ✅ | ✅ app+site, pixel/rotation/cancel | browser eyeball |
+| Batch 01 gate/exports | ✅ | ✅ 4 states + all export paths | browser workbook view |
+| Batch 02 page ops | ✅ | ✅ | none |
+| Batch 03 AI contract | ✅ | ✅ client coverage/compare/malformed | live Worker (deploy) |
+| Batch 04 endpoint/URL | ✅ | ✅ https/no-localhost | deployed Worker |
+| Batch 04 plan+credits | ✅ | ✅ in-memory + isolated-PG concurrency | prior-schema upgrade; live RLS roles; deploy |
+| Batch 05 billing | ✅ (verify+reducer+migration) | ✅ sig/inbox unit | Paddle SANDBOX secret + checkout e2e; deploy |
+| Batch 06 catalog | ✅ | ✅ file-derived parity | wire 3 pending site capabilities |
+| Batch 07 OCR/searchable | ✅ builder + manifest | ✅ overlay + resolver | vendor binaries; network-disabled browser; handler rewire |
+| Batch 08 US locale | ✅ module + gate | ✅ 15 tests | region-filter bankRegistry e2e |
+| Batch 09 converters | ✅ seam | ✅ NOT_CONFIGURED | engine selection + fixtures (blocked) |
+| Batch 10 SEO | ✅ robots/sitemap/canonical | ✅ 4 tests | crawler/GSC/redirects (deploy) |
+
+Required env to finish the external checks: Cloudflare Worker deploy (wrangler, authenticated),
+Supabase deploy + `supabase db start` for prior-schema/RLS role tests, a Paddle SANDBOX
+`PADDLE_WEBHOOK_SECRET` + test products, a selectable conversion engine (LibreOffice/Docling/
+commercial) with storage for private jobs, tesseract WASM+traineddata vendored at build, and a
+headful browser (Playwright chromium) for the offline/redaction/workbook visual checks.

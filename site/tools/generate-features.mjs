@@ -11,6 +11,9 @@ const PRISM = globalThis.PRISM;
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "features");
 mkdirSync(OUT, { recursive: true });
 
+// Canonical absolute origin for SEO (Batch 10). Overridable via env for staging previews.
+const SITE_URL = (process.env.PRF_SITE_URL || "https://prismfilehero.com").replace(/\/+$/, "");
+
 const FAMILY_BLURB = {
   Organize: "Everyday work on the pages themselves",
   Convert: "Get the content out in a format you can use",
@@ -69,15 +72,17 @@ function page(f) {
 <link rel="apple-touch-icon" href="../assets/img/brand/apple-touch-icon.png">
 <link rel="manifest" href="../assets/site.webmanifest">
 <meta name="theme-color" content="#0b0f16">
+<link rel="canonical" href="${SITE_URL}/features/${f.slug}.html">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Prism File Hero">
+<meta property="og:url" content="${SITE_URL}/features/${f.slug}.html">
 <meta property="og:title" content="${meta(f.name)} &middot; Prism File Hero">
 <meta property="og:description" content="${meta(f.lede)}">
-<meta property="og:image" content="../assets/img/brand/og-image.png">
+<meta property="og:image" content="${SITE_URL}/assets/img/brand/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${meta(f.name)} &middot; Prism File Hero">
 <meta name="twitter:description" content="${meta(f.lede)}">
-<meta name="twitter:image" content="../assets/img/brand/og-image.png">
+<meta name="twitter:image" content="${SITE_URL}/assets/img/brand/og-image.png">
 </head>
 <body data-page="${isFin ? "financial" : "tools"}" data-base="../">
 <div id="nav-root"></div>
