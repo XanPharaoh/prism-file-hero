@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Check, ShieldCheck, Zap, Sparkles, Building, CreditCard, ExternalLink } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { analytics } from '../services/analyticsService';
+import { startCheckout, fetchEntitlement, openPortal } from '../../services/billingService';
 
 interface UpgradeModalProps {
   onClose: () => void;
@@ -13,6 +14,30 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
   const [currency, setCurrency] = useState<'ZAR' | 'USD'>('ZAR');
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<'pro' | 'business' | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // R3 — after checkout, the plan is NOT granted by the browser. Poll the SERVER entitlement until a
+  // verified webhook flips it off 'free'. This is the only source of truth (survives refresh/logout).
+  useEffect(() => {
+    if (!pendingPlan) return;
+    let attempts = 0;
+    pollRef.current = setInterval(async () => {
+      attempts += 1;
+      const ent = await fetchEntitlement();
+      if (ent && (ent.entitled || ent.plan === 'pro' || ent.plan === 'business')) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        setPendingPlan(null);
+        s.setIsPremium(true);
+        s.addToast({ type: 'success', message: `Subscription active — ${ent.plan.toUpperCase()} unlocked.` });
+      } else if (attempts >= 45) { // ~3 min at 4s
+        if (pollRef.current) clearInterval(pollRef.current);
+        setPendingPlan(null);
+        s.addToast({ type: 'info', message: 'Checkout recorded. Entitlement will activate shortly once the payment provider confirms.' });
+      }
+    }, 4000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [pendingPlan]);
 
   const isAnnual = billingCycle === 'annual';
 
@@ -46,39 +71,37 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
     }
 
     try {
-      const checkoutBase =
-        planId === 'pro'
-          ? (import.meta.env.VITE_CHECKOUT_PRO_URL || 'https://checkout.prismfilehero.com/pro')
-          : (import.meta.env.VITE_CHECKOUT_BUSINESS_URL || 'https://checkout.prismfilehero.com/business');
-
-      const params = new URLSearchParams({
-        userId: s.user.id,
-        email: s.user.email,
-        cycle: billingCycle,
-        currency,
-        plan: planId,
-      });
-
-      const targetUrl = `${checkoutBase}?${params.toString()}`;
-
-      // If in custom domain or live checkout, open in new window
-      if (typeof window !== 'undefined') {
-        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      // R3: the browser sends ONLY the plan intent. The server derives the user identity from the
+      // verified token, maps the plan to an allowlisted price id, creates the customer + Paddle
+      // transaction, and links them. No userId/email/cycle/currency is trusted as entitlement.
+      const res = await startCheckout(planId);
+      if (res.configured === false) {
+        s.addToast({ type: 'info', message: 'Checkout isn’t enabled in this build yet (no payment provider key configured).' });
+        return;
       }
-
-      s.addToast({
-        type: 'success',
-        message: `Redirecting to secure ${planId === 'pro' ? 'Pro' : 'Business'} checkout...`,
-      });
+      if (!res.ok) {
+        s.addToast({ type: 'error', message: res.error === 'network' ? 'Unable to reach the billing service.' : (res.error || 'Unable to start checkout.') });
+        return;
+      }
+      if (res.checkoutUrl && typeof window !== 'undefined') {
+        window.open(res.checkoutUrl, '_blank', 'noopener,noreferrer');
+      }
+      s.addToast({ type: 'success', message: `Opening secure ${planId === 'pro' ? 'Pro' : 'Business'} checkout…` });
+      setPendingPlan(planId); // poll the SERVER for confirmation
     } catch (err) {
       console.error('[Subscription] Failed to initiate checkout:', err);
-      s.addToast({
-        type: 'error',
-        message: 'Unable to start checkout. Please contact support@prismfilehero.com.',
-      });
+      s.addToast({ type: 'error', message: 'Unable to start checkout. Please contact support@prismfilehero.com.' });
     } finally {
       setLoadingPlan(null);
     }
+  };
+
+  const handleManageSubscription = async () => {
+    const res = await openPortal();
+    if (res.url && typeof window !== 'undefined') window.open(res.url, '_blank', 'noopener,noreferrer');
+    else if (res.configured === false) s.addToast({ type: 'info', message: 'Subscription management isn’t enabled in this build yet.' });
+    else if (res.status === 'no_subscription') s.addToast({ type: 'info', message: 'No active subscription to manage.' });
+    else s.addToast({ type: 'error', message: 'Could not open the customer portal.' });
   };
 
   return (
@@ -278,6 +301,8 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
             >
               {loadingPlan === 'pro' ? (
                 <span>Loading checkout...</span>
+              ) : pendingPlan === 'pro' ? (
+                <span>Confirming payment…</span>
               ) : (
                 <>
                   <span>Subscribe to Pro</span>
@@ -359,6 +384,13 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
               Instant license activation
             </span>
             <span>Cancel anytime</span>
+            <button
+              type="button"
+              onClick={handleManageSubscription}
+              className="inline-flex items-center gap-1 rounded border border-slate-300 dark:border-slate-700 px-2 py-0.5 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              <CreditCard className="w-3 h-3" /> Manage subscription
+            </button>
           </div>
           <div className="font-mono text-[10px]">
             Inquiries: <a href="mailto:support@prismfilehero.com" className="underline hover:text-slate-900 dark:hover:text-white">support@prismfilehero.com</a>
