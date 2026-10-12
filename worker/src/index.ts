@@ -538,11 +538,13 @@ export default {
 
       // --- POST /api/paypal/webhook (public; authenticated by PayPal signature verification) ---
       // PayPal sends no Origin so it passes the CORS gate. The RAW body + the PayPal transmission
-      // headers are verified via /v1/notifications/verify-webhook-signature (cert-based; NOT the old
-      // Paddle HMAC). A non-SUCCESS verification is 401 and mutates nothing. Verified events apply
-      // through the durable apply_paypal_event RPC (event_id PK), so dedup + ordering survive
-      // restarts. Browser approval (SUBSCRIPTIONCreated/PENDING) is recorded but grants nothing —
-      // entitlement flips only on an ACTIVE event for a server-linked, allowlisted subscription.
+      // headers are verified via /v1/notifications/verify-webhook-signature (cert-based; NOT Paddle
+      // HMAC). Non-SUCCESS → 401, mutates nothing. Verified events go through the durable
+      // apply_paypal_event RPC (event_id PK ⇒ dedup/ordering survive restarts). RESOLUTION POLICY:
+      // the subscription is identified through ACTUAL identifiers — resource.subscription_id, else
+      // our server mapping resource.custom_id → user → that user's linked PayPal subscription — never
+      // an assumed webhook field and never an invented date. If neither resolves, the event is still
+      // recorded (apply returns 'unlinked') and NOTHING is granted; /reconcile recovers it later.
       if (url.pathname === '/api/paypal/webhook' && request.method === 'POST') {
         const raw = await request.text();
         const verified = await verifyWebhook(env, request.headers, raw);
@@ -553,8 +555,23 @@ export default {
         const eventId = String(evt.id ?? '');
         if (!eventId || !evt.event_type) return Response.json({ error: 'missing id/type' }, { status: 400 });
 
+        // Capture the GENUINE payload (sanitized of anything secret) so the parser can be validated
+        // against real shapes and a fixture saved. PayPal event payloads contain no secrets.
+        console.log('[paypal-webhook] verified', evt.event_type, JSON.stringify(evt.resource ?? {}).slice(0, 800));
+
         try {
-          const result = await pgRpc(env, 'apply_paypal_event', { p_event_id: eventId, p_event_type: evt.event_type, p_resource: evt.resource ?? {} });
+          const resource = { ...(evt.resource ?? {}) };
+          const isPayment = String(evt.event_type).startsWith('PAYMENT.SALE');
+          // Resolve the subscription through actual identifiers.
+          if (isPayment && !resource.subscription_id) {
+            const customId = resource.custom_id ? String(resource.custom_id) : '';
+            if (customId) {
+              const owned = await pgSelectOne(env, 'billing_subscriptions',
+                `user_id=eq.${encodeURIComponent(customId)}&provider=eq.paypal&order=updated_at.desc&limit=1&select=subscription_id`);
+              if (owned?.subscription_id) resource.subscription_id = owned.subscription_id;
+            }
+          }
+          const result = await pgRpc(env, 'apply_paypal_event', { p_event_id: eventId, p_event_type: evt.event_type, p_resource: resource });
           return Response.json({ status: 'ok', result }); // 200 ack for applied/duplicate/out_of_order/unlinked/unknown_plan
         } catch (err) {
           console.error('[paypal webhook] apply_paypal_event failed', err);

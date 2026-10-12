@@ -37,11 +37,11 @@ returns void language sql security definer set search_path = public as $$
     coalesce((select bp.plan from public.billing_price_plans bp
                 join public.billing_subscriptions s on s.plan_id = bp.price_id
                 join public.billing_payments pp on pp.subscription_id = s.subscription_id
-               where s.user_id = p_user_id and pp.status = 'captured' and pp.period_end > now()
+               where s.user_id = p_user_id and pp.status = 'captured' and pp.currency = 'USD' and pp.period_end > now()
                order by pp.period_end desc limit 1), 'free'),
     case when exists (select 1 from public.billing_subscriptions s
                         join public.billing_payments pp on pp.subscription_id = s.subscription_id
-                       where s.user_id = p_user_id and pp.status = 'captured' and pp.period_end > now())
+                       where s.user_id = p_user_id and pp.status = 'captured' and pp.currency = 'USD' and pp.period_end > now())
          then 'active' else coalesce((select s.status from public.billing_subscriptions s
                                         where s.user_id = p_user_id order by s.updated_at desc limit 1), 'inactive') end,
     now()
@@ -126,11 +126,11 @@ language sql stable security definer set search_path = public as $$
   select
     exists (select 1 from public.billing_subscriptions s
               join public.billing_payments pp on pp.subscription_id = s.subscription_id
-             where s.user_id = p_user_id and pp.status = 'captured' and pp.period_end > now()) as entitled,
+             where s.user_id = p_user_id and pp.status = 'captured' and pp.currency = 'USD' and pp.period_end > now()) as entitled,
     coalesce((select bp.plan from public.billing_price_plans bp
                 join public.billing_subscriptions s on s.plan_id = bp.price_id
                 join public.billing_payments pp on pp.subscription_id = s.subscription_id
-               where s.user_id = p_user_id and pp.status = 'captured' and pp.period_end > now()
+               where s.user_id = p_user_id and pp.status = 'captured' and pp.currency = 'USD' and pp.period_end > now()
                order by pp.period_end desc limit 1), 'free') as plan,
     coalesce((select s.status from public.billing_subscriptions s where s.user_id = p_user_id
               order by s.updated_at desc limit 1), 'inactive') as subscription_status;
