@@ -673,3 +673,31 @@ webhook→entitlement→paid access, duplicates, cross-user). Requires a PayPal 
 Client Secret, a registered webhook id, and real sandbox plan ids added to `billing_price_plans` +
 `worker/.dev.vars`. Secrets stay server-side (never in chat/Git). Live payments, paid AI, and
 production deploy remain separate authorized decisions and were NOT performed.
+
+## 28. PayPal sandbox run + payment-COVERAGE access policy (2026-10)
+
+Access-policy rework per review: for no-trial paid plans, entitlement = **verified payment
+coverage**, not an ACTIVE subscription. Migration `20261010000007` adds `billing_payments`
+(one row per PAYMENT.SALE captured/refunded/reversed with its paid-through `period_end`) and
+rewrites `apply_paypal_event` so SUBSCRIPTION.* events only update status (never grant),
+PAYMENT.SALE.COMPLETED records coverage, REFUNDED/REVERSED void the AFFECTED payment (by sale id),
+cancel stops renewal but preserves paid-through access, ordering guards status events only (payment
+events are never discarded by a newer status), and `get_user_entitlement` derives `entitled` solely
+from a captured payment whose `period_end > now()` — so reconciliation on a mere ACTIVE cannot
+restore revoked access. Verified locally: `paypal-entitlement-check` **12/12** (incl. older-period
+refund keeps current coverage; current-period refund revokes; ACTIVE-without-payment grants nothing).
+
+**Real sandbox (SELLER creds only; secrets in gitignored `.localdev/.paypal.env` + `worker/.dev.vars`):**
+- Sandbox capability CONFIRMED LIVE: OAuth token 200; `/v1/billing/plans` + `/v1/catalogs/products` 200.
+- Created real sandbox PRODUCT `PROD-5LC38000C0939640E` + 4 USD plans (monthly/annual × pro/business), HTTP 201.
+- Registered a real webhook (id saved) with EXPLICIT event names incl. PAYMENT.SALE.COMPLETED /
+  .REFUNDED / .REVERSED + the six BILLING.SUBSCRIPTION.* + PAYMENT.CAPTURE.* names (no wildcards).
+- LIVE subscribe via the Worker (server-derived identity): created PayPal subscription `I-0AX1GHACSXJG`,
+  HTTP 201 + real `approveUrl`; entitlement correctly `false` while pending.
+
+**Not evidenced as REAL payment:** a genuine `PAYMENT.SALE.COMPLETED` requires a **sandbox buyer** to
+approve the subscription at the `approveUrl` (an interactive login). No sandbox buyer account was
+provided, and simulator/test events are deliberately NOT counted as payment evidence. The
+signature-verification path itself is unit-tested against PayPal's `verify-webhook-signature` shape
+(5/5 `paypalVerify`, incl. the `*.paypal.com` cert-host SSRF guard and SUCCESS/FAILURE outcomes).
+LIVE-account capability is NOT tested (no live credentials; live payments not authorized).
