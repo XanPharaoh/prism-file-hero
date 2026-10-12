@@ -60,21 +60,20 @@ async function ins(table, rows) { return (await fetch(`${REST}/${table}`, { meth
   ok('ai concurrency: quota enforced (≥1 402) and never 200 without a provider', codes.includes(402) && !codes.includes(200), JSON.stringify(codes));
   ok('ai concurrency: no PENDING rows stranded after settle', Array.isArray(p) && p.length === 0, JSON.stringify(p)); }
 
-// 6. webhook signature accept → grants the LIVE plan; reject on bad signature
-{ const user = '11111111-0000-4000-8000-0000bbbb01', cust = 'cus_http1', sub = 'sub_http1';
-  await del('user_plans', `user_id=eq.${user}`); await del('billing_customers', `customer_id=eq.${cust}`); await del('billing_subscriptions', `subscription_id=eq.${sub}`); await del('billing_events', `customer_id=eq.${cust}`);
-  await ins('billing_customers', [{ customer_id: cust, user_id: user }]);
-  const body = JSON.stringify({ event_id: 'http-e1', event_type: 'subscription.activated', occurred_at: '2026-10-01T00:00:00Z', data: { id: sub, customer_id: cust, price_id: 'pri_SANDBOX_BUSINESS_PLACEHOLDER' } });
-  const ts = Math.floor(Date.now() / 1000); const h1 = createHmac('sha256', WEBHOOK_SECRET).update(`${ts}:${body}`).digest('hex');
-  const bad = await fetch(`${WORKER}/api/paddle/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Paddle-Signature': `ts=${ts};h1=deadbeef` }, body });
-  ok('webhook: invalid signature → 401 (no mutation)', bad.status === 401, `status=${bad.status}`);
-  const afterBad = await q('user_plans', `user_id=eq.${user}&select=plan`); ok('webhook: bad signature did not grant', Array.isArray(afterBad) && afterBad.length === 0, JSON.stringify(afterBad));
-  const good = await fetch(`${WORKER}/api/paddle/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Paddle-Signature': `ts=${ts};h1=${h1}` }, body });
-  ok('webhook: valid signature → 200 ack', good.status === 200, `status=${good.status}`);
-  const upl = await q('user_plans', `user_id=eq.${user}&select=plan,subscription_status`);
-  ok('webhook: valid event granted the LIVE user_plans (business/active)', upl[0] && upl[0].plan === 'business' && upl[0].subscription_status === 'active', JSON.stringify(upl));
-  const dup = await fetch(`${WORKER}/api/paddle/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Paddle-Signature': `ts=${ts};h1=${h1}` }, body });
-  ok('webhook: replayed event still acked 200 (dedupe by PK)', dup.status === 200, `status=${dup.status}`); }
+// 6. PayPal: an UNVERIFIED webhook never grants; subscribe is gated on creds; entitlement is server-derived.
+{ const user = '11111111-0000-4000-8000-0000bbbb01', sub = 'I-HTTP1';
+  await del('user_plans', `user_id=eq.${user}`); await del('billing_subscriptions', `subscription_id=eq.${sub}`); await del('billing_events', `subscription_id=eq.${sub}`);
+  const evt = JSON.stringify({ id: 'http-pay-1', event_type: 'BILLING.SUBSCRIPTION.ACTIVATED', resource: { id: sub, status: 'ACTIVE', plan_id: 'P-SANDBOX-PRO-MONTHLY' } });
+  const unsigned = await fetch(`${WORKER}/api/paypal/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: evt });
+  ok('paypal webhook: unverified event → 401 (browser/forged approval cannot grant)', unsigned.status === 401, `status=${unsigned.status}`);
+  const after = await q('user_plans', `user_id=eq.${user}&select=plan`);
+  ok('paypal webhook: unverified event granted nothing', Array.isArray(after) && after.length === 0, JSON.stringify(after));
+  const t = await bearer(user);
+  const sj = await (await fetch(`${WORKER}/api/billing/paypal/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ plan: 'pro', cycle: 'monthly' }) })).json().catch(() => ({}));
+  const sub503 = await fetch(`${WORKER}/api/billing/paypal/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ plan: 'pro', cycle: 'monthly' }) });
+  ok('paypal subscribe: without credentials → 503 configured:false (never grants)', sub503.status === 503 && sj.configured === false, `${sub503.status} ${JSON.stringify(sj)}`);
+  const ej = await (await fetch(`${WORKER}/api/billing/entitlement`, { headers: { Authorization: `Bearer ${t}` } })).json().catch(() => ({}));
+  ok('paypal entitlement: server-derived plan for the caller', typeof ej.plan === 'string' && ej.source === 'server', JSON.stringify(ej)); }
 
 console.log(`\n=== worker-routes-check: ${pass} passed, ${fail} failed ===`);
 process.exit(fail === 0 ? 0 : 1);

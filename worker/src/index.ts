@@ -3,8 +3,10 @@ import { getUsageSummary, checkServerLimit, reportAndSummarize, reserveUsage, se
 import { isAiTool, isFreeTool } from '../../services/usageConfig';
 import { activationCodeMatches, issueDeviceToken, revokeDeviceToken, sha256Base64Url, verifyDeviceToken } from './deviceTokens';
 import { validateClerkClaims } from './jwtValidation';
-import { verifyPaddleSignature } from './billing/paddleVerify';
-import { createCustomer, createTransaction, createPortalSession, BillingNotConfigured, type PaddleEnv } from './billing/paddleApi';
+import {
+  createSubscription, activateSubscription, getSubscription, cancelSubscription, verifyWebhook,
+  BillingNotConfigured, type PayPalEnv,
+} from './billing/paypalApi';
 
 interface Env {
   NVIDIA_API_KEY: string;
@@ -21,15 +23,16 @@ interface Env {
   ALLOWED_ORIGIN?: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
-  /** Paddle webhook shared secret (sandbox or prod). Absent => webhook signature always fails. */
-  PADDLE_WEBHOOK_SECRET?: string;
-  /** Server-side Paddle API key for checkout/portal. Absent => billing routes return 503 (never a browser key). */
-  PADDLE_API_KEY?: string;
-  /** 'true' => Paddle sandbox host; else production host. */
-  PADDLE_SANDBOX?: string;
-  /** Allowlisted Paddle price IDs; the browser cannot supply an arbitrary price id. */
-  PADDLE_PRICE_PRO?: string;
-  PADDLE_PRICE_BUSINESS?: string;
+  /** R7 — PayPal (sub)scriptions. Credentials are server-side only; never sent to the browser. */
+  PAYPAL_CLIENT_ID?: string;
+  PAYPAL_SECRET?: string;
+  PAYPAL_ENV?: string;               // 'sandbox' (default) | 'live'
+  PAYPAL_WEBHOOK_ID?: string;        // id of the registered PayPal webhook (for signature verification)
+  /** Server-side map of internal plan+cycle → allowlisted PayPal plan id. Browser never supplies these. */
+  PAYPAL_PLAN_PRO_MONTHLY?: string;
+  PAYPAL_PLAN_PRO_ANNUAL?: string;
+  PAYPAL_PLAN_BUSINESS_MONTHLY?: string;
+  PAYPAL_PLAN_BUSINESS_ANNUAL?: string;
   CLERK_JWKS_URL: string;
   /** Optional explicit claim configuration; issuer defaults to the JWKS origin. */
   CLERK_JWT_ISSUER?: string;
@@ -533,73 +536,71 @@ export default {
         return Response.json({ status: 'ok' }, { headers: cors });
       }
 
-      // --- POST /api/paddle/webhook (public; authenticated by raw-body signature) ---
-      // Paddle sends no Origin, so it passes the CORS gate above. The RAW body is verified
-      // before any JSON handling; a failed signature is 401 and never mutates state. Applying
-      // goes through the Postgres `apply_billing_event` RPC (event_id PK) so dedup + ordering
-      // survive process restarts. A browser checkout completion never hits this path, so it can
-      // never grant entitlement on its own — only a verified webhook projects subscription state.
-      if (url.pathname === '/api/paddle/webhook' && request.method === 'POST') {
+      // --- POST /api/paypal/webhook (public; authenticated by PayPal signature verification) ---
+      // PayPal sends no Origin so it passes the CORS gate. The RAW body + the PayPal transmission
+      // headers are verified via /v1/notifications/verify-webhook-signature (cert-based; NOT the old
+      // Paddle HMAC). A non-SUCCESS verification is 401 and mutates nothing. Verified events apply
+      // through the durable apply_paypal_event RPC (event_id PK), so dedup + ordering survive
+      // restarts. Browser approval (SUBSCRIPTIONCreated/PENDING) is recorded but grants nothing —
+      // entitlement flips only on an ACTIVE event for a server-linked, allowlisted subscription.
+      if (url.pathname === '/api/paypal/webhook' && request.method === 'POST') {
         const raw = await request.text();
-        const sig = request.headers.get('Paddle-Signature') ?? request.headers.get('Webhook-Signature');
-        const ok = await verifyPaddleSignature(raw, sig, env.PADDLE_WEBHOOK_SECRET || '');
-        if (!ok) return Response.json({ error: 'invalid signature' }, { status: 401 });
+        const verified = await verifyWebhook(env, request.headers, raw);
+        if (!verified) return Response.json({ error: 'invalid signature' }, { status: 401 });
 
-        let evt: { event_id?: string; event_type?: string; occurred_at?: string; data?: { id?: string; customer_id?: string; subscription_id?: string; metadata?: { plan?: string } } };
+        let evt: { id?: string; event_type?: string; resource?: Record<string, unknown> };
         try { evt = JSON.parse(raw); } catch { return Response.json({ error: 'malformed body' }, { status: 400 }); }
-        const eventId = String(evt.event_id ?? '');
-        const subId = String(evt.data?.id ?? evt.data?.subscription_id ?? '') || null;
-        if (!eventId || !evt.event_type) return Response.json({ error: 'missing event_id/type' }, { status: 400 });
+        const eventId = String(evt.id ?? '');
+        if (!eventId || !evt.event_type) return Response.json({ error: 'missing id/type' }, { status: 400 });
 
-        const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/apply_billing_event`, {
-          method: 'POST',
-          headers: {
-            'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-            'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_event_id: eventId,
-            p_event_type: evt.event_type,
-            p_occurred_at: evt.occurred_at ?? new Date().toISOString(),
-            p_subscription_id: subId,
-            p_customer_id: evt.data?.customer_id ?? null,
-            p_payload: evt,
-          }),
-        });
-        if (!res.ok) {
-          console.error('[billing] apply_billing_event failed', res.status, await res.text());
-          return Response.json({ error: 'projection failed' }, { status: 502 });
+        try {
+          const result = await pgRpc(env, 'apply_paypal_event', { p_event_id: eventId, p_event_type: evt.event_type, p_resource: evt.resource ?? {} });
+          return Response.json({ status: 'ok', result }); // 200 ack for applied/duplicate/out_of_order/unlinked/unknown_plan
+        } catch (err) {
+          console.error('[paypal webhook] apply_paypal_event failed', err);
+          return Response.json({ error: 'processing failed' }, { status: 502 });
         }
-        return Response.json({ status: 'ok' }); // 200 ack for applied / duplicate / out_of_order
       }
 
       // --- Billing (R2/R3). Identity is ALWAYS the server-verified Clerk sub; the browser never
-      // supplies user_id/customer_id/price_id as authority. Paddle calls are gated on PADDLE_API_KEY.
+      // supplies user_id/customer_id/plan as authority. PayPal calls are gated on client credentials.
 
-      // POST /api/billing/checkout — create a server-side transaction for an allowlisted plan.
-      if (url.pathname === '/api/billing/checkout' && request.method === 'POST') {
+      // POST /api/billing/paypal/subscribe — create a server-side PayPal subscription for an allowlisted plan.
+      if (url.pathname === '/api/billing/paypal/subscribe' && request.method === 'POST') {
         const token = bearer(request);
         if (!token) return Response.json({ error: 'Authentication required' }, { status: 401, headers: cors });
         const jp = await verifyJWT(token, env);
         if (!jp) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
         const body = await readBoundedJson(request, 4096);
-        const plan = body && typeof body === 'object' ? (body as any).plan : undefined;
-        // Server maps the requested plan to an ALLOWLISTED price id; an arbitrary browser price is never used.
-        const priceId = plan === 'business' ? env.PADDLE_PRICE_BUSINESS : plan === 'pro' ? env.PADDLE_PRICE_PRO : undefined;
-        if (!priceId) return Response.json({ error: 'Invalid plan (pro|business) or price not configured' }, { status: 400, headers: cors });
+        const plan = body && typeof body === 'object' ? (body as any).plan : undefined;         // 'pro' | 'business'
+        const cycle = body && typeof body === 'object' ? (body as any).cycle : undefined;         // 'monthly' | 'annual'
+        if (plan !== 'pro' && plan !== 'business') return Response.json({ error: 'plan must be pro|business' }, { status: 400, headers: cors });
+        if (cycle !== 'monthly' && cycle !== 'annual') return Response.json({ error: 'cycle must be monthly|annual' }, { status: 400, headers: cors });
+        // The browser names ONLY an internal plan + cycle; the SERVER resolves it to an allowlisted PayPal plan id.
+        const paypalPlanId =
+          plan === 'business' ? (cycle === 'annual' ? env.PAYPAL_PLAN_BUSINESS_ANNUAL : env.PAYPAL_PLAN_BUSINESS_MONTHLY)
+          : (cycle === 'annual' ? env.PAYPAL_PLAN_PRO_ANNUAL : env.PAYPAL_PLAN_PRO_MONTHLY);
+        if (!paypalPlanId) return Response.json({ error: 'PayPal plan not configured for this build', configured: false }, { status: 503, headers: cors });
         try {
-          const existing = await pgSelectOne(env, 'billing_customers', `user_id=eq.${encodeURIComponent(jp.sub)}&select=customer_id`);
-          const customerId: string = existing?.customer_id ?? (await createCustomer(env, (body as any)?.email))?.id;
-          if (!customerId) return Response.json({ error: 'customer creation failed' }, { status: 502, headers: cors });
-          const link = await pgRpc(env, 'ensure_billing_customer', { p_user_id: jp.sub, p_customer_id: customerId });
-          if (link !== 'ok') return Response.json({ error: 'customer link conflict', detail: link }, { status: 502, headers: cors });
-          const txn = await createTransaction(env, { customerId, priceId, userId: jp.sub });
-          return Response.json({ status: 'pending', plan, transactionId: txn?.id, checkoutUrl: txn?.checkout?.url ?? null }, { status: 201, headers: cors });
+          const origin = url.origin;
+          const created = await createSubscription(env, {
+            planId: paypalPlanId, userId: jp.sub,
+            returnUrl: `${origin}/app?checkout=success`, cancelUrl: `${origin}/app?checkout=cancelled`,
+          });
+          const subId = created.json?.id;
+          if (created.status >= 400 || !subId) {
+            console.error('[paypal/subscribe] create failed', created.status, created.text?.slice(0, 300));
+            return Response.json({ error: 'could not create subscription', detail: created.json?.message }, { status: 502, headers: cors });
+          }
+          // Persist the server-side owner+attempt BEFORE the buyer approves. Refuses unknown plans/foreign owners.
+          const begin = await pgRpc(env, 'begin_paypal_subscription', { p_user_id: jp.sub, p_subscription_id: subId, p_plan_id: paypalPlanId });
+          if (begin !== 'ok') return Response.json({ error: 'subscription link refused', detail: begin }, { status: 502, headers: cors });
+          const approveUrl = (created.json?.links ?? []).find((l: any) => l.rel === 'approve')?.href ?? null;
+          return Response.json({ status: 'pending', plan, subscriptionId: subId, approveUrl }, { status: 201, headers: cors });
         } catch (err: any) {
           if (err instanceof BillingNotConfigured) return Response.json({ error: err.message, configured: false }, { status: 503, headers: cors });
-          console.error('[billing/checkout]', err);
-          return Response.json({ error: 'checkout failed' }, { status: 502, headers: cors });
+          console.error('[paypal/subscribe]', err);
+          return Response.json({ error: 'subscribe failed' }, { status: 502, headers: cors });
         }
       }
 
@@ -611,24 +612,58 @@ export default {
         if (!jp) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
         const ent = await pgRpc(env, 'get_user_entitlement', { p_user_id: jp.sub });
         const row = Array.isArray(ent) ? ent[0] : ent;
-        return Response.json({ userId: jp.sub, source: 'server', ...row }, { headers: cors });
+        // Include the caller's own active PayPal subscription id so the account UI can offer cancel.
+        const subs = await (await fetch(`${env.SUPABASE_URL}/rest/v1/billing_subscriptions?user_id=eq.${encodeURIComponent(jp.sub)}&provider=eq.paypal&status=eq.ACTIVE&order=updated_at.desc&limit=1&select=subscription_id,plan_id,status`, { headers: pgHeaders(env) })).json();
+        const active = Array.isArray(subs) ? subs[0] : null;
+        return Response.json({ userId: jp.sub, source: 'server', ...row, activeSubscriptionId: active?.subscription_id ?? null, activePlanId: active?.plan_id ?? null }, { headers: cors });
       }
 
-      // POST /api/billing/portal — an authorized customer-portal session for the caller's own linked customer.
-      if (url.pathname === '/api/billing/portal' && request.method === 'POST') {
+      // POST /api/billing/paypal/cancel — cancel the CALLER'S OWN linked subscription (ownership checked
+      // against the server mapping, never a browser claim), then apply the canceled state durably.
+      if (url.pathname === '/api/billing/paypal/cancel' && request.method === 'POST') {
+        const token = bearer(request);
+        if (!token) return Response.json({ error: 'Authentication required' }, { status: 401, headers: cors });
+        const jp = await verifyJWT(token, env);
+        if (!jp) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
+        const body = await readBoundedJson(request, 4096);
+        const subId = String((body as any)?.subscriptionId ?? '');
+        if (!subId) return Response.json({ error: 'subscriptionId required' }, { status: 400, headers: cors });
+        const owned = await pgSelectOne(env, 'billing_subscriptions', `subscription_id=eq.${encodeURIComponent(subId)}&user_id=eq.${encodeURIComponent(jp.sub)}&select=subscription_id`);
+        if (!owned) return Response.json({ error: 'not your subscription' }, { status: 403, headers: cors }); // ownership is the server mapping
+        try {
+          const c = await cancelSubscription(env, subId);
+          if (c.status >= 400 && c.status !== 422) return Response.json({ error: 'cancel failed', detail: c.json?.message }, { status: 502, headers: cors });
+          await pgRpc(env, 'apply_paypal_event', { p_event_id: `manual-cancel-${subId}`, p_event_type: 'BILLING.SUBSCRIPTION.CANCELLED', p_resource: { id: subId, status: 'CANCELLED' } });
+          return Response.json({ status: 'canceled' }, { headers: cors });
+        } catch (err: any) {
+          if (err instanceof BillingNotConfigured) return Response.json({ error: err.message, configured: false }, { status: 503, headers: cors });
+          console.error('[paypal/cancel]', err);
+          return Response.json({ error: 'cancel failed' }, { status: 502, headers: cors });
+        }
+      }
+
+      // POST /api/billing/paypal/reconcile — read the AUTHORITATIVE PayPal subscription state for the
+      // caller's own linked subscriptions and apply it, so a delayed/missing webhook still resolves.
+      if (url.pathname === '/api/billing/paypal/reconcile' && request.method === 'POST') {
         const token = bearer(request);
         if (!token) return Response.json({ error: 'Authentication required' }, { status: 401, headers: cors });
         const jp = await verifyJWT(token, env);
         if (!jp) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
         try {
-          const own = await pgSelectOne(env, 'billing_customers', `user_id=eq.${encodeURIComponent(jp.sub)}&select=customer_id`);
-          if (!own?.customer_id) return Response.json({ status: 'no_subscription' }, { headers: cors });
-          const session = await createPortalSession(env, own.customer_id);
-          return Response.json({ url: session?.url ?? null }, { headers: cors });
+          const rows = (await (await fetch(`${env.SUPABASE_URL}/rest/v1/billing_subscriptions?user_id=eq.${encodeURIComponent(jp.sub)}&provider=eq.paypal&select=subscription_id,status`, { headers: pgHeaders(env) })).json()) as { subscription_id: string; status: string }[];
+          const out: { subscriptionId: string; status: string; applied: string }[] = [];
+          for (const r of rows ?? []) {
+            const g = await getSubscription(env, r.subscription_id);
+            const status = g.json?.status ?? r.status;
+            const planId = g.json?.plan_id ?? null;
+            const applied = await pgRpc(env, 'apply_paypal_event', { p_event_id: `reconcile-${r.subscription_id}-${status}`, p_event_type: status === 'ACTIVE' ? 'BILLING.SUBSCRIPTION.ACTIVATED' : 'BILLING.SUBSCRIPTION.UPDATED', p_resource: { id: r.subscription_id, status, plan_id: planId } });
+            out.push({ subscriptionId: r.subscription_id, status, applied });
+          }
+          return Response.json({ reconciled: out }, { headers: cors });
         } catch (err: any) {
           if (err instanceof BillingNotConfigured) return Response.json({ error: err.message, configured: false }, { status: 503, headers: cors });
-          console.error('[billing/portal]', err);
-          return Response.json({ error: 'portal failed' }, { status: 502, headers: cors });
+          console.error('[paypal/reconcile]', err);
+          return Response.json({ error: 'reconcile failed' }, { status: 502, headers: cors });
         }
       }
 

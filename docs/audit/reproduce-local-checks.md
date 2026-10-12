@@ -57,6 +57,8 @@ fail. The site loader (`site/assets/tool.js` `OCR_OPTS`) points at these same-or
 ## 4. Run the checks
 ```
 npm run check:backend            # 27 — DB authority vs real PostgREST (needs §1 + tokens)
+npm run check:privilege          # 23 — privilege escalation (self-upgrade, credits, privileged fns, cross-user)
+npm run check:paypal-entitlement # 16 — PayPal access policy/idempotency/ownership (no PayPal creds needed)
 npm run check:worker             # 13 — Worker routes over HTTP (needs §1,§2 + a local JWKS stand-in)
 npm run check:conversions        # real office→pdf; AUTO-builds prism-lo; FAILS LOUD if no Docker
 npm run check:offline-ocr        # site OCR with all non-local network blocked; 0 external requests
@@ -86,8 +88,16 @@ reason" for its live-conversion case when no binary is present — that case als
 `npm run check:conversions`. A skipped conversion is NEVER presented as a passing one.
 
 ## 6. Credential/deploy-gated (documented, NOT part of the local run)
-- `npm run check:paddle-sandbox` exits **2 (PENDING)** unless `PADDLE_WEBHOOK_SECRET` is a real
-  sandbox secret. Real sandbox replay also needs sandbox products/prices and a `customer_id → user`
-  link established server-side at checkout.
+- Billing provider is **PayPal Subscriptions** (Paddle removed). Local LOGIC is fully verified via
+  `check:paypal-entitlement` (16) + `check:worker` (unverified webhook 401, subscribe-without-creds
+  503). The network-dependent steps are gated and exit **2 (PENDING)** without real sandbox creds:
+  - `npm run check:paypal-capability` — verifies the account's Subscriptions + USD capability and
+    creates/reuses the sandbox PRODUCT + monthly/annual PLANS; prints plan ids.
+    Needs `PAYPAL_CLIENT_ID`/`PAYPAL_SECRET` (+ `PAYPAL_ENV=sandbox`) from a developer.paypal.com app.
+  - `npm run check:paypal-sandbox` — subscribe → server confirm → verified signed webhook →
+    entitlement → paid access, incl. duplicate + cross-user. Needs the above + `PAYPAL_WEBHOOK_ID`
+    and the sandbox plan ids registered in `billing_price_plans` + `worker/.dev.vars`.
+  Client Secret + webhook verification stay server-side; live payments are a separate decision.
 - Live AI (`/api/ai` model output) needs NVIDIA/Groq/Mistral keys (separately authorized).
-- Deployed Worker + remote Supabase schema/RLS verification is a separate authorized step.
+- Deployed Worker + remote Supabase schema/RLS verification is a separate authorized step
+  (`npm run inspect:prod-security`, read-only, gated on a DSN).

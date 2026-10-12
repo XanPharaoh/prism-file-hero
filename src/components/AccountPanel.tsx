@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useClerk } from '@clerk/react';
 import { LogOut, ArrowUpRight } from 'lucide-react';
 import { useAppStore, type AppUser } from '../store/appStore';
+import { fetchEntitlement, cancelSubscription, type Entitlement } from '../../services/billingService';
 
 interface Props {
   user: AppUser;
@@ -19,6 +20,23 @@ export default function AccountPanel({ user, onSignOut }: Props) {
   const clerk = useClerk();
   const s = useAppStore();
   const initials = getInitials(user.name, user.email);
+  const [ent, setEnt] = useState<Entitlement & { activeSubscriptionId?: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // R7 Req 8 — subscription status + cancellation, all server-derived (never a browser claim).
+  useEffect(() => {
+    if (!user) return;
+    fetchEntitlement().then((e) => { if (e) setEnt(e as typeof ent); }).catch(() => {});
+  }, [user, s.isPremium]);
+
+  const doCancel = async () => {
+    if (!ent?.activeSubscriptionId || busy) return;
+    setBusy(true);
+    const r = await cancelSubscription(ent.activeSubscriptionId);
+    setBusy(false);
+    s.addToast({ type: r.ok ? 'success' : 'error', message: r.ok ? 'Subscription canceled.' : (r.error || 'Could not cancel.') });
+    fetchEntitlement().then((e) => { if (e) setEnt(e as typeof ent); if (e && !e.entitled) s.setIsPremium(false); });
+  };
 
   return (
     <div className="rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111622] p-3 text-xs shadow-sm space-y-2.5">
@@ -61,6 +79,32 @@ export default function AccountPanel({ user, onSignOut }: Props) {
           </button>
         )}
       </div>
+
+      {s.isPremium && (
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">PayPal subscription</span>
+            <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+              {(ent?.subscription_status ?? 'active').toUpperCase()}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            {ent?.activeSubscriptionId ? (
+              <button
+                type="button"
+                onClick={doCancel}
+                disabled={busy}
+                className="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+              >
+                {busy ? 'Cancelling…' : 'Cancel subscription'}
+              </button>
+            ) : (
+              <span className="text-[10px] text-slate-400">Manage via your PayPal account.</span>
+            )}
+            <span className="text-[9px] font-mono text-slate-400 truncate max-w-[40%]">{ent?.activeSubscriptionId ?? ''}</span>
+          </div>
+        </div>
+      )}
 
       <button
         type="button"

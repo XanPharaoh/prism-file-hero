@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Check, ShieldCheck, Zap, Sparkles, Building, CreditCard, ExternalLink } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { analytics } from '../services/analyticsService';
-import { startCheckout, fetchEntitlement, openPortal } from '../../services/billingService';
+import { startPayPalSubscribe, fetchEntitlement, reconcile } from '../../services/billingService';
 
 interface UpgradeModalProps {
   onClose: () => void;
@@ -71,23 +71,23 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
     }
 
     try {
-      // R3: the browser sends ONLY the plan intent. The server derives the user identity from the
-      // verified token, maps the plan to an allowlisted price id, creates the customer + Paddle
-      // transaction, and links them. No userId/email/cycle/currency is trusted as entitlement.
-      const res = await startCheckout(planId);
+      // R7: the browser sends ONLY plan + cycle. The server derives the identity from the verified
+      // token, maps plan+cycle to an allowlisted PayPal plan id, creates the PayPal subscription, and
+      // persists the user↔subscription link. No userId/customer_id/plan id is trusted from here.
+      const res = await startPayPalSubscribe(planId, billingCycle);
       if (res.configured === false) {
-        s.addToast({ type: 'info', message: 'Checkout isn’t enabled in this build yet (no payment provider key configured).' });
+        s.addToast({ type: 'info', message: 'PayPal checkout isn’t enabled in this build yet (no sandbox/live credentials configured).' });
         return;
       }
       if (!res.ok) {
         s.addToast({ type: 'error', message: res.error === 'network' ? 'Unable to reach the billing service.' : (res.error || 'Unable to start checkout.') });
         return;
       }
-      if (res.checkoutUrl && typeof window !== 'undefined') {
-        window.open(res.checkoutUrl, '_blank', 'noopener,noreferrer');
+      if (res.approveUrl && typeof window !== 'undefined') {
+        window.open(res.approveUrl, '_blank', 'noopener,noreferrer');
       }
-      s.addToast({ type: 'success', message: `Opening secure ${planId === 'pro' ? 'Pro' : 'Business'} checkout…` });
-      setPendingPlan(planId); // poll the SERVER for confirmation
+      s.addToast({ type: 'success', message: `Complete your ${planId === 'pro' ? 'Pro' : 'Business'} subscription in PayPal…` });
+      setPendingPlan(planId); // poll the SERVER for confirmation (browser approval grants nothing)
     } catch (err) {
       console.error('[Subscription] Failed to initiate checkout:', err);
       s.addToast({ type: 'error', message: 'Unable to start checkout. Please contact support@prismfilehero.com.' });
@@ -96,12 +96,11 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
     }
   };
 
-  const handleManageSubscription = async () => {
-    const res = await openPortal();
-    if (res.url && typeof window !== 'undefined') window.open(res.url, '_blank', 'noopener,noreferrer');
-    else if (res.configured === false) s.addToast({ type: 'info', message: 'Subscription management isn’t enabled in this build yet.' });
-    else if (res.status === 'no_subscription') s.addToast({ type: 'info', message: 'No active subscription to manage.' });
-    else s.addToast({ type: 'error', message: 'Could not open the customer portal.' });
+  const handleReconcile = async () => {
+    const r = await reconcile();
+    if (r.configured === false) s.addToast({ type: 'info', message: 'PayPal reconciliation isn’t enabled in this build yet.' });
+    else if (r.ok) s.addToast({ type: 'info', message: 'Subscription status refreshed from PayPal.' });
+    else s.addToast({ type: 'error', message: 'Could not refresh subscription status.' });
   };
 
   return (
@@ -386,10 +385,10 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
             <span>Cancel anytime</span>
             <button
               type="button"
-              onClick={handleManageSubscription}
+              onClick={handleReconcile}
               className="inline-flex items-center gap-1 rounded border border-slate-300 dark:border-slate-700 px-2 py-0.5 font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
-              <CreditCard className="w-3 h-3" /> Manage subscription
+              <CreditCard className="w-3 h-3" /> Refresh from PayPal
             </button>
           </div>
           <div className="font-mono text-[10px]">

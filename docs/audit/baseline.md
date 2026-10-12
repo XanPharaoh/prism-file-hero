@@ -637,3 +637,39 @@ STILL EXTERNALLY VERIFIED-ONLY (require credentials/deploy — honestly NOT done
 - **Deployed** Worker + **remote** Supabase: prior-schema UPGRADE against the real production dump,
   RLS under real JWT roles, CORS/redirects/crawlers. A hosted Worker cannot reach this dev machine's
   localhost DB — production deploy is a separate authorized decision and was NOT performed.
+
+## 27. Billing provider switch — Paddle → PayPal (2026-10)
+
+Per direction, checkout moved to **direct PayPal Subscriptions** (South African Business account,
+**USD** for the US audience). Paddle checkout was **stopped and removed** (`paddleApi.ts`,
+`paddleVerify.ts`, `scripts/paddle-sandbox-check.mjs`, the `/api/paddle/webhook` + Paddle checkout/
+portal routes, `PADDLE_*` env). PRESERVED and reused: plan catalog, credit ledger, `user_plans`,
+RLS, the durable `billing_events`/`billing_subscriptions` inbox, `billing_price_plans` (now a
+**PayPal plan-id → tier** allowlist), and `get_user_entitlement`.
+
+- **Trust model unchanged:** entitlement authority is SERVER-only. `begin_paypal_subscription`
+  persists the internal user (canonical Clerk `sub`) ↔ PayPal subscription + allowlisted plan id
+  BEFORE any browser approval; the browser sends only `{plan, cycle}` and never a user/customer/
+  plan id. A browser approval (`SUBSCRIPTIONCreated`/PENDING) grants nothing.
+- **Webhook verification is PayPal's documented mechanism** (`/v1/notifications/verify-webhook-signature`,
+  cert/transmission based) with an `https://*.paypal.com` cert-host allowlist (SSRF guard) — NOT the
+  Paddle HMAC. Non-SUCCESS → 401, no mutation.
+- **`apply_paypal_event`** maps the documented access policy: ACTIVE+linked+allowlisted → grant;
+  SUSPENDED/CANCELLED/EXPIRED → revoke; PAYMENT.FAILED / CAPTURE.DENIED/REVERSED/REFUNDED → past_due
+  (negative event types evaluated BEFORE a status=ACTIVE so a failed/reversed payment never grants);
+  duplicate idempotent; out-of-order ignored; unlinked/unknown-plan recorded but grant nothing.
+- **Reconcile** route reads authoritative PayPal state for the caller's own linked subs (delayed/
+  missing webhook). Account UI shows status + Cancel (ownership checked server-side).
+
+Local verification (real Postgres/Worker; NO PayPal creds → gated scripts exit 2):
+- `scripts/paypal-entitlement-check.mjs` **16/16** (state machine + idempotency + ownership).
+- `scripts/privilege-escalation-check.mjs` **23/23**, `backend-integration-check` **27/27**,
+  `worker-routes-check` **12/12** (unverified webhook 401; subscribe without creds 503 configured:false;
+  server-derived entitlement). tests: `paypalVerify` 5, `billingService` (PayPal) 5. Full suite 711/5-skip.
+
+STILL credential-gated (not run — no false pass): `check:paypal-capability` (verify account Subscriptions
++ USD and create sandbox product/plans) and `check:paypal-sandbox` (real subscribe→approve→signed
+webhook→entitlement→paid access, duplicates, cross-user). Requires a PayPal **sandbox** app: Client ID,
+Client Secret, a registered webhook id, and real sandbox plan ids added to `billing_price_plans` +
+`worker/.dev.vars`. Secrets stay server-side (never in chat/Git). Live payments, paid AI, and
+production deploy remain separate authorized decisions and were NOT performed.
