@@ -14,6 +14,8 @@
     "check:backend": "node scripts/backend-integration-check.mjs",
     "check:worker": "node scripts/worker-routes-check.mjs",
     "check:privilege": "node scripts/privilege-escalation-check.mjs",
+    "check:paddle-sandbox": "node scripts/paddle-sandbox-check.mjs",
+    "inspect:prod-security": "node scripts/prod-security-inspect.mjs",
     "tokens:local": "node scripts/mint-local-tokens.mjs",
     "check:offline-ocr": "node scripts/offline-ocr-check.mjs",
     "check:app": "node scripts/app-evidence.mjs",
