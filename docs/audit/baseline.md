@@ -810,3 +810,64 @@ of failure); the sandbox app secret was pasted into chat and should be rotated i
 dashboard; a real `PAYMENT.SALE.COMPLETED` still requires the sandbox buyer to approve at
 `https://www.sandbox.paypal.com/webapps/billing/subscriptions?ba_token=BA-5EG71204MW627823H`
 (`I-N4ECJF9TG5HX`, still `APPROVAL_PENDING`).
+
+## 30. Buyer approved for real — payment coverage, and the return URL was wrong (2026-10-12)
+
+**The approval happened and the webhooks were real.** The sandbox buyer approved `I-N4ECJF9TG5HX`;
+PayPal reports `ACTIVE`, `billing_info.last_payment = USD 19.00 @ 2026-10-12T13:23:06Z`,
+`next_billing_time = 2026-11-12T10:00:00Z`. Two genuine events were delivered, verified and stored:
+`WH-9WJ6344699495272U-8AJ98868LV727523T` (`PAYMENT.SALE.COMPLETED`) and
+`WH-4WB51450VF3050420-9WB69993J0588970K` (`BILLING.SUBSCRIPTION.ACTIVATED`), each answered `200 OK`.
+
+**A verified payment still granted nothing — and that was our bug, not PayPal's.** The real sale
+payload carries `id`, `state`, `amount.{currency,total}`, `create_time`, `subscription_id`,
+`billing_agreement_id`, `custom`… and **no** `billing_period_start_date` / `billing_period_end_date`
+(only renewal-shaped payloads include those). Coverage requires a future `period_end`, so
+`get_user_entitlement` correctly answered `false | free | ACTIVE` for a user who had genuinely paid.
+The paid-through date exists, but only on PayPal's subscription object. Fix (migration
+`20261012000004` + Worker): on a verified `PAYMENT.SALE.COMPLETED` with no period dates, read
+`billing_info.next_billing_time` / `last_payment.time` from PayPal (`coverageWindow`) and pass them
+through `set_payment_coverage`, a function that can only bound the window of an **existing** payment —
+it cannot create one, change amount/currency/status, reassign its subscription, or name a plan.
+When PayPal answers nothing, no date is invented (unit-tested); `/reconcile` repairs such a row.
+
+**Proven twice, from real data.** Deleting the payment row and resending the *same real event*
+recreated it through the webhook path alone:
+`3E514943GY2888425 | USD | 19.00 | 2026-10-12T13:23:06Z → 2026-11-12T10:00:00Z | captured`,
+entitlement `true/pro`, `billing_subscriptions.last_event_id` = the real sale event. Independently,
+`/api/billing/paypal/reconcile` reported `repaired: 1` and produced the same state.
+
+**Paid-feature access at the enforcement layer:** for the approved user, `reserve_usage` resolves
+`plan: pro, ai_pages_limit: 500`; for another user on the same tool, `plan: free, ai_pages_limit: 10`.
+No paid AI call was made — this is the quota preflight only.
+
+**The return URL bug the user hit.** `subscribe` built `returnUrl`/`cancelUrl` from the Worker's own
+request origin, so PayPal redirected the browser to `127.0.0.1:8787/app?checkout=success` — an API
+origin with no such route, hence `{"error":"Not found"}`. Now built only from an explicit
+`FRONTEND_URL` (`worker/src/billing/urls.ts`): unset or non-http(s) → `503 {configured:false}`
+*before* any PayPal call (demonstrated by removing the variable and calling the route), so a
+misconfigured deploy cannot send a buyer to a dead host.
+
+**`checkout=success` grants nothing.** The app reads the parameter only to choose which message to
+show, immediately strips it with `history.replaceState`, and asks `/api/billing/entitlement`;
+`isPremium` flips **only** on that server answer. `/` → `/app` now carries the query through
+(`RedirectToApp`) instead of dropping it.
+
+**Browser verification (`npm run check:checkout`, 13/13, screenshots in `evidence/checkout-return/`):**
+unconfirmed return shows "Confirming…" → "Not confirmed yet" with the entitlement request answered
+`401` and no "is active" claim; the approved user's return shows "PRO is active" driven by a real
+`200 entitled:true plan:pro` from the Worker+DB, and a plain visit afterwards renders no panel at all;
+`?checkout=cancelled` says nothing was charged and makes no entitlement claim.
+**Boundary of that evidence:** `.env.local` points the browser at a LIVE Clerk instance and the
+deployed Worker, so the test runs Vite against the local Worker and substitutes the locally minted
+RS256 token for the Clerk *session* only (header injection on `/api/billing/**`). Every entitlement
+answer is still the real server's; the signed-out header still shows "Log In", i.e. a complete
+Clerk-session browser run is **not** yet evidenced.
+
+**Local totals after this round:** `checkout-return-check` 13/13, entitlement 12/12, backend 32/32,
+privilege 29/29, worker routes 15/15, `vitest run` 726 passed / 5 skipped, `tsc --noEmit` clean.
+
+**Open:** renewal (`PAYMENT.SALE.COMPLETED` #2) and a real refund/reversal are still not evidenced —
+the next renewal is 2026-11-12; a refund needs the sandbox dashboard. Rotate the sandbox app secret.
+A named tunnel or the deployed Worker is needed for delivery evidence that does not depend on a
+developer machine staying awake.

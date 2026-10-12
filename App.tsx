@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { useAuth, useUser, useClerk } from '@clerk/react';
 import {
@@ -17,6 +17,7 @@ import { TauriFileSystemProvider } from './src/providers/TauriFileSystemProvider
 import { WebFileSystemProvider } from './src/providers/WebFileSystemProvider';
 import HistoryDashboard from './src/components/HistoryDashboard';
 import AuthModal from './src/components/AuthModal';
+import CheckoutStatus from './src/components/CheckoutStatus';
 import AccountPanel from './src/components/AccountPanel';
 import QuotaExceededModal from './src/components/QuotaExceededModal';
 import UpgradeModal from './src/components/UpgradeModal';
@@ -488,6 +489,7 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-[#0B0F19] text-slate-900 dark:text-slate-100 font-sans transition-colors duration-150">
+      {!internalDesktop && <CheckoutStatus />}
       {!internalDesktop && s.showAuthModal && <AuthModal onClose={() => s.setShowAuthModal(false)} />}
       {!internalDesktop && s.showUpgradeCTA && <UpgradeModal onClose={() => s.setShowUpgradeCTA(false)} />}
       {!internalDesktop && s.showQuotaModal && s.quotaModalInfo && (
@@ -731,12 +733,18 @@ const PublicAppShell: React.FC = () => {
   return <AppShell auth={{ isLoaded, isSignedIn, clerkUser, clerk }} internalDesktop={false} />;
 };
 
+/** `/` → `/app`, carrying the query along so a PayPal return (?checkout=…) is not dropped. */
+const RedirectToApp: React.FC = () => {
+  const { search } = useLocation();
+  return <Navigate to={{ pathname: '/app', search }} replace />;
+};
+
 const App: React.FC = () => {
   return (
     <HelmetProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Navigate to="/app" replace />} />
+          <Route path="/" element={<RedirectToApp />} />
           <Route path="/app" element={isInternalDesktopDistribution ? <InternalActivationGate><AppShell auth={null} internalDesktop /></InternalActivationGate> : <PublicAppShell />} />
           <Route path="/merge-pdf" element={<ToolLandingView defaultTool="merge" />} />
           <Route path="/split-pdf" element={<ToolLandingView defaultTool="split" />} />

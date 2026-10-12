@@ -75,6 +75,24 @@ export function cancelSubscription(env: PayPalEnv, subscriptionId: string, reaso
 }
 
 /**
+ * Paid-through window for a subscription, read from PayPal's authoritative subscription object.
+ * A first-payment PAYMENT.SALE.COMPLETED carries no billing_period_* dates (measured on the real
+ * sandbox sale 3E514943GY2888425), so coverage cannot come from the sale alone: `next_billing_time`
+ * is when PayPal will charge again, which is exactly the end of the period already paid for.
+ * Returns nulls when PayPal does not answer, and the caller records the payment un-covered rather
+ * than inventing a date — /reconcile repairs it later.
+ */
+export async function coverageWindow(env: PayPalEnv, subscriptionId: string): Promise<{ start: string | null; end: string | null }> {
+  const g = await getSubscription(env, subscriptionId);
+  if (g.status !== 200 || !g.json) return { start: null, end: null };
+  const bi = (g.json.billing_info ?? {}) as any;
+  return {
+    start: bi.last_payment?.time ?? g.json.start_time ?? null,
+    end: bi.next_billing_time ?? null,
+  };
+}
+
+/**
  * Resolve the EXACT subscription a verified event refers to, per event family:
  *   • PAYMENT.SALE.* — the resource is a SALE; its subscription is `billing_agreement_id`.
  *   • BILLING.SUBSCRIPTION.* — the resource id IS the subscription, so it is left alone.

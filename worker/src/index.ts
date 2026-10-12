@@ -5,8 +5,9 @@ import { activationCodeMatches, issueDeviceToken, revokeDeviceToken, sha256Base6
 import { validateClerkClaims } from './jwtValidation';
 import {
   createSubscription, activateSubscription, getSubscription, cancelSubscription, verifyWebhook,
-  resolveSubscriptionId, BillingNotConfigured, type PayPalEnv,
+  resolveSubscriptionId, coverageWindow, BillingNotConfigured, type PayPalEnv,
 } from './billing/paypalApi';
+import { checkoutTargets } from './billing/urls';
 
 interface Env {
   NVIDIA_API_KEY: string;
@@ -23,6 +24,12 @@ interface Env {
   ALLOWED_ORIGIN?: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  /**
+   * Explicit base URL of the FRONTEND (e.g. https://prism.app or http://127.0.0.1:5173). PayPal
+   * sends the buyer back here after approval, so it must never be derived from the Worker's own
+   * request origin — that origin serves /api/* only and would land the browser on a JSON 404.
+   */
+  FRONTEND_URL?: string;
   /** R7 — PayPal (sub)scriptions. Credentials are server-side only; never sent to the browser. */
   PAYPAL_CLIENT_ID?: string;
   PAYPAL_SECRET?: string;
@@ -565,7 +572,18 @@ export default {
           // PAYMENT.SALE.* → billing_agreement_id; BILLING.SUBSCRIPTION.* → resource.id. Ownership is
           // resolved from the persisted link inside apply_paypal_event, never from custom_id.
           const resource = resolveSubscriptionId(et, { ...(evt.resource ?? {}) });
-          const result = await pgRpc(env, 'apply_paypal_event', { p_event_id: eventId, p_event_type: evt.event_type, p_resource: resource });
+          // A first-payment sale carries no billing_period_* fields, so ask PayPal's subscription
+          // object for the authoritative paid-through date instead of leaving coverage undefined.
+          let payload = resource;
+          if (et === 'PAYMENT.SALE.COMPLETED' && resource.subscription_id && !resource.billing_period_end_date) {
+            const win = await coverageWindow(env, String(resource.subscription_id));
+            if (win.end) {
+              payload = { ...resource, billing_period_start_date: resource.billing_period_start_date ?? win.start, billing_period_end_date: win.end };
+            } else {
+              console.warn('[paypal-webhook] no coverage window from PayPal; payment recorded without paid-through date', String(resource.subscription_id));
+            }
+          }
+          const result = await pgRpc(env, 'apply_paypal_event', { p_event_id: eventId, p_event_type: evt.event_type, p_resource: payload });
           return Response.json({ status: 'ok', result }); // 200 ack for applied/duplicate/out_of_order/unlinked/unknown_plan
         } catch (err) {
           console.error('[paypal webhook] apply_paypal_event failed', err);
@@ -592,11 +610,12 @@ export default {
           plan === 'business' ? (cycle === 'annual' ? env.PAYPAL_PLAN_BUSINESS_ANNUAL : env.PAYPAL_PLAN_BUSINESS_MONTHLY)
           : (cycle === 'annual' ? env.PAYPAL_PLAN_PRO_ANNUAL : env.PAYPAL_PLAN_PRO_MONTHLY);
         if (!paypalPlanId) return Response.json({ error: 'PayPal plan not configured for this build', configured: false }, { status: 503, headers: cors });
+        const targets = checkoutTargets(env.FRONTEND_URL);
+        if (!targets) return Response.json({ error: 'FRONTEND_URL is not configured — PayPal would have no valid page to return the buyer to', configured: false }, { status: 503, headers: cors });
         try {
-          const origin = url.origin;
           const created = await createSubscription(env, {
             planId: paypalPlanId, userId: jp.sub,
-            returnUrl: `${origin}/app?checkout=success`, cancelUrl: `${origin}/app?checkout=cancelled`,
+            returnUrl: targets.returnUrl, cancelUrl: targets.cancelUrl,
           });
           const subId = created.json?.id;
           if (created.status >= 400 || !subId) {
@@ -671,13 +690,22 @@ export default {
         if (!jp) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
         try {
           const rows = (await (await fetch(`${env.SUPABASE_URL}/rest/v1/billing_subscriptions?user_id=eq.${encodeURIComponent(jp.sub)}&provider=eq.paypal&select=subscription_id,status`, { headers: pgHeaders(env) })).json()) as { subscription_id: string; status: string }[];
-          const out: { subscriptionId: string; status: string; applied: string }[] = [];
+          const out: { subscriptionId: string; status: string; applied: string; repaired: number }[] = [];
           for (const r of rows ?? []) {
             const g = await getSubscription(env, r.subscription_id);
             const status = g.json?.status ?? r.status;
             const planId = g.json?.plan_id ?? null;
             const applied = await pgRpc(env, 'apply_paypal_event', { p_event_id: `reconcile-${r.subscription_id}-${status}`, p_event_type: status === 'ACTIVE' ? 'BILLING.SUBSCRIPTION.ACTIVATED' : 'BILLING.SUBSCRIPTION.UPDATED', p_resource: { id: r.subscription_id, status, plan_id: planId } });
-            out.push({ subscriptionId: r.subscription_id, status, applied });
+            // Repair captured payments that arrived without a paid-through date (webhooks differ by
+            // event family). Dates come from PayPal, never from the caller.
+            const open = (await (await fetch(`${env.SUPABASE_URL}/rest/v1/billing_payments?subscription_id=eq.${encodeURIComponent(r.subscription_id)}&status=eq.captured&period_end=is.null&select=payment_id`, { headers: pgHeaders(env) })).json()) as { payment_id: string }[];
+            const win = open?.length ? await coverageWindow(env, r.subscription_id) : { start: null, end: null };
+            let repaired = 0;
+            for (const p of win.end ? open : []) {
+              const res = await pgRpc(env, 'set_payment_coverage', { p_payment_id: p.payment_id, p_period_start: win.start, p_period_end: win.end });
+              if (res === 'applied') repaired++;
+            }
+            out.push({ subscriptionId: r.subscription_id, status, applied, repaired });
           }
           return Response.json({ reconciled: out }, { headers: cors });
         } catch (err: any) {

@@ -39,8 +39,13 @@ Migrations (applied in order): `…0626 rpc_functions` → `…0806 unify_usage_
   SUPABASE_URL=http://127.0.0.1:54321
   SUPABASE_SERVICE_ROLE_KEY=<service_role JWT printed by supabase start>
   CLERK_JWKS_URL=http://127.0.0.1:8799/.well-known/jwks.json   # local Clerk stand-in (tests only)
-  PADDLE_WEBHOOK_SECRET=local-dev-...                         # placeholder; real one only for sandbox
+  PAYPAL_CLIENT_ID=...  PAYPAL_SECRET=...  PAYPAL_ENV=sandbox  PAYPAL_WEBHOOK_ID=...
+  PAYPAL_PLAN_PRO_MONTHLY=P-...   # + the other three allowlisted plan ids
+  FRONTEND_URL=http://127.0.0.1:5173                    # where PayPal returns the buyer (see §7)
+  ALLOWED_ORIGINS=http://127.0.0.1:5173,http://127.0.0.1:4173   # browser origins the Worker accepts
   ```
+  Without `FRONTEND_URL` the subscribe route answers `503 {configured:false}` by design — it will not
+  send a buyer to a host it guessed. Paddle is gone: no `PADDLE_*` variable is read anywhere.
   `.dev.vars`, `.env*` (except `.env.example`), `.localdev/`, `supabase/.temp/`, `/evidence/` are all
   gitignored. Do not `wrangler secret put` for local dev; do not commit generated tokens.
 - Mint the test role/user tokens: `npm run tokens:local` → writes `.localdev/tokens.json` from the
@@ -60,6 +65,7 @@ npm run check:backend            # 32 — DB authority vs real PostgREST (needs 
 npm run check:privilege          # 29 — privilege escalation (self-upgrade, credits, privileged fns, cross-user)
 npm run check:paypal-entitlement # 12 — PayPal access policy/idempotency/ownership (no PayPal creds needed)
 npm run check:worker             # 15 — Worker routes over HTTP (needs §1,§2 + a local JWKS stand-in)
+npm run check:checkout           # 13 — both PayPal browser return flows (see the note under §4)
 npm run check:conversions        # real office→pdf; AUTO-builds prism-lo; FAILS LOUD if no Docker
 npm run check:offline-ocr        # site OCR with all non-local network blocked; 0 external requests
 npm run browser:evidence         # static-site redact+merge, saves evidence/
@@ -72,6 +78,16 @@ node scripts/local-jwks.mjs &                         # local Clerk RS256 stand-
 (cd worker && npx wrangler dev --port 8787 --ip 127.0.0.1) &   # Worker on local stack
 npm run build && npm run preview -- --port 4173 &     # for check:app only
 ```
+
+`npm run check:checkout` (13) drives BOTH PayPal browser return flows in Chromium against the local
+Worker + DB, so it additionally needs the dev server pointed at the local Worker — `.env.local` in this
+repo binds the browser to the DEPLOYED Worker and a live Clerk instance, so override both:
+```
+VITE_CLERK_PUBLISHABLE_KEY= VITE_WORKER_BASE_URL=http://127.0.0.1:8787 \
+VITE_WORKER_URL=http://127.0.0.1:8787 npx vite --port 5173 --strictPort
+```
+It substitutes the locally minted token for the Clerk *session* only; the entitlement answer it asserts
+is the real server's. Screenshots land in `evidence/checkout-return/`.
 
 ## 5. The five skipped tests (intentional, and how to actually run them)
 Running `npx vitest run` alone skips 5 tests in 2 files because it assumes no Docker engine / the
