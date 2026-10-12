@@ -5,7 +5,7 @@ import { activationCodeMatches, issueDeviceToken, revokeDeviceToken, sha256Base6
 import { validateClerkClaims } from './jwtValidation';
 import {
   createSubscription, activateSubscription, getSubscription, cancelSubscription, verifyWebhook,
-  resolveSubscriptionId, coverageWindow, BillingNotConfigured, type PayPalEnv,
+  resolveSubscriptionId, coverageWindow, canBindWindow, BillingNotConfigured, type PayPalEnv,
 } from './billing/paypalApi';
 import { checkoutTargets } from './billing/urls';
 
@@ -572,18 +572,20 @@ export default {
           // PAYMENT.SALE.* → billing_agreement_id; BILLING.SUBSCRIPTION.* → resource.id. Ownership is
           // resolved from the persisted link inside apply_paypal_event, never from custom_id.
           const resource = resolveSubscriptionId(et, { ...(evt.resource ?? {}) });
-          // A first-payment sale carries no billing_period_* fields, so ask PayPal's subscription
-          // object for the authoritative paid-through date instead of leaving coverage undefined.
-          let payload = resource;
+          // A sale may arrive without billing_period_* dates. The paid-through window then comes from
+          // PayPal's subscription object — and only for the payment PayPal names as its latest. It is
+          // passed separately so billing_events keeps the RAW delivered payload.
+          let coverage: { start: string; end: string } | null = null;
+          const saleTime = String(resource.update_time ?? resource.create_time ?? resource.time_updated ?? '');
           if (et === 'PAYMENT.SALE.COMPLETED' && resource.subscription_id && !resource.billing_period_end_date) {
             const win = await coverageWindow(env, String(resource.subscription_id));
-            if (win.end) {
-              payload = { ...resource, billing_period_start_date: resource.billing_period_start_date ?? win.start, billing_period_end_date: win.end };
+            if (win.end && canBindWindow(saleTime, win.lastPaymentTime)) {
+              coverage = { start: String(win.start ?? saleTime), end: win.end };
             } else {
-              console.warn('[paypal-webhook] no coverage window from PayPal; payment recorded without paid-through date', String(resource.subscription_id));
+              console.warn('[paypal-webhook] coverage left pending: sale time not PayPal\'s latest payment', { saleTime, lastPaymentTime: win.lastPaymentTime, sub: String(resource.subscription_id) });
             }
           }
-          const result = await pgRpc(env, 'apply_paypal_event', { p_event_id: eventId, p_event_type: evt.event_type, p_resource: payload });
+          const result = await pgRpc(env, 'apply_paypal_event', { p_event_id: eventId, p_event_type: evt.event_type, p_resource: resource, p_coverage: coverage });
           return Response.json({ status: 'ok', result }); // 200 ack for applied/duplicate/out_of_order/unlinked/unknown_plan
         } catch (err) {
           console.error('[paypal webhook] apply_paypal_event failed', err);
@@ -690,22 +692,26 @@ export default {
         if (!jp) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
         try {
           const rows = (await (await fetch(`${env.SUPABASE_URL}/rest/v1/billing_subscriptions?user_id=eq.${encodeURIComponent(jp.sub)}&provider=eq.paypal&select=subscription_id,status`, { headers: pgHeaders(env) })).json()) as { subscription_id: string; status: string }[];
-          const out: { subscriptionId: string; status: string; applied: string; repaired: number }[] = [];
+          const out: { subscriptionId: string; status: string; applied: string; repaired: number; coveragePending: number }[] = [];
           for (const r of rows ?? []) {
             const g = await getSubscription(env, r.subscription_id);
             const status = g.json?.status ?? r.status;
             const planId = g.json?.plan_id ?? null;
             const applied = await pgRpc(env, 'apply_paypal_event', { p_event_id: `reconcile-${r.subscription_id}-${status}`, p_event_type: status === 'ACTIVE' ? 'BILLING.SUBSCRIPTION.ACTIVATED' : 'BILLING.SUBSCRIPTION.UPDATED', p_resource: { id: r.subscription_id, status, plan_id: planId } });
-            // Repair captured payments that arrived without a paid-through date (webhooks differ by
-            // event family). Dates come from PayPal, never from the caller.
-            const open = (await (await fetch(`${env.SUPABASE_URL}/rest/v1/billing_payments?subscription_id=eq.${encodeURIComponent(r.subscription_id)}&status=eq.captured&period_end=is.null&select=payment_id`, { headers: pgHeaders(env) })).json()) as { payment_id: string }[];
-            const win = open?.length ? await coverageWindow(env, r.subscription_id) : { start: null, end: null };
+            // Repair captured payments that arrived without a paid-through date. Coverage is bound only
+            // to the payment PayPal identifies as its latest; anything else stays pending rather than
+            // borrowing a period that belongs to another sale.
+            const open = (await (await fetch(`${env.SUPABASE_URL}/rest/v1/billing_payments?subscription_id=eq.${encodeURIComponent(r.subscription_id)}&status=eq.captured&period_end=is.null&select=payment_id,captured_at`, { headers: pgHeaders(env) })).json()) as { payment_id: string; captured_at: string | null }[];
+            const win = open?.length ? await coverageWindow(env, r.subscription_id) : { start: null, end: null, lastPaymentTime: null };
             let repaired = 0;
-            for (const p of win.end ? open : []) {
+            let pending = 0;
+            for (const p of open ?? []) {
+              const bound = !!win.end && canBindWindow(p.captured_at, win.lastPaymentTime);
+              if (!bound) { pending++; continue; }
               const res = await pgRpc(env, 'set_payment_coverage', { p_payment_id: p.payment_id, p_period_start: win.start, p_period_end: win.end });
               if (res === 'applied') repaired++;
             }
-            out.push({ subscriptionId: r.subscription_id, status, applied, repaired });
+            out.push({ subscriptionId: r.subscription_id, status, applied, repaired, coveragePending: pending });
           }
           return Response.json({ reconciled: out }, { headers: cors });
         } catch (err: any) {

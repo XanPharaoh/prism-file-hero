@@ -1,0 +1,56 @@
+{
+  "_note": "Real sandbox BILLING.SUBSCRIPTION.CANCELLED as delivered (resource.id = the subscription).",
+  "resource": {
+    "id": "I-TESTSUB000000000",
+    "links": [
+      {
+        "rel": "self",
+        "method": "GET",
+        "href": "https://api.sandbox.paypal.com/v1/billing/subscriptions/I-TESTSUB000000000"
+      }
+    ],
+    "status": "CANCELLED",
+    "plan_id": "P-TESTPLANMONTHLY000",
+    "quantity": "1",
+    "custom_id": "00000000-0000-4000-8000-000000000001",
+    "start_time": "2026-10-12T12:09:51Z",
+    "subscriber": {
+      "email_address": "sb-test-buyer@example.com",
+      "payer_id": "TESTPAYERID"
+    },
+    "create_time": "2026-10-12T13:23:05Z",
+    "update_time": "2026-10-12T14:26:40Z",
+    "billing_info": {
+      "last_payment": {
+        "time": "2026-10-12T13:23:06Z",
+        "amount": {
+          "value": "19.0",
+          "currency_code": "USD"
+        }
+      },
+      "cycle_executions": [
+        {
+          "sequence": 1,
+          "tenure_type": "REGULAR",
+          "total_cycles": 36,
+          "cycles_completed": 1,
+          "cycles_remaining": 35,
+          "current_pricing_scheme_version": 1
+        }
+      ],
+      "outstanding_balance": {
+        "value": "0.0",
+        "currency_code": "USD"
+      },
+      "failed_payments_count": 0,
+      "current_cycle_sequence": 1
+    },
+    "plan_overridden": false,
+    "shipping_amount": {
+      "value": "0.0",
+      "currency_code": "USD"
+    },
+    "status_change_note": "customer request",
+    "status_update_time": "2026-10-12T14:26:40Z"
+  }
+}

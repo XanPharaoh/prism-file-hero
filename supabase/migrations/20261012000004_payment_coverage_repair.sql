@@ -1,6 +1,7 @@
 -- 20261012000004_payment_coverage_repair.sql
 -- The real sandbox PAYMENT.SALE.COMPLETED (sale 3E514943GY2888425, captured USD 19.00) carries no
--- billing_period_start_date / billing_period_end_date — only renewal-shaped payloads do. Coverage
+-- billing_period_start_date / billing_period_end_date. Whether renewals include them is not
+-- established by any evidence here, so coverage must work for any payment missing them. Coverage
 -- therefore had nothing to bound the paid-through date with, and the buyer stayed free despite a
 -- verified, captured payment. The Worker now reads the paid-through date from PayPal's own
 -- subscription object (billing_info.next_billing_time) and passes it through this function.

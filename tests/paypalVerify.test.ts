@@ -6,6 +6,11 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import FIXTURE from './fixtures/paypal-subscription-created.v2.json';
+import CAPTURE from './fixtures/paypal-payment-sale-completed.json';
+import REFUND from './fixtures/paypal-payment-sale-refunded.json';
+import CANCEL from './fixtures/paypal-subscription-cancelled.json';
+
+const FIXTURES = { created: FIXTURE, completed: CAPTURE, refunded: REFUND, cancelled: CANCEL };
 import { verifyWebhook, accessToken, resolveSubscriptionId, BillingNotConfigured } from '../worker/src/billing/paypalApi';
 
 const ENV = { PAYPAL_CLIENT_ID: 'cid', PAYPAL_SECRET: 'sec', PAYPAL_ENV: 'sandbox', PAYPAL_WEBHOOK_ID: 'WH-1' };
@@ -103,5 +108,44 @@ describe('subscription identifier resolution', () => {
   it('leaves lifecycle events to their own resource.id', () => {
     const r = resolveSubscriptionId('BILLING.SUBSCRIPTION.CANCELLED', { id: 'I-SUB1', status: 'CANCELLED', custom_id: 'user-1' });
     expect(r).toEqual({ id: 'I-SUB1', status: 'CANCELLED', custom_id: 'user-1' });
+  });
+});
+
+/**
+ * Shapes pinned from THREE real sandbox deliveries (verified with PayPal's own verifier, then
+ * sanitized: ids and our internal user id replaced). If one of these ever parses differently, the
+ * durable inbox stops matching what PayPal sends — these tests are the tripwire.
+ */
+describe('real delivered payloads (sanitized fixtures)', () => {
+  const capture = FIXTURES.completed.resource;
+  const refund = FIXTURES.refunded.resource;
+  const cancel = FIXTURES.cancelled.resource;
+
+  it('the delivered capture names no paid-through dates, so coverage must come from the subscription', () => {
+    expect(capture.billing_period_end_date).toBeUndefined();
+    expect(capture.billing_period_start_date).toBeUndefined();
+    expect(capture.amount).toMatchObject({ currency: 'USD', total: '19.00' });
+    const r = resolveSubscriptionId('PAYMENT.SALE.COMPLETED', capture as Record<string, unknown>);
+    expect(r.subscription_id).toBe('I-TESTSUB000000000');
+  });
+
+  it('the delivered refund names the refund as id, the payment as sale_id, and no subscription', () => {
+    expect(refund.id).toBe('REFUND-TEST000001');
+    expect(refund.sale_id).toBe('SALE-TEST00000001');
+    expect(refund.subscription_id).toBeUndefined();
+    expect(refund.billing_agreement_id).toBeUndefined();
+    const r = resolveSubscriptionId('PAYMENT.SALE.REFUNDED', refund as Record<string, unknown>);
+    expect('subscription_id' in r).toBe(false);   // resolved in the DB through the affected payment
+  });
+
+  it('the delivered cancellation names the subscription as resource.id and has NO next_billing_time', () => {
+    expect(cancel.status).toBe('CANCELLED');
+    expect(typeof cancel.billing_info?.last_payment?.time).toBe('string');
+    // Measured: once cancelled, PayPal reports no next_billing_time — so paid-through access cannot be
+    // re-derived from the subscription and must rest on the payment window already stored.
+    expect(cancel.billing_info?.next_billing_time).toBeUndefined();
+    const r = resolveSubscriptionId('BILLING.SUBSCRIPTION.CANCELLED', cancel as Record<string, unknown>);
+    expect(r.id).toBe('I-TESTSUB000000000');
+    expect('subscription_id' in r).toBe(false);
   });
 });

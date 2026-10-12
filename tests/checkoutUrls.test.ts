@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { checkoutTargets } from '../worker/src/billing/urls';
-import { coverageWindow } from '../worker/src/billing/paypalApi';
+import { coverageWindow, canBindWindow } from '../worker/src/billing/paypalApi';
 
 const ENV = { PAYPAL_CLIENT_ID: 'cid', PAYPAL_SECRET: 'sec', PAYPAL_ENV: 'sandbox' };
 
@@ -46,17 +46,17 @@ describe('paid-through window from PayPal', () => {
 
   it('uses next_billing_time as the paid-through date and the last payment as the start', async () => {
     stubSubscription({ next_billing_time: '2026-11-12T10:00:00Z', last_payment: { time: '2026-10-12T13:23:06Z' } });
-    expect(await coverageWindow(ENV, 'I-SUB1')).toEqual({ start: '2026-10-12T13:23:06Z', end: '2026-11-12T10:00:00Z' });
+    expect(await coverageWindow(ENV, 'I-SUB1')).toEqual({ start: '2026-10-12T13:23:06Z', end: '2026-11-12T10:00:00Z', lastPaymentTime: '2026-10-12T13:23:06Z' });
   });
 
   it('falls back to the subscription start when no payment is reported', async () => {
     stubSubscription({ next_billing_time: '2026-11-12T10:00:00Z' });
-    expect(await coverageWindow(ENV, 'I-SUB1')).toEqual({ start: '2026-10-01T00:00:00Z', end: '2026-11-12T10:00:00Z' });
+    expect(await coverageWindow(ENV, 'I-SUB1')).toEqual({ start: '2026-10-01T00:00:00Z', end: '2026-11-12T10:00:00Z', lastPaymentTime: null });
   });
 
   it('returns no end date instead of inventing one when PayPal reports none', async () => {
     stubSubscription({});
-    expect(await coverageWindow(ENV, 'I-SUB1')).toEqual({ start: '2026-10-01T00:00:00Z', end: null });
+    expect(await coverageWindow(ENV, 'I-SUB1')).toEqual({ start: '2026-10-01T00:00:00Z', end: null, lastPaymentTime: null });
   });
 
   it('returns nulls when the subscription read fails', async () => {
@@ -64,6 +64,27 @@ describe('paid-through window from PayPal', () => {
       if (url.endsWith('/v1/oauth2/token')) return new Response(JSON.stringify({ access_token: 'tk' }), { status: 200 });
       return new Response(JSON.stringify({ name: 'RESOURCE_NOT_FOUND' }), { status: 404 });
     }) as any);
-    expect(await coverageWindow(ENV, 'I-SUB1')).toEqual({ start: null, end: null });
+    expect(await coverageWindow(ENV, 'I-SUB1')).toEqual({ start: null, end: null, lastPaymentTime: null });
+  });
+});
+
+describe('which payment may hold the current window', () => {
+  it('binds only the payment PayPal names as its latest', () => {
+    expect(canBindWindow('2026-10-12T13:23:06Z', '2026-10-12T13:23:06Z')).toBe(true);
+  });
+
+  it('refuses an older sale replayed after a renewal', () => {
+    expect(canBindWindow('2026-09-12T13:23:06Z', '2026-10-12T13:23:06Z')).toBe(false);
+  });
+
+  it('refuses ambiguous or missing timestamps', () => {
+    expect(canBindWindow(null, '2026-10-12T13:23:06Z')).toBe(false);
+    expect(canBindWindow('2026-10-12T13:23:06Z', null)).toBe(false);
+    expect(canBindWindow('', '')).toBe(false);
+    expect(canBindWindow('not a date', '2026-10-12T13:23:06Z')).toBe(false);
+  });
+
+  it('treats the same instant written differently as one payment', () => {
+    expect(canBindWindow('2026-10-12T13:23:06.000Z', '2026-10-12T13:23:06Z')).toBe(true);
   });
 });

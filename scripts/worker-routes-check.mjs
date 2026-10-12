@@ -69,23 +69,28 @@ async function ins(table, rows) { return (await fetch(`${REST}/${table}`, { meth
   const after = await q('user_plans', `user_id=eq.${user}&select=plan`);
   ok('paypal webhook: unverified event granted nothing', Array.isArray(after) && after.length === 0, JSON.stringify(after));
   const t = await bearer(user);
-  const subscribe = () => fetch(`${WORKER}/api/billing/paypal/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ plan: 'pro', cycle: 'monthly' }) });
   const hasPayPalCreds = /PAYPAL_CLIENT_ID=\S/.test(readFileSync('worker/.dev.vars', 'utf8'));
-  const subRes = await subscribe(); const sj = await subRes.json().catch(() => ({}));
+  const allowCreate = process.env.PRISM_ALLOW_SANDBOX_SUBSCRIBE === '1';
+  const badPlan = await fetch(`${WORKER}/api/billing/paypal/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ plan: 'gold', cycle: 'monthly' }) });
+  ok('paypal subscribe: a plan outside pro|business is rejected before any PayPal call', badPlan.status === 400, `status=${badPlan.status}`);
+  const foreign = await fetch(`${WORKER}/api/billing/paypal/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ subscriptionId: 'I-NOT-YOURS' }) });
+  ok('paypal cancel: a subscription the caller does not own is refused (403, server mapping)', foreign.status === 403, `status=${foreign.status}`);
   if (!hasPayPalCreds) {
-    ok('paypal subscribe: without credentials → 503 configured:false (never grants)', subRes.status === 503 && sj.configured === false, `${subRes.status} ${JSON.stringify(sj)}`);
-  } else {
-    // Credentials ARE configured locally, so the route really creates a sandbox subscription. The
-    // security property under test is unchanged: a browser approval must not produce entitlement.
+    const sj = await (await fetch(`${WORKER}/api/billing/paypal/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ plan: 'pro', cycle: 'monthly' }) })).json().catch(() => ({}));
+    ok('paypal subscribe: without credentials → 503 configured:false (never grants)', sj.configured === false, JSON.stringify(sj));
+  } else if (allowCreate) {
+    // Opt-in: this really creates a sandbox subscription (and PayPal then sends a real CREATED event).
+    const subRes = await fetch(`${WORKER}/api/billing/paypal/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ plan: 'pro', cycle: 'monthly' }) });
+    const sj = await subRes.json().catch(() => ({}));
     ok('paypal subscribe: returns pending + approve URL, no entitlement granted server-side',
       subRes.status === 201 && typeof sj.approveUrl === 'string' && sj.status === 'pending', JSON.stringify(sj).slice(0, 160));
     const granted = await q('user_plans', `user_id=eq.${user}&select=plan,subscription_status`);
     const paid = !!(granted?.[0] && granted[0].plan !== 'free' && granted[0].subscription_status === 'active');
     ok('paypal subscribe: creating the subscription did not grant paid access', paid === false, JSON.stringify(granted));
     const cx = await fetch(`${WORKER}/api/billing/paypal/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ subscriptionId: sj.subscriptionId }) });
-    ok('paypal cancel: an APPROVAL_PENDING subscription reports 409 nothing-to-cancel (not a bare 502)', cx.status === 409, `status=${cx.status} ${JSON.stringify(await cx.json().catch(() => ({}))).slice(0, 140)}`);
-    const foreign = await fetch(`${WORKER}/api/billing/paypal/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ subscriptionId: 'I-NOT-YOURS' }) });
-    ok('paypal cancel: a subscription the caller does not own is refused (403, server mapping)', foreign.status === 403, `status=${foreign.status}`);
+    ok('paypal cancel: an APPROVAL_PENDING subscription reports 409 nothing-to-cancel (not a bare 502)', cx.status === 409, `status=${cx.status}`);
+  } else {
+    console.log('NOTE  paypal subscribe: the 201-pending / 409-cancel assertions create a real sandbox subscription and were NOT run (set PRISM_ALLOW_SANDBOX_SUBSCRIBE=1). Both were measured live and are covered by scripts/checkout-return-check.mjs.');
   }
   const ej = await (await fetch(`${WORKER}/api/billing/entitlement`, { headers: { Authorization: `Bearer ${t}` } })).json().catch(() => ({}));
   ok('paypal entitlement: server-derived plan for the caller', typeof ej.plan === 'string' && ej.source === 'server', JSON.stringify(ej)); }

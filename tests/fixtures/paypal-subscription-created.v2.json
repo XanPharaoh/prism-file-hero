@@ -28,12 +28,12 @@
           "method": "GET"
         },
         {
-          "href": "https://api.sandbox.paypal.com/v1/billing/subscriptions/I-N4ECJF9TG5HX",
+          "href": "https://api.sandbox.paypal.com/v1/billing/subscriptions/I-TESTSUB000000000",
           "rel": "edit",
           "method": "PATCH"
         },
         {
-          "href": "https://api.sandbox.paypal.com/v1/billing/subscriptions/I-N4ECJF9TG5HX",
+          "href": "https://api.sandbox.paypal.com/v1/billing/subscriptions/I-TESTSUB000000000",
           "rel": "self",
           "method": "GET"
         }

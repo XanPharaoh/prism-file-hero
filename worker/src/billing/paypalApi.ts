@@ -76,20 +76,35 @@ export function cancelSubscription(env: PayPalEnv, subscriptionId: string, reaso
 
 /**
  * Paid-through window for a subscription, read from PayPal's authoritative subscription object.
- * A first-payment PAYMENT.SALE.COMPLETED carries no billing_period_* dates (measured on the real
- * sandbox sale 3E514943GY2888425), so coverage cannot come from the sale alone: `next_billing_time`
- * is when PayPal will charge again, which is exactly the end of the period already paid for.
- * Returns nulls when PayPal does not answer, and the caller records the payment un-covered rather
- * than inventing a date — /reconcile repairs it later.
+ * `next_billing_time` is when PayPal will charge again — the end of the period already paid for — and
+ * `last_payment.time` identifies WHICH sale that period belongs to. Both are needed: a redelivered
+ * older sale must not adopt the newest window, so a caller may apply `end` only to the payment whose
+ * own capture time equals `lastPaymentTime`. Nulls when PayPal answers nothing; no date is invented
+ * and the payment stays pending reconciliation.
+ *
+ * Measured: the real first-payment sale carried no billing_period_* dates. Whether renewals include
+ * them is NOT established here (that needs a real renewal), so this path must serve any payment
+ * missing them.
  */
-export async function coverageWindow(env: PayPalEnv, subscriptionId: string): Promise<{ start: string | null; end: string | null }> {
+export async function coverageWindow(env: PayPalEnv, subscriptionId: string): Promise<{ start: string | null; end: string | null; lastPaymentTime: string | null }> {
   const g = await getSubscription(env, subscriptionId);
-  if (g.status !== 200 || !g.json) return { start: null, end: null };
+  if (g.status !== 200 || !g.json) return { start: null, end: null, lastPaymentTime: null };
   const bi = (g.json.billing_info ?? {}) as any;
-  return {
-    start: bi.last_payment?.time ?? g.json.start_time ?? null,
-    end: bi.next_billing_time ?? null,
-  };
+  const lastPaymentTime: string | null = bi.last_payment?.time ?? null;
+  return { start: lastPaymentTime ?? g.json.start_time ?? null, end: bi.next_billing_time ?? null, lastPaymentTime };
+}
+
+/**
+ * May the subscription's current window be bound to this payment? Only when BOTH sides name a time and
+ * they are the same instant — i.e. PayPal confirms this sale IS the payment covering that window. An
+ * older sale redelivered after a renewal, a missing timestamp, or a mismatch all stay pending instead
+ * of borrowing a period that belongs to another payment.
+ */
+export function canBindWindow(saleTime: string | null | undefined, lastPaymentTime: string | null | undefined): boolean {
+  if (!saleTime || !lastPaymentTime) return false;
+  const a = Date.parse(saleTime);
+  const b = Date.parse(lastPaymentTime);
+  return Number.isFinite(a) && Number.isFinite(b) && a === b;
 }
 
 /**

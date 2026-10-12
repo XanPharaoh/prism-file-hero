@@ -1,0 +1,45 @@
+{
+  "_note": "Real sandbox PAYMENT.SALE.REFUNDED as delivered. Note id = the REFUND, sale_id = the payment being voided, and NO subscription identifier at all.",
+  "resource": {
+    "id": "REFUND-TEST000001",
+    "links": [
+      {
+        "rel": "self",
+        "method": "GET",
+        "href": "https://api.sandbox.paypal.com/v1/payments/refund/REFUND-TEST000001"
+      },
+      {
+        "rel": "sale",
+        "method": "GET",
+        "href": "https://api.sandbox.paypal.com/v1/payments/sale/SALE-TEST00000001"
+      }
+    ],
+    "state": "completed",
+    "amount": {
+      "total": "19.00",
+      "currency": "USD"
+    },
+    "custom": "00000000-0000-4000-8000-000000000001",
+    "sale_id": "SALE-TEST00000001",
+    "create_time": "2026-10-12T14:29:59Z",
+    "update_time": "2026-10-12T14:29:59Z",
+    "invoice_number": "",
+    "refund_to_payer": {
+      "value": "19.00",
+      "currency": "USD"
+    },
+    "refund_reason_code": "REFUND",
+    "total_refunded_amount": {
+      "value": "19.00",
+      "currency": "USD"
+    },
+    "refund_from_received_amount": {
+      "value": "18.05",
+      "currency": "USD"
+    },
+    "refund_from_transaction_fee": {
+      "value": "0.95",
+      "currency": "USD"
+    }
+  }
+}

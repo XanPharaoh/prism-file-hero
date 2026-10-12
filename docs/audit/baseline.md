@@ -821,9 +821,11 @@ PayPal reports `ACTIVE`, `billing_info.last_payment = USD 19.00 @ 2026-10-12T13:
 
 **A verified payment still granted nothing — and that was our bug, not PayPal's.** The real sale
 payload carries `id`, `state`, `amount.{currency,total}`, `create_time`, `subscription_id`,
-`billing_agreement_id`, `custom`… and **no** `billing_period_start_date` / `billing_period_end_date`
-(only renewal-shaped payloads include those). Coverage requires a future `period_end`, so
-`get_user_entitlement` correctly answered `false | free | ACTIVE` for a user who had genuinely paid.
+`billing_agreement_id`, `custom`… and **no** `billing_period_start_date` / `billing_period_end_date`.
+Whether renewals include those fields is **not** established by any evidence here (no renewal has
+happened yet), so coverage must work for any payment that omits them. Because coverage requires a
+future `period_end`, `get_user_entitlement` answered `false | free | ACTIVE` for a user who had
+genuinely paid.
 The paid-through date exists, but only on PayPal's subscription object. Fix (migration
 `20261012000004` + Worker): on a verified `PAYMENT.SALE.COMPLETED` with no period dates, read
 `billing_info.next_billing_time` / `last_payment.time` from PayPal (`coverageWindow`) and pass them
@@ -871,3 +873,90 @@ privilege 29/29, worker routes 15/15, `vitest run` 726 passed / 5 skipped, `tsc 
 the next renewal is 2026-11-12; a refund needs the sandbox dashboard. Rotate the sandbox app secret.
 A named tunnel or the deployed Worker is needed for delivery evidence that does not depend on a
 developer machine staying awake.
+
+## 31. Real cancellation + refund, coverage identity, return messaging (2026-10-12)
+
+### Real provider events (sandbox, business credentials — NOT fixtures)
+| action | provider result | our verified event | effect on coverage |
+|---|---|---|---|
+| cancel via `POST /api/billing/paypal/cancel` (caller owns the sub) | `200 {"status":"canceled"}` | `WH-4CF52940CS8024202-79N66584H6498844B` `BILLING.SUBSCRIPTION.CANCELLED` → `200 OK` | `billing_subscriptions.status = CANCELLED`, payment still `captured`, **entitlement stays `t / pro / CANCELLED`** — paid-through preserved to 2026-11-12 |
+| refund of the captured sale `POST /v1/payments/sale/3E514943GY2888425/refund` | `201`, refund `6X5450135V3210505`, state `completed` | `WH-7KP28140N5019114G-5K66177566457025E` `PAYMENT.SALE.REFUNDED` → `200 OK` | payment → `refunded`, `refunded_amount 19.00`, `voided_by_event_id` = that event, **entitlement `f / free / CANCELLED`** |
+
+The cancellation event initially FAILED because the quick tunnel had died (`/api/health` through it
+returned nothing). Restoring the tunnel and repointing the webhook, then resending that same stored
+event, delivered it for real. Six additional genuine `BILLING.SUBSCRIPTION.CREATED` events from the
+route checks were also verified and stored — evidence the verifier holds across separate deliveries.
+
+### Refund identity — a real payload broke our assumption (migration `20261012000006`)
+The delivered `PAYMENT.SALE.REFUNDED` resource is
+`{ id: <REFUND id>, sale_id: <original SALE id>, amount:{total,currency}, state, create_time, update_time, … }`:
+1. `id` is the **refund**, not the payment. `… where payment_id = resource.id` matched nothing, so a
+   verified full refund left the payment `captured` and the user entitled. The affected payment is now
+   resolved from `sale_id` (falling back to `id` for payloads that name the sale there).
+2. The refund names **no subscription at all** (no `subscription_id`, no `billing_agreement_id`), so
+   ownership is resolved *through* the payment row it voids.
+3. Amount semantics: a reversal always voids; an **unquantified** refund voids (fail closed on
+   entitlement); only an explicit partial amount that leaves the period still paid for keeps access —
+   cumulative refunds reaching `gross_amount` revoke it. `refunded_amount` + `voided_by_event_id` are
+   recorded for traceability.
+
+### Coverage identity and replay guards (migration `20261012000005`)
+`billing_payments.captured_at` now stores when the money moved (from the payload's own
+`update_time`/`create_time`), which is what makes "this old sale was redelivered" distinguishable from
+"this is the payment covering the current period". Rules, each with a regression in
+`scripts/paypal-entitlement-check.mjs` (28/28):
+* a window is bound only to the payment PayPal identifies as its latest — `canBindWindow(saleTime,
+  billing_info.last_payment.time)` requires both to be present and the same instant (4 unit tests);
+  anything else logs and stays pending;
+* fill-never-extend: `on conflict … period_end = coalesce(billing_payments.period_end, excluded.period_end)`,
+  so a redelivery of the same sale under a new event id cannot move the paid-through date;
+* `set_payment_coverage` only fills a missing window and answers `already_covered` otherwise, refuses
+  `unknown_payment`, and re-derives the owner from the persisted link (`unlinked` grants nothing);
+* undated payments leave the user `not entitled` rather than guessing;
+* a renewal that also omits `billing_period_*` restores coverage once its own window is bound.
+`/api/billing/paypal/reconcile` now reports `repaired` and `coveragePending` separately, so
+reconciliation cannot silently attach the newest period to an older payment.
+
+### Return-page copy (`src/components/CheckoutStatus.tsx`, `services/billingService.ts`)
+* A session-less return is no longer told "not confirmed": `fetchEntitlement` distinguishes `401`
+  (nobody signed in → nothing to check) from a real free answer, and the panel says
+  **"Sign in to confirm your subscription"** with a Sign-in action.
+* `checkout=cancelled` says **"Checkout cancelled"** and defers the plan to what the server confirms;
+  the unsupported "nothing was charged" line is gone (we cannot see what a cancelled session did).
+* Every payment/plan statement still originates from `/api/billing/entitlement`; the parameter only
+  selects the message and is stripped from the URL on read.
+* `npm run check:checkout` is now **20 assertions**, adding case F (signed-in session with no captured
+  payment → "Not confirmed yet" + Re-check, no unlock claim) and asserting the absence of unsupported
+  claims. Screenshots: `evidence/checkout-return/{A-needs-signin,B-entitled,C-cancelled,F-unconfirmed}.png`.
+
+### Boundary reached on "actual paid-tool output"
+Every plan-gated tool in `services/usageConfig.ts` is `category: 'ai'` (9 of them); the plan difference
+is the AI-page ceiling (free 10 → pro 500) plus ad suppression, not a distinct non-AI paid tool. The
+`ocr` tool's handler does run locally (`src/registry/toolRegistry.ts` → `buildSearchablePdf`), but it
+consumes AI pages, so executing it *as a paid user* needs a paid subscription, which after the real
+refund above means a fresh approval. Paid AI provider calls remain unauthorized, so no model-backed
+output is produced in this session. Reported instead: the ledger/enforcement difference and the local
+pipeline's real output once a paid session exists.
+
+### Two more real-payload findings while exporting the deliveries as fixtures
+1. The inbox had been storing the Worker-ENRICHED resource, so `billing_events.payload` no longer
+   matched what PayPal sent. Migration `20261012000007` separates them: `apply_paypal_event` takes the
+   RAW payload plus an optional `p_coverage` object that only the Worker supplies. Re-delivering the
+   real capture afterwards stored exactly the delivered keys (`amount, billing_agreement_id, create_time,
+   custom, id, invoice_number, links, payment_mode, protection_eligibility*, state, subscription_id,
+   transaction_fee, update_time`) with no period fields — and the derived window still bounded coverage.
+2. A redelivered `PAYMENT.SALE.COMPLETED` used to flip an already-refunded payment back to `captured`.
+   The upsert now preserves `refunded`/`reversed`, proven against the real event: after re-delivery the
+   payment stayed `refunded` with `refunded_amount 19.00` and entitlement `f | free`.
+3. Measured from the real cancellation: `billing_info` reports `last_payment` but **no**
+   `next_billing_time` once cancelled, so paid-through access cannot be re-derived from the subscription
+   after cancellation — it must rest on the payment window already stored. Pinned by
+   `tests/paypalVerify.test.ts` against three sanitized fixtures
+   (`tests/fixtures/paypal-payment-sale-{completed,refunded}.json`,
+   `paypal-subscription-cancelled.json`), which also pin that a refund names its payment only via
+   `sale_id` and carries no subscription identifier.
+
+**Local totals:** entitlement/coverage 32/32, checkout browser 19/19, backend 32/32, privilege 29/29,
+worker routes 13/13 (the two assertions that create a real sandbox subscription are now opt-in via
+`PRISM_ALLOW_SANDBOX_SUBSCRIBE=1` and print a NOTE when skipped), vitest 733 passed / 5 skipped,
+`tsc --noEmit` clean.

@@ -34,11 +34,14 @@ export async function startPayPalSubscribe(plan: Plan, cycle: Cycle): Promise<Su
   } catch { return { ok: false, status: 'error', error: 'network' }; }
 }
 
-export interface Entitlement { entitled: boolean; plan: string; subscription_status: string | null; activeSubscriptionId?: string | null; }
+export interface Entitlement { entitled: boolean; plan: string; subscription_status: string | null; activeSubscriptionId?: string | null; unauthenticated?: boolean; }
 
 export async function fetchEntitlement(): Promise<Entitlement | null> {
   try {
     const r = await authFetch('/api/billing/entitlement', { method: 'GET' });
+    // A 401 is not "free": it means nobody is signed in, so the server cannot answer. Callers must
+    // not present that as a payment problem.
+    if (r.status === 401) return { entitled: false, plan: 'free', subscription_status: null, unauthenticated: true };
     if (!r.ok) return null;
     const j: any = await r.json();
     return { entitled: !!j.entitled, plan: j.plan ?? 'free', subscription_status: j.subscription_status ?? null, activeSubscriptionId: j.activeSubscriptionId ?? null };

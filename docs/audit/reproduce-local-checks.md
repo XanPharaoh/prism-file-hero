@@ -63,14 +63,14 @@ fail. The site loader (`site/assets/tool.js` `OCR_OPTS`) points at these same-or
 ```
 npm run check:backend            # 32 — DB authority vs real PostgREST (needs §1 + tokens)
 npm run check:privilege          # 29 — privilege escalation (self-upgrade, credits, privileged fns, cross-user)
-npm run check:paypal-entitlement # 12 — PayPal access policy/idempotency/ownership (no PayPal creds needed)
-npm run check:worker             # 15 — Worker routes over HTTP (needs §1,§2 + a local JWKS stand-in)
-npm run check:checkout           # 13 — both PayPal browser return flows (see the note under §4)
+npm run check:paypal-entitlement # 32 — PayPal access policy/idempotency/replay/refund identity (no PayPal creds needed)
+npm run check:worker             # 13 — Worker routes over HTTP (needs §1,§2 + a local JWKS stand-in)
+npm run check:checkout           # 19 — both PayPal browser return flows (see the note under §4)
 npm run check:conversions        # real office→pdf; AUTO-builds prism-lo; FAILS LOUD if no Docker
 npm run check:offline-ocr        # site OCR with all non-local network blocked; 0 external requests
 npm run browser:evidence         # static-site redact+merge, saves evidence/
 npm run check:app                # built Vite app → real browser download (needs npm run build + vite preview)
-npm test                         # 718 passed / 5 skipped (the skips, below, are intentional)
+npm test                         # 733 passed / 5 skipped (the skips, below, are intentional)
 ```
 For `check:worker` / `check:app`, start the helpers first:
 ```
@@ -79,7 +79,7 @@ node scripts/local-jwks.mjs &                         # local Clerk RS256 stand-
 npm run build && npm run preview -- --port 4173 &     # for check:app only
 ```
 
-`npm run check:checkout` (13) drives BOTH PayPal browser return flows in Chromium against the local
+`npm run check:checkout` (19) drives BOTH PayPal browser return flows in Chromium against the local
 Worker + DB, so it additionally needs the dev server pointed at the local Worker — `.env.local` in this
 repo binds the browser to the DEPLOYED Worker and a live Clerk instance, so override both:
 ```
@@ -105,7 +105,7 @@ reason" for its live-conversion case when no binary is present — that case als
 
 ## 6. Credential/deploy-gated (documented, NOT part of the local run)
 - Billing provider is **PayPal Subscriptions** (Paddle removed). Local LOGIC is fully verified via
-  `check:paypal-entitlement` (12) + `check:worker` (forged webhook → 401 grants nothing; subscribe
+  `check:paypal-entitlement` (32) + `check:worker` (forged webhook → 401 grants nothing; subscribe
   → pending + approve URL grants nothing; cancel ownership 403). The network-dependent steps are
   gated and exit **2 (PENDING)** without real sandbox creds:
   - `npm run check:paypal-capability` — verifies the account's Subscriptions + USD capability and
