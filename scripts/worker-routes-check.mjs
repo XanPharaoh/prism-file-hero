@@ -64,7 +64,7 @@ async function ins(table, rows) { return (await fetch(`${REST}/${table}`, { meth
 { const user = '11111111-0000-4000-8000-0000bbbb01', cust = 'cus_http1', sub = 'sub_http1';
   await del('user_plans', `user_id=eq.${user}`); await del('billing_customers', `customer_id=eq.${cust}`); await del('billing_subscriptions', `subscription_id=eq.${sub}`); await del('billing_events', `customer_id=eq.${cust}`);
   await ins('billing_customers', [{ customer_id: cust, user_id: user }]);
-  const body = JSON.stringify({ event_id: 'http-e1', event_type: 'subscription.activated', occurred_at: '2026-10-01T00:00:00Z', data: { id: sub, customer_id: cust, metadata: { plan: 'business' } } });
+  const body = JSON.stringify({ event_id: 'http-e1', event_type: 'subscription.activated', occurred_at: '2026-10-01T00:00:00Z', data: { id: sub, customer_id: cust, price_id: 'pri_SANDBOX_BUSINESS_PLACEHOLDER' } });
   const ts = Math.floor(Date.now() / 1000); const h1 = createHmac('sha256', WEBHOOK_SECRET).update(`${ts}:${body}`).digest('hex');
   const bad = await fetch(`${WORKER}/api/paddle/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Paddle-Signature': `ts=${ts};h1=deadbeef` }, body });
   ok('webhook: invalid signature → 401 (no mutation)', bad.status === 401, `status=${bad.status}`);

@@ -124,7 +124,7 @@ const uid = (n) => `11111111-0000-4000-8000-${String(n).padStart(12, '0')}`;
   await ins(SR, 'billing_customers', [{ customer_id: cust, user_id: user }]);
   const ev = (id, type, occurred, extra = {}) => rpc(SR, 'apply_billing_event', {
     p_event_id: id, p_event_type: type, p_occurred_at: occurred, p_subscription_id: sub, p_customer_id: cust,
-    p_payload: { event_id: id, event_type: type, occurred_at: occurred, data: { id: sub, customer_id: cust, ...extra } }, p_plan: 'pro',
+    p_payload: { event_id: id, event_type: type, occurred_at: occurred, data: { id: sub, customer_id: cust, price_id: 'pri_SANDBOX_PRO_PLACEHOLDER', ...extra } },
   });
   const a = await ev('evt-1', 'subscription.activated', '2026-10-01T00:00:00Z');
   ok('billing: activated event returns applied', a.json === 'applied', JSON.stringify(a.json));
@@ -171,7 +171,7 @@ const uid = (n) => `11111111-0000-4000-8000-${String(n).padStart(12, '0')}`;
     execFileSync('docker', ['restart', 'supabase_rest_prism-file-hero'], { stdio: 'ignore', timeout: 60000 });
     // wait for PostgREST to be reachable again
     for (let i = 0; i < 30; i++) { try { const r = await fetch(`${REST}/`, { headers: { apikey: SR, Authorization: `Bearer ${SR}` } }); if (r.ok) break; } catch {} await new Promise((res) => setTimeout(res, 500)); }
-    const dup = await rpc(SR, 'apply_billing_event', { p_event_id: 'evt-1', p_event_type: 'subscription.activated', p_occurred_at: '2026-10-01T00:00:00Z', p_subscription_id: 'sub_grant_1', p_customer_id: cust, p_payload: { data: { id: 'sub_grant_1', customer_id: cust } }, p_plan: 'pro' });
+    const dup = await rpc(SR, 'apply_billing_event', { p_event_id: 'evt-1', p_event_type: 'subscription.activated', p_occurred_at: '2026-10-01T00:00:00Z', p_subscription_id: 'sub_grant_1', p_customer_id: cust, p_payload: { data: { id: 'sub_grant_1', customer_id: cust, price_id: 'pri_SANDBOX_PRO_PLACEHOLDER' } } });
     ok('restart: dedupe still returns duplicate after PostgREST restart (durable in Postgres)', dup.json === 'duplicate', JSON.stringify(dup.json));
   } catch (e) { ok('restart: PostgREST restart performed', false, String(e.message)); }
 }

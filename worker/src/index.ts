@@ -4,6 +4,7 @@ import { isAiTool, isFreeTool } from '../../services/usageConfig';
 import { activationCodeMatches, issueDeviceToken, revokeDeviceToken, sha256Base64Url, verifyDeviceToken } from './deviceTokens';
 import { validateClerkClaims } from './jwtValidation';
 import { verifyPaddleSignature } from './billing/paddleVerify';
+import { createCustomer, createTransaction, createPortalSession, BillingNotConfigured, type PaddleEnv } from './billing/paddleApi';
 
 interface Env {
   NVIDIA_API_KEY: string;
@@ -22,6 +23,13 @@ interface Env {
   SUPABASE_SERVICE_ROLE_KEY: string;
   /** Paddle webhook shared secret (sandbox or prod). Absent => webhook signature always fails. */
   PADDLE_WEBHOOK_SECRET?: string;
+  /** Server-side Paddle API key for checkout/portal. Absent => billing routes return 503 (never a browser key). */
+  PADDLE_API_KEY?: string;
+  /** 'true' => Paddle sandbox host; else production host. */
+  PADDLE_SANDBOX?: string;
+  /** Allowlisted Paddle price IDs; the browser cannot supply an arbitrary price id. */
+  PADDLE_PRICE_PRO?: string;
+  PADDLE_PRICE_BUSINESS?: string;
   CLERK_JWKS_URL: string;
   /** Optional explicit claim configuration; issuer defaults to the JWKS origin. */
   CLERK_JWT_ISSUER?: string;
@@ -205,6 +213,26 @@ function internalMaxActiveDevices(env: Env): number {
 function internalTokenTtlDays(env: Env): number {
   const configured = Number(env.INTERNAL_DEVICE_TOKEN_TTL_DAYS ?? 90);
   return Number.isInteger(configured) && configured >= 1 && configured <= 365 ? configured : 90;
+}
+
+function pgHeaders(env: Env): Record<string, string> {
+  return { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`, 'Content-Type': 'application/json' };
+}
+/** service-role RPC (bypasses RLS; only the Worker holds this key). */
+async function pgRpc(env: Env, fn: string, body: Record<string, unknown>): Promise<any> {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fn}`, { method: 'POST', headers: pgHeaders(env), body: JSON.stringify(body) });
+  const t = await r.text(); let j; try { j = JSON.parse(t); } catch { j = t; }
+  if (!r.ok) throw new Error(`${fn} ${r.status}: ${String(t).slice(0, 200)}`);
+  return j;
+}
+async function pgSelectOne(env: Env, table: string, qs: string): Promise<any> {
+  const r = await fetch(`${env.SUPABASE_URL}/rest/v1/${table}?${qs}`, { headers: pgHeaders(env) });
+  if (!r.ok) throw new Error(`${table} ${r.status}`);
+  const rows = await r.json(); return Array.isArray(rows) ? rows[0] : null;
+}
+function bearer(request: Request): string {
+  const h = request.headers.get('Authorization') ?? '';
+  return h.startsWith('Bearer ') ? h.slice(7) : '';
 }
 
 async function proxyInternalAiRequest(env: Env, toolId: string, messages: NvidiaMessage[], cors: HeadersInit): Promise<Response> {
@@ -537,7 +565,6 @@ export default {
             p_subscription_id: subId,
             p_customer_id: evt.data?.customer_id ?? null,
             p_payload: evt,
-            p_plan: evt.data?.metadata?.plan ?? 'pro',
           }),
         });
         if (!res.ok) {
@@ -545,6 +572,64 @@ export default {
           return Response.json({ error: 'projection failed' }, { status: 502 });
         }
         return Response.json({ status: 'ok' }); // 200 ack for applied / duplicate / out_of_order
+      }
+
+      // --- Billing (R2/R3). Identity is ALWAYS the server-verified Clerk sub; the browser never
+      // supplies user_id/customer_id/price_id as authority. Paddle calls are gated on PADDLE_API_KEY.
+
+      // POST /api/billing/checkout — create a server-side transaction for an allowlisted plan.
+      if (url.pathname === '/api/billing/checkout' && request.method === 'POST') {
+        const token = bearer(request);
+        if (!token) return Response.json({ error: 'Authentication required' }, { status: 401, headers: cors });
+        const jp = await verifyJWT(token, env);
+        if (!jp) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
+        const body = await readBoundedJson(request, 4096);
+        const plan = body && typeof body === 'object' ? (body as any).plan : undefined;
+        // Server maps the requested plan to an ALLOWLISTED price id; an arbitrary browser price is never used.
+        const priceId = plan === 'business' ? env.PADDLE_PRICE_BUSINESS : plan === 'pro' ? env.PADDLE_PRICE_PRO : undefined;
+        if (!priceId) return Response.json({ error: 'Invalid plan (pro|business) or price not configured' }, { status: 400, headers: cors });
+        try {
+          const existing = await pgSelectOne(env, 'billing_customers', `user_id=eq.${encodeURIComponent(jp.sub)}&select=customer_id`);
+          const customerId: string = existing?.customer_id ?? (await createCustomer(env, (body as any)?.email))?.id;
+          if (!customerId) return Response.json({ error: 'customer creation failed' }, { status: 502, headers: cors });
+          const link = await pgRpc(env, 'ensure_billing_customer', { p_user_id: jp.sub, p_customer_id: customerId });
+          if (link !== 'ok') return Response.json({ error: 'customer link conflict', detail: link }, { status: 502, headers: cors });
+          const txn = await createTransaction(env, { customerId, priceId, userId: jp.sub });
+          return Response.json({ status: 'pending', plan, transactionId: txn?.id, checkoutUrl: txn?.checkout?.url ?? null }, { status: 201, headers: cors });
+        } catch (err: any) {
+          if (err instanceof BillingNotConfigured) return Response.json({ error: err.message, configured: false }, { status: 503, headers: cors });
+          console.error('[billing/checkout]', err);
+          return Response.json({ error: 'checkout failed' }, { status: 502, headers: cors });
+        }
+      }
+
+      // GET /api/billing/entitlement — the SERVER-derived plan for the caller (UI confirms after redirect; refresh/logout see the same).
+      if (url.pathname === '/api/billing/entitlement' && request.method === 'GET') {
+        const token = bearer(request);
+        if (!token) return Response.json({ error: 'Authentication required' }, { status: 401, headers: cors });
+        const jp = await verifyJWT(token, env);
+        if (!jp) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
+        const ent = await pgRpc(env, 'get_user_entitlement', { p_user_id: jp.sub });
+        const row = Array.isArray(ent) ? ent[0] : ent;
+        return Response.json({ userId: jp.sub, source: 'server', ...row }, { headers: cors });
+      }
+
+      // POST /api/billing/portal — an authorized customer-portal session for the caller's own linked customer.
+      if (url.pathname === '/api/billing/portal' && request.method === 'POST') {
+        const token = bearer(request);
+        if (!token) return Response.json({ error: 'Authentication required' }, { status: 401, headers: cors });
+        const jp = await verifyJWT(token, env);
+        if (!jp) return Response.json({ error: 'Invalid token' }, { status: 401, headers: cors });
+        try {
+          const own = await pgSelectOne(env, 'billing_customers', `user_id=eq.${encodeURIComponent(jp.sub)}&select=customer_id`);
+          if (!own?.customer_id) return Response.json({ status: 'no_subscription' }, { headers: cors });
+          const session = await createPortalSession(env, own.customer_id);
+          return Response.json({ url: session?.url ?? null }, { headers: cors });
+        } catch (err: any) {
+          if (err instanceof BillingNotConfigured) return Response.json({ error: err.message, configured: false }, { status: 503, headers: cors });
+          console.error('[billing/portal]', err);
+          return Response.json({ error: 'portal failed' }, { status: 502, headers: cors });
+        }
       }
 
       // --- POST /api/internal/activate ---
