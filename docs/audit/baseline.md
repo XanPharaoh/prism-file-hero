@@ -698,6 +698,115 @@ refund keeps current coverage; current-period refund revokes; ACTIVE-without-pay
 **Not evidenced as REAL payment:** a genuine `PAYMENT.SALE.COMPLETED` requires a **sandbox buyer** to
 approve the subscription at the `approveUrl` (an interactive login). No sandbox buyer account was
 provided, and simulator/test events are deliberately NOT counted as payment evidence. The
-signature-verification path itself is unit-tested against PayPal's `verify-webhook-signature` shape
-(5/5 `paypalVerify`, incl. the `*.paypal.com` cert-host SSRF guard and SUCCESS/FAILURE outcomes).
+signature-verification request shape assumed here was **wrong** for what the sandbox actually sends
+(§29 records the FAILURE investigation, the measured contract, and the regression tests).
 LIVE-account capability is NOT tested (no live credentials; live payments not authorized).
+
+## 29. Real webhook FAILURE — root cause and fix (2026-10-12)
+
+**Reported symptom:** the PayPal dashboard showed `FAILURE ERROR` for a real
+`BILLING.SUBSCRIPTION.CREATED` delivery at 1:53 PM.
+
+**What the evidence ruled out first.** The event *did* reach the app: the local Worker logged the
+deliveries as `POST /api/paypal/webhook 401 Unauthorized` taking 0.46–2.84 s each (a real round trip
+to PayPal's verifier — distinguishable from the 1 ms rejects produced by the forged-event test), and
+`[paypal-webhook] received 1175 bytes` matched the payload PayPal recorded. Routing, tunnel, event
+parsing and the database were therefore not the cause: `billing_events` stayed empty because
+**verification runs before anything is written**, and verification is what failed.
+
+**Demonstrated root cause.** The sandbox signs payloads with `paypal-auth-version: v2` and sends
+`paypal-transmission-sig`. The Worker posted the legacy field set (`event_body` + `auth_version`) and
+PayPal's verifier rejected the whole request with `400 INVALID_REQUEST`, so `verifyWebhook` returned
+false and refused every genuine delivery. Probing the live endpoint with an empty body returned the
+actual required-field list, which the code had never matched:
+
+```
+auth_algo, cert_url, transmission_id, transmission_sig, transmission_time, webhook_id, webhook_event
+```
+
+`webhook_event` is the parsed JSON **object**; a raw body string is rejected as
+`MALFORMED_REQUEST_JSON`, and `auth_version` is not part of the schema at all (sending it fails
+validation). That exact shape, posted with the captured real headers, returns
+`verification_status: SUCCESS` — now implemented in `verifyWebhook`
+(worker/src/billing/paypalApi.ts).
+
+**The gate was not weakened.** Tamper matrix run against the live verifier over the same real
+signature:
+
+| change | answer |
+|---|---|
+| untampered baseline | `SUCCESS` |
+| wrong `webhook_id` | `FAILURE` |
+| wrong `transmission_id` | `FAILURE` |
+| wrong `transmission_time` | `FAILURE` |
+| altered signature | `FAILURE` |
+| body edited (`resource.status` → `ACTIVE`) | `FAILURE` |
+| missing `cert_url` | `400` (and the cert-host allowlist refuses non-PayPal hosts before any call) |
+
+`BILLING.SUBSCRIPTION.CREATED` remains **non-entitling**: after the first successful delivery
+`get_user_entitlement` still answers `f | free | APPROVAL_PENDING` and `billing_payments` holds 0 rows.
+
+**Delivery proven with the REAL event, not a simulator.** The event body carries
+`links[].rel = "resend"` → `POST /v1/notifications/webhooks-events/{id}/resend`, which redelivers the
+same stored event, re-signed by PayPal (fresh transmission id/time/sig, identical `event.id`).
+Sequence: repoint webhook `1KP443353E900800S` from the dead quick-tunnel URL to the live one (HTTP
+200), resend → `200 OK` from the Worker, one row in `billing_events`
+(`WH-0UN88120D6956305A-0YC89414012419125`, `subscription_id = I-N4ECJF9TG5HX` taken from
+`resource.id`) and `billing_subscriptions.last_event_id` pointing at that event. Two further resends
+of the same event also returned `200 OK` (apply result `duplicate`) and added no rows. The
+`/test-event` simulator was deliberately not used as evidence.
+
+**Identifier resolver, corrected.** Lifecycle events resolve from `resource.id`; `PAYMENT.SALE.*`
+events resolve from `billing_agreement_id`. The rule now lives in `resolveSubscriptionId`
+(worker/src/billing/paypalApi.ts) with four unit tests, including "a payment event that names no
+subscription gets no subscription". The earlier `custom_id` → "whichever subscription is currently
+linked" fallback is removed: `custom_id` identifies the user, not the agreement, so it must never
+select one. Ownership comes only from the persisted `billing_subscriptions.user_id` link.
+
+**The URL it targeted, and the separate registration 400.** The captured delivery carries
+`paypal-transmission-time: 2026-10-12T12:10:04Z` and the Worker logged it as 1175 bytes with a `401`,
+so it reached the app through the quick tunnel that was live at that moment — a *different* tunnel
+process from the one running now. When this session resumed, the registration still pointed at that
+first tunnel's hostname (`frequently-hardcover-cant-ladies…`), which was by then dead (HTTP 530), so
+resending required repointing the webhook at the current tunnel first. No delivery ever failed
+because of routing or parsing: the `401` is the proof it arrived and was refused at verification.
+The earlier webhook-registration `400` was a different failure of mine and created nothing: a shell
+variable was passed as a node *argument* instead of exported into the environment, so the URL field
+arrived `undefined` and PayPal answered `400` on `/url`. A later request in the same session returned
+`201` and created webhook `1KP443353E900800S`; that is the only webhook on the sandbox app (verified
+by listing webhooks), so the successful call superseded the failed one rather than both existing.
+
+**Further defects found while re-running the checks** (each demonstrated by a failing assertion first,
+then fixed):
+
+1. `20261012000002` — `apply_paypal_event` read only `subscription_id`, so a genuine sale payload
+   (which names `billing_agreement_id`) recorded no coverage; and entitlement derived "paid" from a
+   captured payment joined through `billing_subscriptions` **without** the plan allowlist, so a
+   payment against an unmapped plan id produced `entitled = true` with `plan = free`. Coverage now
+   requires an allowlisted plan (returning `unmapped_plan`, recorded but granting nothing) and accepts
+   either identifier.
+2. `20261012000003` — the sale currency is written `amount.currency` in some PayPal API versions and
+   `amount.currency_code` in others; reading one spelling stored a NULL currency and, because coverage
+   requires USD, a legitimate payment granted nothing. `PAYMENT.SALE.*` payloads also had their own
+   `status` (`"completed"`) copied into `billing_subscriptions.status`, so a paid subscription could be
+   reported as `completed` instead of `ACTIVE`; payment events now update only the event
+   pointer/timestamp and never restate lifecycle status.
+3. `20261012000001` — retirement of `apply_billing_event` (Paddle-era): it was a second writer able to
+   set the paid `user_plans` projection from a status-only event with no captured payment, which
+   disagrees with the coverage authority and feeds `reserve_usage` caps. `refresh_user_coverage` is now
+   the only writer of the paid projection.
+
+**Real behavior found in the cancel route:** PayPal answers `404 RESOURCE_NOT_FOUND` to `/cancel`
+while a subscription is `APPROVAL_PENDING` (measured on `I-52RAAXJ7P9FN`). The route now reads the
+authoritative state first and returns a truthful `409 nothing-to-cancel` instead of a bare `502`.
+
+**Local totals after the fixes:** `paypal-entitlement-check` 12/12, `backend-integration-check`
+32/32, `privilege-escalation-check` 29/29, `worker-routes-check` 15/15, `vitest run` 718 passed /
+5 skipped (12 of them in `paypalVerify`), `tsc --noEmit` clean.
+
+**Still open from this incident:** a quick tunnel dies with its process, so any URL in the PayPal
+registration is temporary by nature (a named tunnel, or the deployed Worker, removes this whole class
+of failure); the sandbox app secret was pasted into chat and should be rotated in the PayPal
+dashboard; a real `PAYMENT.SALE.COMPLETED` still requires the sandbox buyer to approve at
+`https://www.sandbox.paypal.com/webapps/billing/subscriptions?ba_token=BA-5EG71204MW627823H`
+(`I-N4ECJF9TG5HX`, still `APPROVAL_PENDING`).

@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 
 const DSN = process.env.PROD_PG_URL || process.argv[2] || '';
 const TABLES = ['user_plans', 'user_plan', 'usage_logs', 'credit_reservations', 'plan_grants', 'billing_events', 'billing_subscriptions', 'billing_customers', 'billing_price_plans'];
-const PRIV_FUNCS = ['apply_billing_event', 'ensure_billing_customer', 'get_user_entitlement', 'reserve_usage', 'settle_usage', 'check_usage_limit', 'reserve_credit', 'settle_credit', 'resolve_plan_for_price'];
+const PRIV_FUNCS = ['apply_paypal_event', 'begin_paypal_subscription', 'refresh_user_coverage', 'ensure_billing_customer', 'get_user_entitlement', 'reserve_usage', 'settle_usage', 'check_usage_limit', 'reserve_credit', 'settle_credit', 'resolve_plan_for_price'];
 
 if (!DSN) { console.error('PENDING: provide a read-only production DSN via PROD_PG_URL (or as argv). Not run — no connection, no changes.'); process.exit(2); }
 if (/\b(vejdrvnymmowvjxleefm\.supabase\.co)\b/.test(DSN) === false && !/supabase/i.test(DSN)) {

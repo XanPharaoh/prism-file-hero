@@ -75,31 +75,62 @@ export function cancelSubscription(env: PayPalEnv, subscriptionId: string, reaso
 }
 
 /**
- * Verify a PayPal webhook using PayPal's documented mechanism. Returns true only when PayPal answers
- * verification_status=SUCCESS. The cert_url MUST be a PayPal-owned https host — we refuse others
- * before any network call to prevent SSRF via an attacker-supplied certificate URL.
+ * Resolve the EXACT subscription a verified event refers to, per event family:
+ *   • PAYMENT.SALE.* — the resource is a SALE; its subscription is `billing_agreement_id`.
+ *   • BILLING.SUBSCRIPTION.* — the resource id IS the subscription, so it is left alone.
+ * `custom_id` (our internal user id, echoed by PayPal) is deliberately NOT used to pick a
+ * subscription: it identifies the user, not the agreement, and mapping it to whichever subscription
+ * is currently linked would let one user's event act on another's. Ownership comes from the persisted
+ * billing_subscriptions.user_id link inside apply_paypal_event.
+ */
+export function resolveSubscriptionId(eventType: string, resource: Record<string, unknown>): Record<string, unknown> {
+  if (!eventType.startsWith('PAYMENT.SALE') || resource.subscription_id) return resource;
+  const ba = resource.billing_agreement_id;
+  return ba ? { ...resource, subscription_id: String(ba) } : resource;
+}
+
+/**
+ * Verify a PayPal webhook through PayPal's documented mechanism: POST the transmission headers plus
+ * the event payload to /v1/notifications/verify-webhook-signature and accept ONLY a
+ * verification_status=SUCCESS answer. The cert_url MUST be a PayPal-owned https host — we refuse
+ * others before any network call to prevent SSRF via an attacker-supplied certificate URL.
+ *
+ * VERIFIER CONTRACT, measured against the sandbox (which signs payloads with auth-version v2): the
+ * request takes exactly auth_algo, cert_url, transmission_id, transmission_sig, transmission_time,
+ * webhook_id and webhook_event — the payload field is `webhook_event` as a parsed JSON OBJECT, not
+ * the legacy `event_body` string, and sending an unknown field such as auth_version fails the schema.
+ * Tampering with webhook_id, transmission_id, transmission_time, the signature or any body value
+ * (e.g. resource.status) makes PayPal answer FAILURE, so this stays fail-closed.
  */
 export async function verifyWebhook(env: PayPalEnv, headers: Headers, rawBody: string): Promise<boolean> {
   if (!env.PAYPAL_WEBHOOK_ID) return false;
   const certUrl = headers.get('paypal-cert-url') || '';
   const transmissionId = headers.get('paypal-transmission-id') || '';
   const transmissionTime = headers.get('paypal-transmission-time') || '';
+  const transmissionSig = headers.get('paypal-transmission-sig') || '';
   const authAlgo = headers.get('paypal-auth-algo') || '';
-  const authVersion = headers.get('paypal-auth-version') || '';
-  if (!certUrl || !transmissionId) return false;
+  if (!certUrl || !transmissionId || !transmissionSig) { console.warn('[paypal-verify] missing cert_url/transmission_id/transmission_sig'); return false; }
   try {
     const u = new URL(certUrl);
-    if (u.protocol !== 'https:') return false;
-    if (!(u.hostname === 'paypal.com' || u.hostname.endsWith('.paypal.com'))) return false; // SSRF guard
-  } catch { return false; }
+    if (u.protocol !== 'https:') { console.warn('[paypal-verify] non-https cert_url', certUrl); return false; }
+    if (!(u.hostname === 'paypal.com' || u.hostname.endsWith('.paypal.com'))) { console.warn('[paypal-verify] cert_url host not paypal', u.hostname); return false; } // SSRF guard
+  } catch { console.warn('[paypal-verify] unparseable cert_url', certUrl); return false; }
 
-  let event: unknown; try { event = JSON.parse(rawBody); } catch { return false; }
+  let event: any; try { event = JSON.parse(rawBody); } catch { console.warn('[paypal-verify] unparseable body'); return false; }
   const { status, json } = await call(env, '/v1/notifications/verify-webhook-signature', {
     method: 'POST',
     body: JSON.stringify({
       auth_algo: authAlgo, cert_url: certUrl, transmission_id: transmissionId,
-      transmission_time: transmissionTime, webhook_id: env.PAYPAL_WEBHOOK_ID, event_body: event,
+      transmission_sig: transmissionSig, transmission_time: transmissionTime,
+      webhook_id: env.PAYPAL_WEBHOOK_ID, webhook_event: event,
     }),
   });
-  return status === 200 && json?.verification_status === 'SUCCESS';
+  const okVerify = status === 200 && json?.verification_status === 'SUCCESS';
+  if (!okVerify) {
+    console.warn('[paypal-verify] FAILED', {
+      httpStatus: status, verification_status: json?.verification_status ?? json?.name ?? null,
+      event_id: event?.id, event_type: event?.event_type, detail: json?.details ? JSON.stringify(json.details).slice(0, 300) : null,
+    });
+  }
+  return okVerify;
 }

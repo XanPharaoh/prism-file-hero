@@ -46,7 +46,7 @@ ok('R4: cannot INSERT plan_grants (raise own limit)', denied(await ins(UA, 'plan
 ok('R4: cannot INSERT usage_logs (fake accounting)', denied(await ins(UA, 'usage_logs', [{ request_id: 'f0f0f0f0-0000-4000-8000-0000000000bb', tracking_key: subA, ip_address: '1.1.1.1', month: '2099-01', tool_id: 'ocr', ai_pages: 1, operations: 1, page_count: 1, feature_type: 'ai', status: 'SUCCESS' }])), '');
 
 // ── R4.3 invoke privileged functions (revoked from authenticated) ──────────────
-for (const [fn, args] of [['reserve_credit', { p_request_id: '00000000-0000-4000-8000-000000000001', p_user_id: subA, p_cost: 1, p_month: '2099-01' }], ['settle_credit', { p_request_id: '00000000-0000-4000-8000-000000000001', p_status: 'SUCCESS', p_month: '2099-01' }], ['check_usage_limit', { p_user_id: subA, p_tracking_key: subA, p_ip_address: '1.1.1.1', p_tool_id: 'ocr', p_ai_pages: 1, p_operations: 0, p_page_count: 1 }], ['reserve_usage', { p_request_id: '00000000-0000-4000-8000-000000000002', p_user_id: subA, p_tracking_key: subA, p_ip_address: '1.1.1.1', p_tool_id: 'ocr', p_ai_pages: 1, p_operations: 0, p_page_count: 1 }], ['get_user_entitlement', { p_user_id: subB }], ['resolve_plan_for_price', { p_price_id: 'pri_SANDBOX_PRO_PLACEHOLDER' }], ['ensure_billing_customer', { p_user_id: subA, p_customer_id: 'cus_A' }], ['apply_billing_event', { p_event_id: 'x', p_event_type: 'subscription.activated', p_occurred_at: '2026-01-01T00:00:00Z', p_subscription_id: 's', p_customer_id: 'c', p_payload: {} }]]) {
+for (const [fn, args] of [['reserve_credit', { p_request_id: '00000000-0000-4000-8000-000000000001', p_user_id: subA, p_cost: 1, p_month: '2099-01' }], ['settle_credit', { p_request_id: '00000000-0000-4000-8000-000000000001', p_status: 'SUCCESS', p_month: '2099-01' }], ['check_usage_limit', { p_user_id: subA, p_tracking_key: subA, p_ip_address: '1.1.1.1', p_tool_id: 'ocr', p_ai_pages: 1, p_operations: 0, p_page_count: 1 }], ['reserve_usage', { p_request_id: '00000000-0000-4000-8000-000000000002', p_user_id: subA, p_tracking_key: subA, p_ip_address: '1.1.1.1', p_tool_id: 'ocr', p_ai_pages: 1, p_operations: 0, p_page_count: 1 }], ['get_user_entitlement', { p_user_id: subB }], ['resolve_plan_for_price', { p_price_id: 'pri_SANDBOX_PRO_PLACEHOLDER' }], ['ensure_billing_customer', { p_user_id: subA, p_customer_id: 'cus_A' }], ['apply_paypal_event', { p_event_id: 'x', p_event_type: 'BILLING.SUBSCRIPTION.ACTIVATED', p_resource: { id: 's' } }], ['begin_paypal_subscription', { p_user_id: subA, p_subscription_id: 's', p_plan_id: 'P-SANDBOX-PRO-MONTHLY' }], ['refresh_user_coverage', { p_user_id: subA }]]) {
   const r = await rpc(UA, fn, args);
   ok(`R4: authenticated cannot call privileged fn ${fn}`, denied(r.status), `status=${r.status}`);
 }
@@ -60,31 +60,57 @@ ok('R4: server refuses to steal B\'s customer (conflict_customer_owned)', steal.
 const stillB = await sel(SR, 'billing_customers', `customer_id=eq.cusB&select=user_id`);
 ok('R4: B still owns cusB after A\'s attempt', stillB.j[0] && stillB.j[0].user_id === subB, JSON.stringify(stillB.j));
 
-// ── R2 webhook ownership: grant only with link + allowlisted price + active ────
-async function webhook(cust, sub, priceId, type, occurred, eventId) {
-  return rpc(SR, 'apply_billing_event', { p_event_id: eventId, p_event_type: type, p_occurred_at: occurred, p_subscription_id: sub, p_customer_id: cust, p_payload: { data: { id: sub, customer_id: cust, ...(priceId ? { price_id: priceId } : {}) } } });
+// ── R2 webhook ownership: grant only via a persisted link + allowlisted plan + payment coverage ──
+const FUTURE = new Date(Date.now() + 30 * 864e5).toISOString();
+const PAST = new Date(Date.now() - 864e5).toISOString();
+async function webhook(eventId, type, resource) {
+  return rpc(SR, 'apply_paypal_event', { p_event_id: eventId, p_event_type: type, p_resource: resource });
 }
-// (a) unlinked customer → no grant
-await del(SR, 'user_plans', `user_id=eq.${subA}`); await del(SR, 'billing_customers', `user_id=eq.${subA}`);
-await webhook('cus_unlinked', 'sub_unlinked', 'pri_SANDBOX_PRO_PLACEHOLDER', 'subscription.activated', '2026-10-01T00:00:00Z', 'r2-a');
-const unlinked = await sel(SR, 'user_plans', `user_id=eq.${subA}&select=plan`);
-ok('R2: unlinked customer grants nothing', unlinked.j.length === 0, JSON.stringify(unlinked.j));
-const recorded = await sel(SR, 'billing_events', `event_id=eq.r2-a&select=event_id`);
-ok('R2: unknown-link event still recorded (durable, for retry)', recorded.j.length === 1, JSON.stringify(recorded.j));
-// (b) linked but price NOT allowlisted → no grant
-await ins(SR, 'billing_customers', [{ customer_id: 'cusA', user_id: subA }]);
-await webhook('cusA', 'subA', 'pri_UNKNOWN_NOT_IN_ALLOWLIST', 'subscription.activated', '2026-10-02T00:00:00Z', 'r2-b');
-const noTier = await sel(SR, 'user_plans', `user_id=eq.${subA}&select=plan`);
-ok('R2: allowlisted-price required — unknown price grants nothing', noTier.j.length === 0, JSON.stringify(noTier.j));
-// (c) linked + allowlisted price → grants the allowlist tier
-await webhook('cusA', 'subA', 'pri_SANDBOX_BUSINESS_PLACEHOLDER', 'subscription.activated', '2026-10-03T00:00:00Z', 'r2-c');
-const granted = await sel(SR, 'user_plans', `user_id=eq.${subA}&select=plan,subscription_status`);
-ok('R2: linked + allowlisted business price grants business/active', granted.j[0] && granted.j[0].plan === 'business' && granted.j[0].subscription_status === 'active', JSON.stringify(granted.j));
-// (d) cancel demotes
-await webhook('cusA', 'subA', 'pri_SANDBOX_BUSINESS_PLACEHOLDER', 'subscription.canceled', '2026-10-04T00:00:00Z', 'r2-d');
-const canceled = await sel(SR, 'user_plans', `user_id=eq.${subA}&select=subscription_status`);
-ok('R2: cancel demotes subscription_status', canceled.j[0] && canceled.j[0].subscription_status === 'canceled', JSON.stringify(canceled.j));
+async function planRow(u) { return (await sel(SR, 'user_plans', `user_id=eq.${u}&select=plan,subscription_status`)).j; }
+async function payment(sub, sale) {
+  return webhook(`r2-pay-${sale}`, 'PAYMENT.SALE.COMPLETED', {
+    id: sale, subscription_id: sub, billing_agreement_id: sub, transaction_state: 'completed',
+    amount: { currency: 'USD', total: '19.00' }, billing_period_start_date: PAST, billing_period_end_date: FUTURE, time_updated: new Date().toISOString(),
+  });
+}
+// (a) event for a subscription with NO server-side owner → recorded, nothing granted
+await del(SR, 'user_plans', `user_id=eq.${subA}`);
+await del(SR, 'billing_subscriptions', `subscription_id=eq.sub_unlinked`);
+await del(SR, 'billing_events', `subscription_id=eq.sub_unlinked`);
+await webhook('r2-a', 'BILLING.SUBSCRIPTION.ACTIVATED', { id: 'sub_unlinked', status: 'ACTIVE', time_updated: PAST });
+ok('R2: unlinked subscription grants nothing (no user_plans row)', (await planRow(subA)).length === 0, JSON.stringify(await planRow(subA)));
+ok('R2: unlinked event still recorded durably (kept for retry)', (await sel(SR, 'billing_events', `event_id=eq.r2-a&select=event_id`)).j.length === 1, '');
+// (b) linked to a plan id that is NOT allowlisted → payment coverage cannot name a tier
+await del(SR, 'billing_subscriptions', `subscription_id=eq.subA`);
+await ins(SR, 'billing_subscriptions', [{ subscription_id: 'subA', user_id: subA, plan_id: 'P-NOT-IN-ALLOWLIST', provider: 'paypal', status: 'ACTIVE' }]);
+await payment('subA', 'sale-b');
+const entB = await rpc(SR, 'get_user_entitlement', { p_user_id: subA });
+ok('R2: coverage of an unknown plan → free, not entitled', entB.j[0] && entB.j[0].entitled === false && entB.j[0].plan === 'free', JSON.stringify(entB.j));
+// (c) linked + allowlisted business plan + captured USD payment → business
+await del(SR, 'billing_payments', `subscription_id=eq.subA`);
+await del(SR, 'billing_events', `subscription_id=eq.subA`);
+const link = await rpc(SR, 'begin_paypal_subscription', { p_user_id: subA, p_subscription_id: 'subA', p_plan_id: 'P-SANDBOX-BUSINESS-MONTHLY' });
+ok('R2: server links own subscription (allowlisted plan)', link.j === 'ok', JSON.stringify(link.j));
+await payment('subA', 'sale-c');
+const granted = await planRow(subA);
+ok('R2: link + allowlisted plan + captured payment → business/active', granted[0] && granted[0].plan === 'business' && granted[0].subscription_status === 'active', JSON.stringify(granted));
+// (d) cancel stops renewal but keeps paid-through access; refund of that payment revokes it
+await webhook('r2-d', 'BILLING.SUBSCRIPTION.CANCELLED', { id: 'subA', status: 'CANCELLED', time_updated: new Date().toISOString() });
+const afterCancel = await rpc(SR, 'get_user_entitlement', { p_user_id: subA });
+ok('R2: cancel preserves already-paid coverage', afterCancel.j[0] && afterCancel.j[0].entitled === true, JSON.stringify(afterCancel.j));
+await webhook('r2-e', 'PAYMENT.SALE.REFUNDED', { id: 'sale-c', subscription_id: 'subA', billing_agreement_id: 'subA', time_updated: new Date().toISOString() });
+const afterRefund = await rpc(SR, 'get_user_entitlement', { p_user_id: subA });
+ok('R2: refund of the covering payment revokes access', afterRefund.j[0] && afterRefund.j[0].entitled === false, JSON.stringify(afterRefund.j));
+// (f) adoption attempt: A cannot attach B's subscription
+await del(SR, 'billing_subscriptions', `subscription_id=eq.subB`);
+await ins(SR, 'billing_subscriptions', [{ subscription_id: 'subB', user_id: subB, plan_id: 'P-SANDBOX-PRO-MONTHLY', provider: 'paypal', status: 'ACTIVE' }]);
+const adopt = await rpc(SR, 'begin_paypal_subscription', { p_user_id: subA, p_subscription_id: 'subB', p_plan_id: 'P-SANDBOX-BUSINESS-MONTHLY' });
+ok('R2: server refuses to adopt another user\'s subscription (conflict_owner)', adopt.j === 'conflict_owner', JSON.stringify(adopt.j));
+const bStill = await sel(SR, 'billing_subscriptions', `subscription_id=eq.subB&select=user_id`);
+ok('R2: B still owns subB after A\'s attempt', bStill.j[0] && bStill.j[0].user_id === subB, JSON.stringify(bStill.j));
 
+await del(SR, 'billing_customers', `user_id=in.(${subA},${subB})`);
+await ins(SR, 'billing_customers', [{ customer_id: 'cusA', user_id: subA }]);
 // ── one customer per user (R2 link integrity) ───────────────────────────────
 const reLinkOther = await rpc(SR, 'ensure_billing_customer', { p_user_id: subA, p_customer_id: 'cusA2' });
 ok('R2: a user cannot bind a second customer (one-per-user)', reLinkOther.j === 'conflict_user_linked', JSON.stringify(reLinkOther.j));

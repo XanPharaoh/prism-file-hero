@@ -5,7 +5,7 @@ import { activationCodeMatches, issueDeviceToken, revokeDeviceToken, sha256Base6
 import { validateClerkClaims } from './jwtValidation';
 import {
   createSubscription, activateSubscription, getSubscription, cancelSubscription, verifyWebhook,
-  BillingNotConfigured, type PayPalEnv,
+  resolveSubscriptionId, BillingNotConfigured, type PayPalEnv,
 } from './billing/paypalApi';
 
 interface Env {
@@ -547,6 +547,7 @@ export default {
       // recorded (apply returns 'unlinked') and NOTHING is granted; /reconcile recovers it later.
       if (url.pathname === '/api/paypal/webhook' && request.method === 'POST') {
         const raw = await request.text();
+        console.log('[paypal-webhook] received', raw.length, 'bytes; header names:', [...request.headers.keys()].filter((k) => k.startsWith('paypal-')).join(','));
         const verified = await verifyWebhook(env, request.headers, raw);
         if (!verified) return Response.json({ error: 'invalid signature' }, { status: 401 });
 
@@ -560,17 +561,10 @@ export default {
         console.log('[paypal-webhook] verified', evt.event_type, JSON.stringify(evt.resource ?? {}).slice(0, 800));
 
         try {
-          const resource = { ...(evt.resource ?? {}) };
-          const isPayment = String(evt.event_type).startsWith('PAYMENT.SALE');
-          // Resolve the subscription through actual identifiers.
-          if (isPayment && !resource.subscription_id) {
-            const customId = resource.custom_id ? String(resource.custom_id) : '';
-            if (customId) {
-              const owned = await pgSelectOne(env, 'billing_subscriptions',
-                `user_id=eq.${encodeURIComponent(customId)}&provider=eq.paypal&order=updated_at.desc&limit=1&select=subscription_id`);
-              if (owned?.subscription_id) resource.subscription_id = owned.subscription_id;
-            }
-          }
+          const et = String(evt.event_type);
+          // PAYMENT.SALE.* → billing_agreement_id; BILLING.SUBSCRIPTION.* → resource.id. Ownership is
+          // resolved from the persisted link inside apply_paypal_event, never from custom_id.
+          const resource = resolveSubscriptionId(et, { ...(evt.resource ?? {}) });
           const result = await pgRpc(env, 'apply_paypal_event', { p_event_id: eventId, p_event_type: evt.event_type, p_resource: resource });
           return Response.json({ status: 'ok', result }); // 200 ack for applied/duplicate/out_of_order/unlinked/unknown_plan
         } catch (err) {
@@ -648,6 +642,15 @@ export default {
         const owned = await pgSelectOne(env, 'billing_subscriptions', `subscription_id=eq.${encodeURIComponent(subId)}&user_id=eq.${encodeURIComponent(jp.sub)}&select=subscription_id`);
         if (!owned) return Response.json({ error: 'not your subscription' }, { status: 403, headers: cors }); // ownership is the server mapping
         try {
+          // PayPal answers 404 RESOURCE_NOT_FOUND to /cancel while a subscription is still
+          // APPROVAL_PENDING (the agreement is not cancellable until it exists). Check the
+          // authoritative state first so the UI gets a true reason instead of a bare 502.
+          const current = await getSubscription(env, subId);
+          const state = String((current.json as any)?.status ?? '');
+          if (current.status >= 400) return Response.json({ error: 'could not read subscription state', detail: (current.json as any)?.message }, { status: 502, headers: cors });
+          if (state === 'APPROVAL_PENDING' || state === 'SUSPENDED') {
+            return Response.json({ error: 'nothing to cancel', status: state, detail: 'This subscription was never activated. It grants nothing and expires on its own.' }, { status: 409, headers: cors });
+          }
           const c = await cancelSubscription(env, subId);
           if (c.status >= 400 && c.status !== 422) return Response.json({ error: 'cancel failed', detail: c.json?.message }, { status: 502, headers: cors });
           await pgRpc(env, 'apply_paypal_event', { p_event_id: `manual-cancel-${subId}`, p_event_type: 'BILLING.SUBSCRIPTION.CANCELLED', p_resource: { id: subId, status: 'CANCELLED' } });

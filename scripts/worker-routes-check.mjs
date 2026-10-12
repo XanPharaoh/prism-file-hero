@@ -5,7 +5,7 @@
  * path (settled to ERROR when no provider is configured — recovery, no paid spend), webhook
  * signature accept/reject + live-plan grant over HTTP, and concurrent /api/ai never leaving a
  * dangling PENDING. Uses scripts/local-jwks.mjs as the Clerk stand-in and locally-signed webhook
- * fixtures. Clearly NOT real Clerk, NOT real AI providers, NOT real Paddle.
+ * fixtures. Clearly NOT real Clerk, NOT real AI providers, NOT a real PayPal buyer approval.
  *
  * Requires running: local supabase stack, scripts/local-jwks.mjs (JWKS_PORT 8799), and
  * `wrangler dev` (port 8787) in worker/ with worker/.dev.vars.
@@ -69,9 +69,24 @@ async function ins(table, rows) { return (await fetch(`${REST}/${table}`, { meth
   const after = await q('user_plans', `user_id=eq.${user}&select=plan`);
   ok('paypal webhook: unverified event granted nothing', Array.isArray(after) && after.length === 0, JSON.stringify(after));
   const t = await bearer(user);
-  const sj = await (await fetch(`${WORKER}/api/billing/paypal/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ plan: 'pro', cycle: 'monthly' }) })).json().catch(() => ({}));
-  const sub503 = await fetch(`${WORKER}/api/billing/paypal/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ plan: 'pro', cycle: 'monthly' }) });
-  ok('paypal subscribe: without credentials → 503 configured:false (never grants)', sub503.status === 503 && sj.configured === false, `${sub503.status} ${JSON.stringify(sj)}`);
+  const subscribe = () => fetch(`${WORKER}/api/billing/paypal/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ plan: 'pro', cycle: 'monthly' }) });
+  const hasPayPalCreds = /PAYPAL_CLIENT_ID=\S/.test(readFileSync('worker/.dev.vars', 'utf8'));
+  const subRes = await subscribe(); const sj = await subRes.json().catch(() => ({}));
+  if (!hasPayPalCreds) {
+    ok('paypal subscribe: without credentials → 503 configured:false (never grants)', subRes.status === 503 && sj.configured === false, `${subRes.status} ${JSON.stringify(sj)}`);
+  } else {
+    // Credentials ARE configured locally, so the route really creates a sandbox subscription. The
+    // security property under test is unchanged: a browser approval must not produce entitlement.
+    ok('paypal subscribe: returns pending + approve URL, no entitlement granted server-side',
+      subRes.status === 201 && typeof sj.approveUrl === 'string' && sj.status === 'pending', JSON.stringify(sj).slice(0, 160));
+    const granted = await q('user_plans', `user_id=eq.${user}&select=plan,subscription_status`);
+    const paid = !!(granted?.[0] && granted[0].plan !== 'free' && granted[0].subscription_status === 'active');
+    ok('paypal subscribe: creating the subscription did not grant paid access', paid === false, JSON.stringify(granted));
+    const cx = await fetch(`${WORKER}/api/billing/paypal/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ subscriptionId: sj.subscriptionId }) });
+    ok('paypal cancel: an APPROVAL_PENDING subscription reports 409 nothing-to-cancel (not a bare 502)', cx.status === 409, `status=${cx.status} ${JSON.stringify(await cx.json().catch(() => ({}))).slice(0, 140)}`);
+    const foreign = await fetch(`${WORKER}/api/billing/paypal/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ subscriptionId: 'I-NOT-YOURS' }) });
+    ok('paypal cancel: a subscription the caller does not own is refused (403, server mapping)', foreign.status === 403, `status=${foreign.status}`);
+  }
   const ej = await (await fetch(`${WORKER}/api/billing/entitlement`, { headers: { Authorization: `Bearer ${t}` } })).json().catch(() => ({}));
   ok('paypal entitlement: server-derived plan for the caller', typeof ej.plan === 'string' && ej.source === 'server', JSON.stringify(ej)); }
 

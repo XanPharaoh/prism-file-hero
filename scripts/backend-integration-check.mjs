@@ -14,6 +14,7 @@ const BASE = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
 const REST = `${BASE}/rest/v1`;
 const TOK = JSON.parse(readFileSync('.localdev/tokens.json', 'utf8'));
 const MONTH = new Date().toISOString().slice(0, 7); // matches check_usage_limit / plan_grants month key
+const N = Date.now().toString(36); // unique per run: the durable inbox dedupes by event_id
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { cond ? (pass++, console.log(`PASS ${name}`)) : (fail++, console.log(`FAIL ${name} ${extra}`)); return cond; };
@@ -114,33 +115,46 @@ const uid = (n) => `11111111-0000-4000-8000-${String(n).padStart(12, '0')}`;
   ok('usage: authenticated reserve (non-null user_id) resolves plan without SQL ambiguity', r.json[0] && r.json[0].allowed === true && r.json[0].plan === 'pro', JSON.stringify(r.json).slice(0, 200));
 }
 
-// ── 4. Billing: verified event grants the LIVE plan; dedupe/out-of-order ─────
+// ── 4. Billing: verified PayPal events + payment coverage drive the LIVE plan ─
 {
-  const user = uid(7001); const cust = 'cus_grant_1'; const sub = 'sub_grant_1';
+  const user = uid(7001); const sub = 'sub_paypal_grant_1'; const sale = 'sale_paypal_grant_1';
+  const plan = 'P-SANDBOX-PRO-MONTHLY';                      // allowlisted in billing_price_plans
+  const now = new Date().toISOString();
+  const past = new Date(Date.now() - 864e5).toISOString();
+  const future = new Date(Date.now() + 30 * 864e5).toISOString();
   await del(SR, 'user_plans', `user_id=eq.${user}`);
-  await del(SR, 'billing_customers', `customer_id=eq.${cust}`);
   await del(SR, 'billing_subscriptions', `subscription_id=eq.${sub}`);
-  await del(SR, 'billing_events', `customer_id=eq.${cust}`);
-  await ins(SR, 'billing_customers', [{ customer_id: cust, user_id: user }]);
-  const ev = (id, type, occurred, extra = {}) => rpc(SR, 'apply_billing_event', {
-    p_event_id: id, p_event_type: type, p_occurred_at: occurred, p_subscription_id: sub, p_customer_id: cust,
-    p_payload: { event_id: id, event_type: type, occurred_at: occurred, data: { id: sub, customer_id: cust, price_id: 'pri_SANDBOX_PRO_PLACEHOLDER', ...extra } },
+  await del(SR, 'billing_events', `subscription_id=eq.${sub}`);
+  await del(SR, 'billing_payments', `subscription_id=eq.${sub}`);
+  const link = await rpc(SR, 'begin_paypal_subscription', { p_user_id: user, p_subscription_id: sub, p_plan_id: plan });
+  ok('billing: server-side user↔subscription link persisted', link.status === 200, JSON.stringify(link.json).slice(0, 120));
+  const ev = (id, type, resource) => rpc(SR, 'apply_paypal_event', { p_event_id: id, p_event_type: type, p_resource: resource });
+  const ent = async () => (await rpc(SR, 'get_user_entitlement', { p_user_id: user })).json[0];
+
+  const created = await ev(`pp-evt-1-${N}`, 'BILLING.SUBSCRIPTION.CREATED', { id: sub, status: 'APPROVAL_PENDING', plan_id: plan, create_time: past });
+  ok('billing: CREATED event applied through the durable inbox', created.json === 'applied', JSON.stringify(created.json));
+  ok('billing: CREATED is recorded but grants nothing (browser approval ≠ access)', (await ent()).entitled === false && (await ent()).plan === 'free', JSON.stringify(await ent()));
+  const activated = await ev(`pp-evt-2-${N}`, 'BILLING.SUBSCRIPTION.ACTIVATED', { id: sub, status: 'ACTIVE', time_updated: now });
+  ok('billing: ACTIVATED applied', activated.json === 'applied', JSON.stringify(activated.json));
+  ok('billing: ACTIVE alone still grants nothing — entitlement needs payment coverage', (await ent()).entitled === false, JSON.stringify(await ent()));
+
+  const paid = await ev(`pp-evt-3-${N}`, 'PAYMENT.SALE.COMPLETED', {
+    id: sale, billing_agreement_id: sub, transaction_state: 'completed',
+    amount: { currency: 'USD', total: '19.00' }, billing_period_start_date: past, billing_period_end_date: future, time_updated: now,
   });
-  const a = await ev('evt-1', 'subscription.activated', '2026-10-01T00:00:00Z');
-  ok('billing: activated event returns applied', a.json === 'applied', JSON.stringify(a.json));
+  ok('billing: PAYMENT.SALE.COMPLETED applied (ownership via billing_agreement_id)', paid.json === 'applied', JSON.stringify(paid.json));
+  const afterPay = await ent();
+  ok('billing: captured USD payment → entitled pro', afterPay.entitled === true && afterPay.plan === 'pro', JSON.stringify(afterPay));
   const up = await select(SR, 'user_plans', `user_id=eq.${user}&select=plan,subscription_status`);
-  ok('billing: projection writes the LIVE user_plans (pro/active)', up.json[0] && up.json[0].plan === 'pro' && up.json[0].subscription_status === 'active', JSON.stringify(up.json));
-  const ent = await rpc(SR, 'get_user_entitlement', { p_user_id: user });
-  ok('billing: get_user_entitlement reflects active plan', ent.json[0] && ent.json[0].entitled === true && ent.json[0].plan === 'pro', JSON.stringify(ent.json));
-  const dup = await ev('evt-1', 'subscription.activated', '2026-10-01T00:00:00Z');
-  ok('billing: replayed event_id is duplicate (survives restart — PK)', dup.json === 'duplicate', JSON.stringify(dup.json));
-  const ooo = await ev('evt-0', 'subscription.canceled', '2025-01-01T00:00:00Z');
-  ok('billing: older event than last_occurred is out_of_order', ooo.json === 'out_of_order', JSON.stringify(ooo.json));
-  const cancel = await ev('evt-2', 'subscription.canceled', '2026-10-05T00:00:00Z');
-  ok('billing: cancel applied', cancel.json === 'applied', JSON.stringify(cancel.json));
-  const up2 = await select(SR, 'user_plans', `user_id=eq.${user}&select=subscription_status`);
-  const ent2 = await rpc(SR, 'get_user_entitlement', { p_user_id: user });
-  ok('billing: cancel demotes live status → not entitled', up2.json[0].subscription_status === 'canceled' && ent2.json[0].entitled === false, JSON.stringify([up2.json, ent2.json]));
+  ok('billing: coverage refresh writes the LIVE user_plans projection (pro/active)', up.json[0] && up.json[0].plan === 'pro' && up.json[0].subscription_status === 'active', JSON.stringify(up.json));
+  const replay = await ev(`pp-evt-3-${N}`, 'PAYMENT.SALE.COMPLETED', { id: sale, billing_agreement_id: sub, amount: { currency: 'USD', total: '19.00' }, billing_period_end_date: future });
+  ok('billing: replayed event_id is duplicate (survives restart — PK)', replay.json === 'duplicate', JSON.stringify(replay.json));
+  const ooo = await ev(`pp-evt-0-${N}`, 'BILLING.SUBSCRIPTION.SUSPENDED', { id: sub, status: 'SUSPENDED', time_updated: '2020-01-01T00:00:00Z' });
+  ok('billing: status event older than last_occurred is out_of_order', ooo.json === 'out_of_order', JSON.stringify(ooo.json));
+  const refunded = await ev(`pp-evt-4-${N}`, 'PAYMENT.SALE.REFUNDED', { id: sale, billing_agreement_id: sub, time_updated: new Date().toISOString() });
+  ok('billing: refund of the covering payment applied', refunded.json === 'applied', JSON.stringify(refunded.json));
+  const afterRefund = await ent();
+  ok('billing: refund revokes coverage → not entitled, even though status is still ACTIVE', afterRefund.entitled === false, JSON.stringify(afterRefund));
 }
 
 // ── 5. RLS cross-user isolation with REAL authenticated tokens (no service role) ─
@@ -171,7 +185,7 @@ const uid = (n) => `11111111-0000-4000-8000-${String(n).padStart(12, '0')}`;
     execFileSync('docker', ['restart', 'supabase_rest_prism-file-hero'], { stdio: 'ignore', timeout: 60000 });
     // wait for PostgREST to be reachable again
     for (let i = 0; i < 30; i++) { try { const r = await fetch(`${REST}/`, { headers: { apikey: SR, Authorization: `Bearer ${SR}` } }); if (r.ok) break; } catch {} await new Promise((res) => setTimeout(res, 500)); }
-    const dup = await rpc(SR, 'apply_billing_event', { p_event_id: 'evt-1', p_event_type: 'subscription.activated', p_occurred_at: '2026-10-01T00:00:00Z', p_subscription_id: 'sub_grant_1', p_customer_id: cust, p_payload: { data: { id: 'sub_grant_1', customer_id: cust, price_id: 'pri_SANDBOX_PRO_PLACEHOLDER' } } });
+    const dup = await rpc(SR, 'apply_paypal_event', { p_event_id: `pp-evt-3-${N}`, p_event_type: 'PAYMENT.SALE.COMPLETED', p_resource: { id: 'sale_paypal_grant_1', billing_agreement_id: 'sub_paypal_grant_1' } });
     ok('restart: dedupe still returns duplicate after PostgREST restart (durable in Postgres)', dup.json === 'duplicate', JSON.stringify(dup.json));
   } catch (e) { ok('restart: PostgREST restart performed', false, String(e.message)); }
 }

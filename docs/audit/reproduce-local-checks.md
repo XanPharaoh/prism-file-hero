@@ -56,15 +56,15 @@ fail. The site loader (`site/assets/tool.js` `OCR_OPTS`) points at these same-or
 
 ## 4. Run the checks
 ```
-npm run check:backend            # 27 — DB authority vs real PostgREST (needs §1 + tokens)
-npm run check:privilege          # 23 — privilege escalation (self-upgrade, credits, privileged fns, cross-user)
-npm run check:paypal-entitlement # 16 — PayPal access policy/idempotency/ownership (no PayPal creds needed)
-npm run check:worker             # 13 — Worker routes over HTTP (needs §1,§2 + a local JWKS stand-in)
+npm run check:backend            # 32 — DB authority vs real PostgREST (needs §1 + tokens)
+npm run check:privilege          # 29 — privilege escalation (self-upgrade, credits, privileged fns, cross-user)
+npm run check:paypal-entitlement # 12 — PayPal access policy/idempotency/ownership (no PayPal creds needed)
+npm run check:worker             # 15 — Worker routes over HTTP (needs §1,§2 + a local JWKS stand-in)
 npm run check:conversions        # real office→pdf; AUTO-builds prism-lo; FAILS LOUD if no Docker
 npm run check:offline-ocr        # site OCR with all non-local network blocked; 0 external requests
 npm run browser:evidence         # static-site redact+merge, saves evidence/
 npm run check:app                # built Vite app → real browser download (needs npm run build + vite preview)
-npm test                         # 708 passed / 5 skipped (the skips, below, are intentional)
+npm test                         # 718 passed / 5 skipped (the skips, below, are intentional)
 ```
 For `check:worker` / `check:app`, start the helpers first:
 ```
@@ -89,8 +89,9 @@ reason" for its live-conversion case when no binary is present — that case als
 
 ## 6. Credential/deploy-gated (documented, NOT part of the local run)
 - Billing provider is **PayPal Subscriptions** (Paddle removed). Local LOGIC is fully verified via
-  `check:paypal-entitlement` (16) + `check:worker` (unverified webhook 401, subscribe-without-creds
-  503). The network-dependent steps are gated and exit **2 (PENDING)** without real sandbox creds:
+  `check:paypal-entitlement` (12) + `check:worker` (forged webhook → 401 grants nothing; subscribe
+  → pending + approve URL grants nothing; cancel ownership 403). The network-dependent steps are
+  gated and exit **2 (PENDING)** without real sandbox creds:
   - `npm run check:paypal-capability` — verifies the account's Subscriptions + USD capability and
     creates/reuses the sandbox PRODUCT + monthly/annual PLANS; prints plan ids.
     Needs `PAYPAL_CLIENT_ID`/`PAYPAL_SECRET` (+ `PAYPAL_ENV=sandbox`) from a developer.paypal.com app.
@@ -98,6 +99,29 @@ reason" for its live-conversion case when no binary is present — that case als
     entitlement → paid access, incl. duplicate + cross-user. Needs the above + `PAYPAL_WEBHOOK_ID`
     and the sandbox plan ids registered in `billing_price_plans` + `worker/.dev.vars`.
   Client Secret + webhook verification stay server-side; live payments are a separate decision.
+  `check:worker` reads `worker/.dev.vars` and asserts the *no-credentials* branch when they are
+  absent and the *real sandbox* branch (201 pending, no grant, cancel semantics) when present, so it
+  is honest in either environment instead of silently skipping.
+
+## 7. Replaying a REAL PayPal webhook delivery locally (needs sandbox creds + a tunnel)
+PayPal signs subscription webhooks with `paypal-auth-version: v2`, which carries
+`paypal-transmission-sig`. The verifier request is exactly
+`auth_algo, cert_url, transmission_id, transmission_sig, transmission_time, webhook_id, webhook_event`
+where `webhook_event` is the **parsed JSON object** — the legacy `event_body` field and an
+`auth_version` field are both rejected by the schema. See `docs/audit/baseline.md` §29 for how that was
+established and the tamper matrix that proves the gate is still fail-closed.
+
+To redeliver a genuine event instead of trusting a simulator:
+```
+npx cloudflared tunnel --url http://127.0.0.1:8787 --no-autoupdate      # note the *.trycloudflare.com URL
+# repoint the registration (export the variable; do not pass it as an argv):
+node --input-type=module -e ' ... PATCH /v1/notifications/webhooks/<WEBHOOK_ID> [{op:"replace",path:"/url",value:process.env.WH_URL}] ... '
+# resend the stored event — PayPal re-signs it and keeps the same event id:
+node --input-type=module -e ' ... POST /v1/notifications/webhooks-events/<EVENT_ID>/resend ... '
+```
+The event id to resend is in the delivery payload's `links[]` (`rel: "resend"`), and the dashboard's
+Message Reporting shows the same failures. A stored event id proves durable handling; resending it
+again must return HTTP 200 with apply result `duplicate` and must not add a row.
 - Live AI (`/api/ai` model output) needs NVIDIA/Groq/Mistral keys (separately authorized).
 - Deployed Worker + remote Supabase schema/RLS verification is a separate authorized step
   (`npm run inspect:prod-security`, read-only, gated on a DSN).

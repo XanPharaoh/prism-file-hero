@@ -1,0 +1,59 @@
+{
+  "_note": "Captured from a REAL sandbox BILLING.SUBSCRIPTION.CREATED delivery (v2-signed), sanitized: ids/plan ids replaced with placeholders, links trimmed. Transmission headers are the originals from that delivery (public values; the signature is not secret).",
+  "headers": {
+    "paypal-auth-algo": "SHA256withRSA",
+    "paypal-cert-url": "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-360caa42-fca2a594-bf9ab596",
+    "paypal-transmission-id": "db5baa91-c635-11f1-801d-196ce13d4fb9",
+    "paypal-transmission-sig": "Knxb5cjJ7dZ9kVO3WHuE+edhFJGoQKrzV554uNdCjmc5lxMxvRwboHjOdJHpGkxah09sd7afUXC/DzTnrxG+Fix4Yyj3onACm2b2sFoWQvWwGtYhVWrAWaB5igISc3feChYNglkdKZ0U7OkDE+okxScG9bS2sp7gNAiD7txdA1W1RZI3EZlZVr1D4R7n2bmVo8ByCG21JZPiqiL+l9l5SOIQaP1/T/ZmP5Twcc/gRMVlMd935Pzm6U9mzydwnNn+qhJfh5fvLuJb4Lmmd8stJKd4fbs95i9cmGpJnq3q2s8kd9G9GbcBpnIQEdDsVOrC3mNEym69ARvlibDaUMelFw==",
+    "paypal-transmission-time": "2026-10-12T12:10:04Z",
+    "paypal-auth-version": "v2"
+  },
+  "body": {
+    "id": "WH-TESTEVENT0000-0000000000",
+    "event_version": "1.0",
+    "create_time": "2026-10-12T12:09:51.766Z",
+    "resource_type": "subscription",
+    "resource_version": "2.0",
+    "event_type": "BILLING.SUBSCRIPTION.CREATED",
+    "summary": "Subscription created",
+    "resource": {
+      "start_time": "2026-10-12T12:09:51Z",
+      "quantity": "1",
+      "create_time": "2026-10-12T12:09:51Z",
+      "custom_id": "00000000-0000-4000-8000-000000000001",
+      "links": [
+        {
+          "href": "https://www.sandbox.paypal.com/webapps/billing/subscriptions?ba_token=BA-5EG71204MW627823H",
+          "rel": "approve",
+          "method": "GET"
+        },
+        {
+          "href": "https://api.sandbox.paypal.com/v1/billing/subscriptions/I-N4ECJF9TG5HX",
+          "rel": "edit",
+          "method": "PATCH"
+        },
+        {
+          "href": "https://api.sandbox.paypal.com/v1/billing/subscriptions/I-N4ECJF9TG5HX",
+          "rel": "self",
+          "method": "GET"
+        }
+      ],
+      "id": "I-TESTSUB000000000",
+      "plan_overridden": false,
+      "plan_id": "P-TESTPLANMONTHLY000",
+      "status": "APPROVAL_PENDING"
+    },
+    "links": [
+      {
+        "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-TESTEVENT0000-0000000000",
+        "rel": "self",
+        "method": "GET"
+      },
+      {
+        "href": "https://api.sandbox.paypal.com/v1/notifications/webhooks-events/WH-TESTEVENT0000-0000000000/resend",
+        "rel": "resend",
+        "method": "POST"
+      }
+    ]
+  }
+}
