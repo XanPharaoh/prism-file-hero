@@ -19,12 +19,12 @@ export const PrismLogo: React.FC<PrismLogoProps> = ({
 
   let logoSrc: string;
   if (variant === 'stacked') {
-    logoSrc = useDarkLogo ? '/pfh-stacked-dark.svg' : '/pfh-stacked-light.svg';
+    logoSrc = useDarkLogo ? `${import.meta.env.BASE_URL}pfh-stacked-dark.svg` : `${import.meta.env.BASE_URL}pfh-stacked-light.svg`;
   } else if (variant === 'mark') {
-    logoSrc = '/favicon.svg';
+    logoSrc = `${import.meta.env.BASE_URL}favicon.svg`;
   } else {
     // horizontal vector is default for navbars and headers
-    logoSrc = useDarkLogo ? '/pfh-horizontal-dark.svg' : '/pfh-horizontal-light.svg';
+    logoSrc = useDarkLogo ? `${import.meta.env.BASE_URL}pfh-horizontal-dark.svg` : `${import.meta.env.BASE_URL}pfh-horizontal-light.svg`;
   }
 
   const sizeClasses =

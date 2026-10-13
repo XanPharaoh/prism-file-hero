@@ -157,7 +157,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
 
   const handleSampleClick = async () => {
     try {
-      const res = await fetch('/sample-bank-statement.pdf');
+      const res = await fetch(`${import.meta.env.BASE_URL}sample-bank-statement.pdf`);
       if (!res.ok) throw new Error('Sample unavailable');
       const blob = await res.blob();
       const file = new File([blob], 'SBSA_Sample_Statement.pdf', { type: 'application/pdf' });

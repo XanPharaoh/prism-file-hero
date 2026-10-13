@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { useAuth, useUser, useClerk } from '@clerk/react';
 import {
@@ -733,19 +733,26 @@ const PublicAppShell: React.FC = () => {
   return <AppShell auth={{ isLoaded, isSignedIn, clerkUser, clerk }} internalDesktop={false} />;
 };
 
-/** `/` → `/app`, carrying the query along so a PayPal return (?checkout=…) is not dropped. */
-const RedirectToApp: React.FC = () => {
-  const { search } = useLocation();
-  return <Navigate to={{ pathname: '/app', search }} replace />;
-};
+/**
+ * The release artifact serves this bundle under /app (the static marketing site owns /), so the
+ * router must be rooted at the build's BASE_URL. Dev builds keep base '/' and the /app alias route
+ * below, which is what the local journey and checkout scripts navigate to.
+ */
+const ROUTER_BASENAME = (() => {
+  const b = import.meta.env.BASE_URL || '/';
+  return b.replace(/\/+$/, '') || '/';
+})();
 
 const App: React.FC = () => {
+  const shell = isInternalDesktopDistribution
+    ? <InternalActivationGate><AppShell auth={null} internalDesktop /></InternalActivationGate>
+    : <PublicAppShell />;
   return (
     <HelmetProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={ROUTER_BASENAME}>
         <Routes>
-          <Route path="/" element={<RedirectToApp />} />
-          <Route path="/app" element={isInternalDesktopDistribution ? <InternalActivationGate><AppShell auth={null} internalDesktop /></InternalActivationGate> : <PublicAppShell />} />
+          <Route path="/" element={shell} />
+          <Route path="/app" element={shell} />
           <Route path="/merge-pdf" element={<ToolLandingView defaultTool="merge" />} />
           <Route path="/split-pdf" element={<ToolLandingView defaultTool="split" />} />
           <Route path="/compress-pdf" element={<ToolLandingView defaultTool="compress" />} />

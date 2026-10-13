@@ -115,7 +115,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
           </p>
           <button
             type="button"
-            onClick={() => navigate('/app')}
+            onClick={() => navigate('/')}
             className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
           >
             Go to Dashboard
@@ -154,7 +154,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
     if (!files.length) return;
     setSelectedTool(tool.id);
     addFiles(files);
-    navigate('/app');
+    navigate('/');
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -258,19 +258,19 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
         {/* Top Minimal Navigation Bar */}
         <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#111622]/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-            <Link to="/app" className="flex items-center gap-2 hover:opacity-90 transition-opacity">
+            <Link to="/" className="flex items-center gap-2 hover:opacity-90 transition-opacity">
               <BrandHeader />
             </Link>
             <div className="flex items-center gap-3 text-xs font-semibold">
               <Link
-                to="/app"
+                to="/"
                 className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 py-1 px-2.5 rounded-lg transition-colors"
               >
                 All Tools
               </Link>
               <button
                 type="button"
-                onClick={() => navigate('/app')}
+                onClick={() => navigate('/')}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-xs transition-colors"
               >
                 Open Dashboard
@@ -450,7 +450,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
                 Related Tools
               </h2>
               <Link
-                to="/app"
+                to="/"
                 className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
               >
                 <span>View all 37 tools</span>
@@ -556,7 +556,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
               </button>
               <button
                 type="button"
-                onClick={() => navigate('/app')}
+                onClick={() => navigate('/')}
                 className="px-6 py-2.5 rounded-xl border border-indigo-400 hover:bg-indigo-700 text-white font-bold text-xs transition-colors"
               >
                 Go to Dashboard

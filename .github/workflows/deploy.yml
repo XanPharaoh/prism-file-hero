@@ -1,8 +1,11 @@
 name: Deploy to Cloudflare Pages
 
-# The marketing/SaaS site in ./site is a no-build static bundle and is the
-# production front door for prismfilehero.com. The former React app (./dist)
-# is no longer published to this Pages project.
+# One Pages project serves BOTH halves of prismfilehero.com:
+#   /      the no-build marketing/tools site in ./site
+#   /app   the built React application (vite base '/app/', assembled into ./deploy by
+#          scripts/build-release.mjs, with a Pages Function providing the SPA fallback)
+# Previously this workflow published only ./site, which is why /app was a 404 and the product UI
+# existed nowhere in production.
 #
 # Production deploys are ONLY allowed on an actual push to main (or a manual
 # dispatch). A pull_request must never deploy to production: PRs run in the
@@ -21,17 +24,39 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Deploy static site
+    name: Build and deploy site + /app
     # Defence in depth: refuse to run for any event that is not a push/dispatch on main.
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
     environment: production
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy site to Cloudflare Pages
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the app and assemble the release artifact
+        run: node scripts/build-release.mjs
+
+      # A 200 that contains the marketing homepage is not an app deployment, so assert the artifact
+      # actually holds both halves before anything reaches Cloudflare.
+      - name: Verify the artifact
+        run: |
+          set -euo pipefail
+          test -f deploy/index.html                       # marketing root
+          test -f deploy/app/index.html                   # app document
+          grep -q '/app/assets/' deploy/app/index.html    # assets are mounted under /app
+          test -f deploy/functions/app/'[[path]].js'      # SPA fallback for /app deep links
+          ls deploy/app/assets/index-*.js >/dev/null
+          echo "artifact: $(find deploy -type f | wc -l) files, $(du -sh deploy | cut -f1)"
+
+      - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site --project-name=prism-file-hero --branch=main
-
+          command: pages deploy deploy --project-name=prism-file-hero --branch=main

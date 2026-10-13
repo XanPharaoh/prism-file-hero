@@ -13,7 +13,7 @@
 import { readFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
 
-const WORKER = process.env.WORKER_URL || 'http://127.0.0.1:8787';
+const WORKER = process.env.WORKER_URL || 'http://127.0.0.1:8788';   // `--env localtest`: the stand-in-JWKS Worker this suite authenticates against
 const REST = (process.env.SUPABASE_URL || 'http://127.0.0.1:54321') + '/rest/v1';
 const JWKS = process.env.JWKS_ORIGIN || 'http://127.0.0.1:8799';
 const WEBHOOK_SECRET = (readFileSync('worker/.dev.vars', 'utf8').match(/PADDLE_WEBHOOK_SECRET=(.+)/) || [])[1]?.trim();

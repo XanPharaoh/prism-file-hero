@@ -17,8 +17,8 @@
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 
-const APP = process.env.APP_URL || 'http://127.0.0.1:5173';
-const WORKER = process.env.WORKER_URL || 'http://127.0.0.1:8787';
+const APP = process.env.APP_URL || 'http://127.0.0.1:5174';   // dev server bound to the localtest Worker
+const WORKER = process.env.WORKER_URL || 'http://127.0.0.1:8788';   // stand-in-JWKS Worker (see worker/wrangler.toml [env.localtest])
 const JWKS = process.env.JWKS_ORIGIN || 'http://127.0.0.1:8799';
 const PAID_USER = '11111111-0000-4000-8000-0000diag02';   // the sandbox buyer's linked local user
 const OUT = 'evidence/checkout-return';

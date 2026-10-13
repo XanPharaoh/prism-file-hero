@@ -33,7 +33,7 @@ const phase = String(args.phase || 'auth');
 let pass = 0, fail = 0;
 const ok = (n, c, e = '') => { c ? (pass++, console.log(`PASS ${n}`)) : (fail++, console.log(`FAIL ${n} ${e}`)); return c; };
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ headless: !args.includes('headed') });
 async function context(name) {
   const opts = { viewport: { width: 1400, height: 1000 }, acceptDownloads: true };
   if (name === 'primary' && existsSync(SESSION)) opts.storageState = SESSION;
@@ -90,6 +90,17 @@ if (phase === 'auth') {
   const needsVerification = /enter the code|verification code|check your email/i.test(body ?? '');
   if (needsVerification) console.log('NOTE  Clerk is asking for an email verification code — the dev instance may need a test email address or a code relay.');
   await page.screenshot({ path: `${OUT}/journey-auth.png` });
+  // In headed mode a human finishes the sign-up (Clerk's dev instance puts a CAPTCHA on sign-up).
+  // Wait for a real session instead of guessing; nothing is injected.
+  const waitSeconds = Number(args.wait ?? (args.headed ? 300 : 0)) || 0;
+  if (waitSeconds > 0) {
+    console.log(`Waiting up to ${waitSeconds}s for you to finish sign-up in the browser window…`);
+    const deadline = Date.now() + waitSeconds * 1000;
+    while (Date.now() < deadline) {
+      if (await appUserId(page)) break;
+      await page.waitForTimeout(2000);
+    }
+  }
   const sub = await appUserId(page);
   ok('browser holds a real Clerk session (sub read from its own token)', typeof sub === 'string' && sub.startsWith('user_'), `sub=${sub}`);
   ok('no uncaught page errors during sign-up', errors.length === 0, errors.join(' | '));

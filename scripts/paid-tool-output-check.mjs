@@ -27,7 +27,7 @@ import { PDFDocument } from 'pdf-lib';
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? true]; }));
 const APP = process.env.APP_URL || 'http://127.0.0.1:5173';
-const WORKER = process.env.WORKER_URL || 'http://127.0.0.1:8787';
+const WORKER = process.env.WORKER_URL || 'http://127.0.0.1:8788';
 const JWKS = process.env.JWKS_ORIGIN || 'http://127.0.0.1:8799';
 const SUB = args.sub || '11111111-0000-4000-8000-0000free01';
 const INJECT = !args.live;

@@ -38,3 +38,12 @@ id = "4b7542976fcb4b97ba52b08d6f92f73c"
 
 [triggers]
 crons = ["0 */6 * * *"]
+
+# `--env localtest` exists only so the HTTP route tests (scripts/worker-routes-check.mjs,
+# checkout-return-check.mjs, paid-tool-output-check.mjs) can authenticate as synthetic users. Those
+# tests mint their own RS256 tokens against scripts/local-jwks.mjs on :8799, which is a stand-in for
+# Clerk and must never be what a real deployment trusts. The default environment verifies genuine
+# Clerk signatures instead.
+[env.localtest.vars]
+CLERK_JWKS_URL = "http://127.0.0.1:8799/.well-known/jwks.json"
+CLERK_JWT_ISSUER = "http://127.0.0.1:8799"

@@ -7,7 +7,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     clearScreen: false,
-    base: './',
+    // The release artifact mounts the app at /app next to the static marketing site, so a production
+    // build must emit absolute /app/ asset URLs — relative ones break on a deep-link refresh such as
+    // /app/merge-pdf. Dev keeps the root so /app and /ocr-pdf stay reachable as they always have.
+    base: mode === 'production' ? '/app/' : '/',
     server: {
       port: 3000,
       host: '0.0.0.0',

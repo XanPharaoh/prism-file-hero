@@ -1004,3 +1004,59 @@ Clerk form and fills email + password, but that instance's **sign-up** form pres
 form has no such widget — so the plan (authorized) is to create exactly one test user through Clerk's
 Backend API with the development instance's secret key, then continue the journey by signing in from
 the browser with no injected headers, no minted tokens and no manual grants.
+
+## 33. Production Clerk verification + the missing /app deployment (2026-10-13)
+
+**Production DNS was completed by the owner and Clerk verified it** (the five Clerk CNAMEs plus
+`_dmarc` were all absent when last measured here; nothing was written by this session — the wrangler
+OAuth token carries `zone (read)` only and `/zones/<id>/dns_records` answered
+`Authentication error (10000)`).
+
+**Production authentication, read-only results:**
+| check | result |
+|---|---|
+| `https://clerk.prismfilehero.com/.well-known/jwks.json` | `200`, one `RSA/RS256` key, `kid=ins_3IDcz3bi87o8HAIIEryVK0SM4ux` |
+| `clerk.prismfilehero.com` CNAME | resolves → `frontend-api.clerk.services` |
+| deployed Worker `/api/health` | `200 {"status":"ok"}` |
+| deployed Worker CORS preflight from `https://prismfilehero.com` | `204`, `Access-Control-Allow-Origin: https://prismfilehero.com`, allows `Authorization` |
+| deployed Worker `/api/usage`, `/api/usage/summary` | `401` (routes exist and demand a token) |
+| deployed Worker `/api/billing/*`, `/api/paypal/*` | **`404` — the deployed Worker predates this billing work** |
+| absent / garbage / forged-signature-with-real-kid / expired / wrong-instance / `alg=none` tokens against `/api/usage/summary` | **all `401`** (`Authentication required` vs `Invalid token`), no token material logged |
+
+So the frontend-authorization settings are right and the rejection paths hold, but a *positive*
+production test is impossible until (a) the Worker is redeployed with the billing routes and (b) a
+genuine production session token is presented. No credit reservation, tool execution, plan change or
+billing write was performed against production.
+
+**The React application was never deployed.** `deploy.yml` published only `./site`, and
+`https://prismfilehero.com/app` returned 404 — the product UI, the checkout return page and every
+`/app` deep link existed only in dev. Fixed by assembling one artifact (`scripts/build-release.mjs`):
+marketing at `/`, app at `/app`, with these measured constraints:
+- production build uses `base: '/app/'`, so the document works at any deep link (dev keeps `/`);
+- the router is rooted at `import.meta.env.BASE_URL`; `/app` remains an alias route so dev URLs and
+  existing scripts keep working;
+- **`_redirects` cannot provide the SPA fallback**: measured with `wrangler pages dev`, a rule is
+  consulted *before* the static-asset lookup, so `/app/* → /app/ 200` answered the app's own
+  JS/CSS with HTML (MIME errors, blank page). The fallback is now a Pages Function
+  (`functions/app/[[path]].js`) that hands anything with a file extension back to `env.ASSETS` and
+  serves the app document for everything else;
+- runtime asset URLs that Vite cannot rewrite (`Brand.tsx` logos, `SEOHelmet` og image,
+  `ToolDashboard` sample PDF) were root-absolute and 404'd under `/app`; they are now `BASE_URL`-relative;
+- `/api/*` is deliberately not routed by Pages — the bundle calls the Worker by absolute origin
+  (`services/apiConfig.ts`, baked from `.env.production`, which is tracked).
+
+**Verified locally, not deployed** (`scripts/release-artifact-check.mjs`, 14/14 against
+`wrangler pages dev deploy`): `/` is still the marketing document; `/app`, `/app/merge-pdf`,
+`/app/ocr-pdf`, `/app/bank-statement-to-excel` serve the built app **and actually mount** (non-empty
+`#root`); refresh on a deep link keeps the app; `/app/?checkout=success` renders the return panel and
+asks the real Worker (the bundle's production Worker origin is re-pointed at the local one for this
+test — the only substitution, reported by the script); Pages does not serve `/api/*`; zero 4xx asset
+responses. `deploy/` is gitignored and the workflow gate that checks both halves pass locally
+(150 files, 33 MB).
+
+**Two Worker environments now exist locally, because item 1 and item 3 pull in opposite directions:**
+the default (`:8787`) verifies **real Clerk** signatures, and `[env.localtest]` (`:8788`,
+`worker/.dev.vars.localtest`) trusts the `:8799` mint stand-in for the synthetic-user HTTP suites.
+Measured: the same stand-in token is `200` on `:8788` and `401` on `:8787`. The route/checkout suites
+were repointed to `:8788` (and the test dev server to `:5174`); the journey uses `:8787` + `:5173`
+with genuine Clerk sessions and no injected headers.
