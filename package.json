@@ -18,6 +18,7 @@
     "check:paypal-capability": "node scripts/paypal-capability-check.mjs",
     "check:paypal-sandbox": "node scripts/paypal-sandbox-check.mjs",
     "check:checkout": "node scripts/checkout-return-check.mjs",
+    "check:paid-output": "node scripts/paid-tool-output-check.mjs",
     "inspect:prod-security": "node scripts/prod-security-inspect.mjs",
     "tokens:local": "node scripts/mint-local-tokens.mjs",
     "check:offline-ocr": "node scripts/offline-ocr-check.mjs",

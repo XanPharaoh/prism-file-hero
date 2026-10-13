@@ -89,6 +89,13 @@ VITE_WORKER_URL=http://127.0.0.1:8787 npx vite --port 5173 --strictPort
 It substitutes the locally minted token for the Clerk *session* only; the entitlement answer it asserts
 is the real server's. Screenshots land in `evidence/checkout-return/`.
 
+`npm run check:paid-output` drives the real OCR tool in a browser against a genuinely image-only 2-page
+scan (`tests/fixtures/scanned-statement.pdf` — `pdftotext` extracts nothing from it), captures the
+downloaded artifact and verifies page count plus recognized words with poppler, recording the server's
+plan and quota before/after. **It needs a signed-in browser session**: `App.tsx` refuses to run any
+non-free tool without one, so an injected bearer cannot drive it — run it with `--live` against a Clerk
+development instance.
+
 ## 5. The five skipped tests (intentional, and how to actually run them)
 Running `npx vitest run` alone skips 5 tests in 2 files because it assumes no Docker engine / the
 public build. They are **not** gaps in the code:
