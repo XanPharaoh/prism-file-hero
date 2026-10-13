@@ -43,18 +43,18 @@ export const PrismLogo: React.FC<PrismLogoProps> = ({
   );
 };
 
+/**
+ * The live site's navigation identity is a plain Geist wordmark, not the lockup image, so the
+ * app renders the same thing. The vector lockup stays available as `PrismLogo` for surfaces that
+ * need the mark itself (app icon, empty states).
+ */
 export const BrandHeader: React.FC<{
   className?: string;
   dark?: boolean;
   variant?: 'horizontal' | 'stacked';
   size?: 'sm' | 'md' | 'lg';
-}> = ({
-  className = '',
-  dark,
-  variant = 'horizontal',
-  size = 'md',
-}) => (
-  <div className={`flex items-center ${className}`}>
-    <PrismLogo dark={dark} variant={variant} size={size} />
-  </div>
+}> = ({ className = '' }) => (
+  <span className={`font-display font-semibold tracking-tight text-sm text-ink ${className}`}>
+    Prism File Hero
+  </span>
 );

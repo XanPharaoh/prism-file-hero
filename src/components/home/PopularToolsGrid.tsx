@@ -87,7 +87,7 @@ export default function PopularToolsGrid({
               key={tool.name + idx}
               type="button"
               onClick={() => onSelectTool(tool.id)}
-              className="group relative bg-white/75 dark:bg-[#111622]/65 backdrop-blur-xl rounded-2xl p-5 border border-slate-200/60 dark:border-white/10 text-left hover:border-indigo-400/80 dark:hover:border-indigo-500/80 hover:shadow-xl hover:shadow-indigo-500/10 transition-all flex flex-col justify-between min-h-[140px]"
+              className="group relative bg-white/75 dark:bg-[#111622]/65 backdrop-blur-xl rounded-2xl p-5 border border-slate-200/60 dark:border-white/10 text-left hover:border-brand-400/80 dark:hover:border-brand-500/80 hover:shadow-xl hover:shadow-brand-500/10 transition-all flex flex-col justify-between min-h-[140px]"
             >
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -95,15 +95,15 @@ export default function PopularToolsGrid({
                     <IconComp className="w-5 h-5" />
                   </div>
                   {tool.isPro ? (
-                    <span className="text-[10px] font-bold uppercase tracking-wider bg-indigo-50/80 dark:bg-indigo-950/80 backdrop-blur-sm text-indigo-600 dark:text-indigo-400 border border-indigo-200/80 dark:border-indigo-800/80 px-2 py-0.5 rounded-md">
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-brand-50/80 dark:bg-brand-950/80 backdrop-blur-sm text-brand-600 dark:text-brand-400 border border-brand-200/80 dark:border-brand-800/80 px-2 py-0.5 rounded-md">
                       Pro
                     </span>
                   ) : (
-                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all" />
+                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-brand-600 group-hover:translate-x-0.5 transition-all" />
                   )}
                 </div>
 
-                <h3 className="text-sm font-bold text-slate-900 dark:text-[#fafafa] group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-[#fafafa] group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
                   {tool.name}
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-[#d4d4d8] mt-1 leading-snug">
@@ -113,7 +113,7 @@ export default function PopularToolsGrid({
 
               <div className="mt-3 pt-2 border-t border-slate-100/80 dark:border-white/5 text-[11px] font-medium text-slate-400 flex items-center justify-between">
                 <span>In-browser tool</span>
-                <span className="text-indigo-600 dark:text-indigo-400 font-semibold group-hover:underline">Open →</span>
+                <span className="text-brand-600 dark:text-brand-400 font-semibold group-hover:underline">Open →</span>
               </div>
             </button>
           );

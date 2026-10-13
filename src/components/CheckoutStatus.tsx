@@ -58,7 +58,14 @@ export default function CheckoutStatus() {
 
   if (!outcome) return null;
 
-  const shell = 'fixed bottom-4 right-4 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-md border bg-white dark:bg-[#111622] p-3.5 text-xs shadow-lg';
+  const goToWorkspace = () => {
+    setOutcome(null);
+    const zone = document.querySelector('[aria-label="Upload PDF document"]');
+    if (zone) zone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    else window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const shell = 'fixed bottom-4 right-4 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-md border bg-surface p-3.5 text-xs shadow-lg';
   const tone = outcome === 'entitled'
     ? 'border-emerald-200 dark:border-emerald-900'
     : outcome === 'cancelled' || outcome === 'needsAuth'
@@ -72,7 +79,9 @@ export default function CheckoutStatus() {
     cancelled: 'Checkout cancelled',
   }[outcome];
   const body = {
-    entitled: 'Access is granted by the server from a verified payment, so it survives refresh and sign-out.',
+    entitled: ent?.paidUntil
+      ? `Paid through ${new Date(ent.paidUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}. Access is granted by the server from a verified payment, so it survives refresh and sign-out.`
+      : 'Access is granted by the server from a verified payment, so it survives refresh and sign-out.',
     pending: 'This page only reports what PayPal has confirmed server-side — returning here does not unlock anything.',
     unconfirmed: `PayPal has not confirmed a payment covering this period yet${ent?.subscription_status ? ` (subscription: ${ent.subscription_status})` : ''}. Re-check below; if it still fails, no payment has been captured.`,
     needsAuth: 'You returned from PayPal, but this browser has no session, so there is no account to check. Sign in with the account you used to upgrade to see your plan.',
@@ -86,17 +95,23 @@ export default function CheckoutStatus() {
           ? <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
           : <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />}
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-slate-900 dark:text-[#fafafa]">{title}</p>
+          <p className="font-semibold text-slate-900 ">{title}</p>
           <p className="mt-1 text-slate-500 dark:text-slate-400 leading-relaxed">{body}</p>
+          {outcome === 'entitled' && (
+            <button type="button" onClick={goToWorkspace}
+              className="mt-2 px-2 py-1 rounded bg-slate-900 text-white dark:bg-surface dark:text-slate-950 font-semibold hover:opacity-90">
+              Open the workspace
+            </button>
+          )}
           {outcome === 'needsAuth' && (
             <button type="button" onClick={() => s.setAuthModal(true, 'sign-in')}
-              className="mt-2 px-2 py-1 rounded bg-indigo-600 text-white font-semibold hover:bg-indigo-500">
+              className="mt-2 px-2 py-1 rounded bg-brand-600 text-white font-semibold hover:bg-brand-500">
               Sign in
             </button>
           )}
           {outcome === 'unconfirmed' && (
             <button type="button" onClick={onRefresh}
-              className="mt-2 px-2 py-1 rounded bg-slate-900 text-white dark:bg-white dark:text-slate-950 font-semibold hover:opacity-90">
+              className="mt-2 px-2 py-1 rounded bg-slate-900 text-white dark:bg-surface dark:text-slate-950 font-semibold hover:opacity-90">
               Re-check with PayPal
             </button>
           )}

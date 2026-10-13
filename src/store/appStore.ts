@@ -166,8 +166,9 @@ interface AppState {
     globalCap: number;
     limitReason: 'tool_limit' | 'global_cap';
     nextReset: string;
+    serverReason?: string;
   } | null;
-  setQuotaModalInfo: (info: { featureType: FeatureType; requestedPages: number; usedToday: number; dailyLimit: number; globalUsedToday: number; globalCap: number; limitReason: 'tool_limit' | 'global_cap'; nextReset: string } | null) => void;
+  setQuotaModalInfo: (info: { featureType: FeatureType; requestedPages: number; usedToday: number; dailyLimit: number; globalUsedToday: number; globalCap: number; limitReason: 'tool_limit' | 'global_cap'; nextReset: string; serverReason?: string } | null) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({

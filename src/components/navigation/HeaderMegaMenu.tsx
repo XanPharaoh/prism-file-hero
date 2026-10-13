@@ -49,11 +49,11 @@ const TOOL_COLUMNS: MegaMenuCategory[] = [
     category: 'Organize',
     icon: Layers,
     tools: [
-      { id: 'merge', name: 'Merge PDF', desc: 'Combine multiple PDFs into one', icon: Layers, color: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60' },
+      { id: 'merge', name: 'Merge PDF', desc: 'Combine multiple PDFs into one', icon: Layers, color: 'text-brand-600 bg-brand-50 dark:bg-brand-950/60' },
       { id: 'split', name: 'Split PDF', desc: 'Extract pages or separate files', icon: Scissors, color: 'text-cyan-600 bg-cyan-50 dark:bg-cyan-950/60' },
       { id: 'rotate', name: 'Rotate PDF', desc: 'Turn upside-down or sideways pages', icon: RotateCw, color: 'text-blue-600 bg-blue-50 dark:bg-blue-950/60' },
       { id: 'delete-pages', name: 'Delete Pages', desc: 'Remove unwanted sheets', icon: Trash2, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/60' },
-      { id: 'reorder-pages', name: 'Reorder Pages', desc: 'Rearrange page sequence', icon: ArrowUpDown, color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/60' },
+      { id: 'reorder-pages', name: 'Reorder Pages', desc: 'Rearrange page sequence', icon: ArrowUpDown, color: 'text-brand-600 bg-brand-50 dark:bg-brand-950/60' },
     ],
   },
   {
@@ -73,9 +73,9 @@ const TOOL_COLUMNS: MegaMenuCategory[] = [
     tools: [
       { id: 'compress', name: 'Compress PDF', desc: 'Reduce file size cleanly', icon: Zap, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60' },
       { id: 'redact', name: 'Redact PDF', desc: 'Permanently remove sensitive info', icon: Eraser, color: 'text-rose-600 bg-rose-50 dark:bg-rose-950/60', isPro: true },
-      { id: 'protect', name: 'Protect PDF', desc: 'Add password encryption', icon: Lock, color: 'text-purple-600 bg-purple-50 dark:bg-purple-950/60', isPro: true },
+      { id: 'protect', name: 'Protect PDF', desc: 'Add password encryption', icon: Lock, color: 'text-brand-600 bg-brand-50 dark:bg-brand-950/60', isPro: true },
       { id: 'unlock-pdf', name: 'Unlock PDF', desc: 'Remove password restrictions', icon: KeyRound, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950/60', isPro: true },
-      { id: 'ocr', name: 'OCR Searchable PDF', desc: 'Make scanned text selectable', icon: Sparkles, color: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60', isPro: true },
+      { id: 'ocr', name: 'OCR Searchable PDF', desc: 'Make scanned text selectable', icon: Sparkles, color: 'text-brand-600 bg-brand-50 dark:bg-brand-950/60', isPro: true },
     ],
   },
   {
@@ -107,16 +107,16 @@ export default function HeaderMegaMenu({ onSelectTool, onNavigatePricing, onNavi
         type="button"
         aria-expanded={isOpen}
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 py-2 transition-colors"
+        className="nav-link flex items-center gap-1 py-2 transition-colors"
       >
         <span>Tools</span>
-        <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
+        <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180 text-accent' : ''}`} />
       </button>
 
       <button
         type="button"
         onClick={() => { setIsOpen(false); onNavigateBankStatement ? onNavigateBankStatement() : onSelectTool('pdf-to-excel'); }}
-        className="text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 py-2 transition-colors"
+        className="nav-link py-2 transition-colors"
       >
         Bank Statements
       </button>
@@ -124,20 +124,20 @@ export default function HeaderMegaMenu({ onSelectTool, onNavigatePricing, onNavi
       <button
         type="button"
         onClick={() => { setIsOpen(false); onNavigatePricing(); }}
-        className="text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 py-2 transition-colors"
+        className="nav-link py-2 transition-colors"
       >
         Pricing
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-[820px] -translate-x-14 bg-white/85 dark:bg-[#0B0F19]/85 backdrop-blur-2xl rounded-2xl shadow-2xl border border-white/60 dark:border-white/10 p-6 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+        <div style={{ boxShadow: 'var(--shadow-float)' }} className="absolute top-full left-0 mt-3 w-[820px] -translate-x-14 bg-surface rounded-2xl border border-hairline p-6 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
           <div className="grid grid-cols-4 gap-5">
             {TOOL_COLUMNS.map((col) => {
               const IconComp = col.icon;
               return (
                 <div key={col.category} className="space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 pb-1.5 border-b border-slate-100/80 dark:border-white/5">
-                    <IconComp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 pb-1.5 border-b border-slate-100/80 dark:border-hairline">
+                    <IconComp className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
                     <span>{col.category}</span>
                   </div>
                   <ul className="space-y-1">
@@ -148,18 +148,18 @@ export default function HeaderMegaMenu({ onSelectTool, onNavigatePricing, onNavi
                           <button
                             type="button"
                             onClick={() => { setIsOpen(false); onSelectTool(t.id); }}
-                            className="w-full text-left group flex items-start gap-2.5 p-2 rounded-xl hover:bg-white/80 dark:hover:bg-white/5 transition-colors"
+                            className="w-full text-left group flex items-start gap-2.5 p-2 rounded-xl hover:bg-surface dark:hover:bg-surface transition-colors"
                           >
                             <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 shadow-2xs group-hover:scale-105 transition-transform ${t.color}`}>
                               <ItemIcon className="w-3.5 h-3.5" />
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5">
-                                <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 truncate">
+                                <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200 group-hover:text-brand-600 dark:group-hover:text-brand-400 truncate">
                                   {t.name}
                                 </span>
                                 {t.isPro && (
-                                  <span className="text-[9px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200/80 dark:border-indigo-900 px-1.5 py-0.2 rounded shrink-0">
+                                  <span className="text-[9px] font-bold uppercase tracking-wider bg-brand-50 dark:bg-brand-950 text-brand-600 dark:text-brand-400 border border-brand-200/80 dark:border-brand-900 px-1.5 py-0.2 rounded shrink-0">
                                     Pro
                                   </span>
                                 )}
@@ -183,7 +183,7 @@ export default function HeaderMegaMenu({ onSelectTool, onNavigatePricing, onNavi
             <button
               type="button"
               onClick={() => { setIsOpen(false); onNavigatePricing(); }}
-              className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+              className="font-semibold text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1"
             >
               <span>Explore Pro features</span>
               <ArrowRight className="w-3.5 h-3.5" />

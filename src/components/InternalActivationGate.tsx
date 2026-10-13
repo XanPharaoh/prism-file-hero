@@ -50,7 +50,7 @@ export default function InternalActivationGate({ children }: { children: ReactNo
         <input required maxLength={512} type="password" autoComplete="off" value={activationCode} onChange={e => setActivationCode(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 p-3" />
       </label>
       {error && <p role="alert" className="mt-4 text-sm text-red-700">{error}</p>}
-      <button disabled={submitting} className="mt-6 w-full rounded-lg bg-indigo-600 p-3 font-semibold text-white disabled:opacity-60">{submitting ? 'Activating…' : 'Activate device'}</button>
+      <button disabled={submitting} className="mt-6 w-full rounded-lg bg-brand-600 p-3 font-semibold text-white disabled:opacity-60">{submitting ? 'Activating…' : 'Activate device'}</button>
     </form>
   </main>;
 }

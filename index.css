@@ -1,89 +1,360 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 @source "src/**/*.{ts,tsx}";
 @source "index.html";
 
+/* The workspace and prismfilehero.com are one product, so the app resolves the marketing
+   site's own tokens (site/assets/site.css) and its self-hosted Geist/Outfit/Geist Mono faces.
+   Palette values are copied verbatim; changing them here changes both surfaces together. */
+
+/* Tailwind v4 defaults `dark:` to prefers-color-scheme, which ignored the in-app theme
+   toggle that adds .dark to <html>. Bind the variant to the class the app actually sets. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* prismfilehero.com renders the site's "minimal theme": flat white surfaces, one red accent,
+   hairline borders, no gradients or shadows. These are that theme's measured values, taken from
+   getComputedStyle on the live pages (ground/surface #ffffff, ink #10151d, accent #c8102e,
+   line rgba(16,21,29,.10), slab also white, body font = system sans, headings = Geist). */
+
+:root {
+  --ground: #ffffff;
+  --surface: #ffffff;
+  --sunken: #f5f6f8;
+  --ink: #10151d;
+  --muted: #5b6472;
+  --line: rgba(16, 21, 29, 0.1);
+  --accent: #c8102e;
+  --credit: #177245;
+  --slab: #ffffff;
+  --slab-ink: #10151d;
+  --slab-muted: #5b6472;
+  --slab-line: rgba(16, 21, 29, 0.1);
+  --shadow-card: none;
+  --shadow-float: none;
+  --nav-bg: rgba(255, 255, 255, 0.85);
+  --nav-ink: var(--ink);
+  --nav-muted: var(--muted);
+  --nav-line: var(--line);
+  --wash: none;
+}
+
+/* The app keeps its own dark toggle; the site has no dark surface to match. */
+.dark {
+  --ground: #0b0e13;
+  --surface: #131720;
+  --sunken: #0e1118;
+  --ink: #edeff3;
+  --muted: #98a1ae;
+  --line: rgba(237, 239, 243, 0.15);
+  --accent: #ff5266;
+  --credit: #41c07f;
+  --slab: #0b0f16;
+  --slab-ink: #f2f4f8;
+  --slab-muted: #9aa4b2;
+  --slab-line: rgba(242, 244, 248, 0.16);
+  --nav-bg: color-mix(in srgb, var(--slab) 85%, transparent);
+  --nav-ink: var(--slab-ink);
+  --nav-muted: var(--slab-muted);
+  --nav-line: var(--slab-line);
+}
+
+@theme {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-hairline: var(--line);
+  --color-accent: var(--accent);
+  --color-credit: var(--credit);
+  --color-slab: var(--slab);
+  --color-slab-ink: var(--slab-ink);
+  --color-slab-muted: var(--slab-muted);
+  --color-slab-line: var(--slab-line);
+
+  /* Live renders body copy in the platform sans and reserves Geist for headings; mono is used
+     for the small technical labels. Matching all three keeps local and production identical. */
+  --font-sans: ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-display: 'Geist', 'Outfit', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* The brand ramp. Steps are chosen for legibility: 600 is the light-theme accent
+     (5.8:1 on white), 400 the dark-theme one (5.3:1 on the surface). */
+  --color-brand-50: #fdf2f4;
+  --color-brand-100: #fbe7ea;
+  --color-brand-200: #f3c3cc;
+  --color-brand-300: #e998a8;
+  --color-brand-400: #e35d70;
+  --color-brand-500: #d81b39;
+  --color-brand-600: #c8102e;
+  --color-brand-700: #a60d26;
+  --color-brand-800: #7f0a1e;
+  --color-brand-900: #5c0715;
+  --color-brand-950: #2b030a;
+
+  /* Neutrals follow the site's ink/surface scale instead of Tailwind's slate. */
+  --color-slate-50: var(--ground);
+  --color-slate-100: var(--sunken);
+  --color-slate-200: #dfe3e9;
+  --color-slate-300: #cbd2db;
+  --color-slate-400: var(--muted);
+  --color-slate-500: #67717f;
+  --color-slate-600: #4c5563;
+  --color-slate-700: #39414e;
+  --color-slate-800: #1b2029;
+  --color-slate-900: var(--ink);
+  --color-slate-950: var(--slab);
+}
+
+/* ---------- self-hosted faces (same files the marketing site ships) ---------- */
+@font-face { font-family: 'Geist'; font-style: normal; font-weight: 300; font-display: swap; src: url('src/assets/fonts/geist-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Geist'; font-style: normal; font-weight: 400; font-display: swap; src: url('src/assets/fonts/geist-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Geist'; font-style: normal; font-weight: 500; font-display: swap; src: url('src/assets/fonts/geist-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Geist'; font-style: normal; font-weight: 600; font-display: swap; src: url('src/assets/fonts/geist-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Geist'; font-style: normal; font-weight: 700; font-display: swap; src: url('src/assets/fonts/geist-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Geist'; font-style: normal; font-weight: 800; font-display: swap; src: url('src/assets/fonts/geist-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Outfit'; font-style: normal; font-weight: 300; font-display: swap; src: url('src/assets/fonts/outfit-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Outfit'; font-style: normal; font-weight: 400; font-display: swap; src: url('src/assets/fonts/outfit-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Outfit'; font-style: normal; font-weight: 500; font-display: swap; src: url('src/assets/fonts/outfit-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Outfit'; font-style: normal; font-weight: 600; font-display: swap; src: url('src/assets/fonts/outfit-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Geist Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('src/assets/fonts/geist-mono-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Geist Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('src/assets/fonts/geist-mono-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Geist Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url('src/assets/fonts/geist-mono-latin.woff2') format('woff2'); }
+
 body {
-    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    @apply bg-slate-50;
+  font-family: var(--font-sans);
+  background: var(--ground);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom themed text selection (craft floor) */
+/* ---------- shared component layer, ported from site/assets/site.css ---------- */
+
+/* Floating pill navigation, as the marketing site renders it. */
+.nav-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  max-width: 64rem;
+  margin-inline: auto;
+  padding: 0.625rem 1.25rem;
+  border-radius: 9999px;
+  border: 1px solid var(--nav-line);
+  background: var(--nav-bg);
+  color: var(--nav-ink);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 1px 0 rgba(16, 21, 29, 0.06);
+}
+
+.nav-link {
+  position: relative;
+  color: var(--nav-muted);
+  transition: color 0.2s ease;
+}
+.nav-link:hover { color: var(--nav-ink); }
+.nav-link[aria-current='page'] { color: var(--nav-ink); }
+.nav-link[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* Primary action: brand red, brightness lift on hover (the site never darkens its accent). */
+.btn-run {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 9999px;
+  padding: 0.7rem 1.5rem;
+  font-family: var(--font-display);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+.btn-run:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
+.btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: 1px solid var(--nav-line);
+  color: var(--nav-ink);
+  border-radius: 9999px;
+  padding: 0.7rem 1.5rem;
+  font-family: var(--font-display);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.btn-quiet:hover:not(:disabled) { background: color-mix(in srgb, var(--nav-ink) 8%, transparent); border-color: var(--nav-ink); }
+
+/* Light-surface variants: the same shapes on --surface cards inside the workspace. */
+.btn-run-ink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--ink);
+  color: var(--ground);
+  border: 0;
+  border-radius: 9999px;
+  padding: 0.5rem 1.1rem;
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+.btn-run-ink:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
+
+.card-slab {
+  background: var(--slab);
+  border: 1px solid var(--slab-line);
+  border-radius: 1rem;
+  color: var(--slab-ink);
+}
+
+.wash-accent {
+  background: var(--wash);
+}
+
+/* The live home page's work surface: a flat, hairline window with a mono title bar. */
+.demo-window {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  box-shadow: none;
+}
+.demo-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.traffic {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+.traffic i {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 9999px;
+  display: inline-block;
+}
+
+/* Uppercase mono eyebrow above a section title, as the live tool pages use it. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dropzone-dashed {
+  border: 1px dashed var(--line);
+  border-radius: 0.9rem;
+  background: var(--surface);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.dropzone-dashed:hover,
+.dropzone-dashed[data-dragging='true'] {
+  border-color: var(--accent);
+  background: var(--sunken);
+}
+
+.btn-run-block {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 0.7rem;
+  padding: 0.8rem 1rem;
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+.btn-run-block:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1px); }
+.btn-run-block:disabled { opacity: 0.55; cursor: not-allowed; }
+
+a:focus-visible,
+button:focus-visible,
+[role='button']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 ::selection {
-    background-color: #e0e7ff;
-    color: #312e81;
+  background-color: var(--accent);
+  color: #fff;
 }
 
-.dark ::selection {
-    background-color: #3730a3;
-    color: #e0e7ff;
-}
-
-/* High-contrast precision scrollbar */
-::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 4px;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-    background: #334155;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
-}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--slab-line); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+.dark ::-webkit-scrollbar-thumb { background: rgba(242, 244, 248, 0.18); }
 
 /* Bento grid auto-rows for asymmetric layout */
 .bento-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1.5rem;
-    grid-auto-rows: 180px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.5rem;
+  grid-auto-rows: 180px;
 }
 
 @media (max-width: 1023px) {
-    .bento-grid {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 1rem;
-    }
+  .bento-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+  }
 }
 
 @media (max-width: 767px) {
-    .bento-grid {
-        grid-template-columns: 1fr;
-        gap: 1rem;
-        grid-auto-rows: auto;
-    }
+  .bento-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    grid-auto-rows: auto;
+  }
 }
 
-.no-scrollbar::-webkit-scrollbar {
-    display: none;
-}
-
-.no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* Toast enter/exit transitions */
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(100%) scale(0.95); }
   to   { opacity: 1; transform: translateX(0) scale(1); }
 }
-.animate-toast-in {
-  animation: toast-in 0.15s ease-out forwards;
-}
+.animate-toast-in { animation: toast-in 0.15s ease-out forwards; }
 
 /* Honor prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {

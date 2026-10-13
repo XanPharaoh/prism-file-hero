@@ -114,10 +114,10 @@ export default function ProcessingView({
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
       <div className="flex items-center justify-between">
-        <button onClick={onBack} className="flex items-center gap-3 text-slate-400 hover:text-indigo-600 font-black text-xs tracking-widest bg-white dark:bg-slate-800 py-2.5 px-5 rounded-full border border-slate-100 dark:border-slate-700">
+        <button onClick={onBack} className="flex items-center gap-3 text-slate-400 hover:text-brand-600 font-black text-xs tracking-widest bg-surface dark:bg-slate-800 py-2.5 px-5 rounded-full border border-slate-100 dark:border-slate-700">
           <ArrowLeft className="w-4 h-4" />Back
         </button>
-        <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-full text-[10px] font-black">
+        <div className="flex items-center gap-2 px-4 py-2 bg-brand-50 dark:bg-brand-950/60 text-brand-600 dark:text-brand-400 rounded-full text-[10px] font-black">
           <CheckCircle2 className="w-3 h-3" />{tool.category}
         </div>
       </div>
@@ -142,7 +142,7 @@ export default function ProcessingView({
             placeholder="Enter a strong password to lock this PDF"
             value={s.toolOptions.password}
             onChange={(e) => s.setToolOptions({ password: e.target.value })}
-            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
           />
           <p className="text-[11px] text-slate-400">
             Standard AES/RC4 PDF encryption is applied. The document will require this password to open.
@@ -161,7 +161,7 @@ export default function ProcessingView({
             placeholder="Enter the password or leave empty to strip permission restrictions"
             value={s.toolOptions.unlockPassword}
             onChange={(e) => s.setToolOptions({ unlockPassword: e.target.value })}
-            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
           />
           <p className="text-[11px] text-slate-400">
             Removes password requirements, print locks, and permission restrictions.
@@ -178,7 +178,7 @@ export default function ProcessingView({
             id="compress-level"
             value={s.toolOptions.compressionLevel}
             onChange={(e) => s.setToolOptions({ compressionLevel: e.target.value as 'extreme' | 'recommended' | 'low' })}
-            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
           >
             <option value="recommended">Recommended Compression (Good quality, ~60% smaller)</option>
             <option value="extreme">Extreme Compression (Maximum size reduction for email/upload)</option>
@@ -201,7 +201,7 @@ export default function ProcessingView({
             placeholder="e.g. CONFIDENTIAL, DRAFT, COPY"
             value={s.toolOptions.watermarkText}
             onChange={(e) => s.setToolOptions({ watermarkText: e.target.value })}
-            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
           />
           <div className="grid grid-cols-2 gap-2 pt-1">
             <button
@@ -209,8 +209,8 @@ export default function ProcessingView({
               onClick={() => s.setToolOptions({ watermarkMode: 'tiled' })}
               className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
                 s.toolOptions.watermarkMode === 'tiled'
-                  ? 'bg-indigo-50 dark:bg-indigo-950 border-indigo-500 text-indigo-700 dark:text-indigo-300'
-                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                  ? 'bg-brand-50 dark:bg-brand-950 border-brand-500 text-brand-700 dark:text-brand-300'
+                  : 'bg-surface dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
               }`}
             >
               Full Page Repeating Grid (Spam)
@@ -220,8 +220,8 @@ export default function ProcessingView({
               onClick={() => s.setToolOptions({ watermarkMode: 'single' })}
               className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
                 s.toolOptions.watermarkMode === 'single'
-                  ? 'bg-indigo-50 dark:bg-indigo-950 border-indigo-500 text-indigo-700 dark:text-indigo-300'
-                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                  ? 'bg-brand-50 dark:bg-brand-950 border-brand-500 text-brand-700 dark:text-brand-300'
+                  : 'bg-surface dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
               }`}
             >
               Single Large Diagonal Stamp
@@ -239,7 +239,7 @@ export default function ProcessingView({
             id="rotation-angle"
             value={s.toolOptions.rotationAngle}
             onChange={(e) => s.setToolOptions({ rotationAngle: e.target.value })}
-            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
           >
             <option value="90">90° Clockwise</option>
             <option value="180">180° Flip</option>
@@ -260,7 +260,7 @@ export default function ProcessingView({
               placeholder='e.g. "1, 3-5" or select below'
               value={s.toolOptions.deletePages}
               onChange={(e) => s.setToolOptions({ deletePages: e.target.value })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
             <p className="text-[11px] text-slate-400">
               Click thumbnails below to toggle pages for removal.
@@ -290,7 +290,7 @@ export default function ProcessingView({
               placeholder='e.g. "1-3, 5" or click thumbnails below'
               value={s.toolOptions.extractPages}
               onChange={(e) => s.setToolOptions({ extractPages: e.target.value })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
             <p className="text-[11px] text-slate-400">
               Selected pages will be extracted into a new standalone PDF.
@@ -319,7 +319,7 @@ export default function ProcessingView({
               placeholder='e.g. "3, 1, 2" or use arrow buttons below'
               value={s.toolOptions.reorderPages}
               onChange={(e) => s.setToolOptions({ reorderPages: e.target.value })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
           </div>
           {isPdf && firstBatchFile && (
@@ -343,7 +343,7 @@ export default function ProcessingView({
               id="page-number-position"
               value={s.toolOptions.pageNumberPosition}
               onChange={(e) => s.setToolOptions({ pageNumberPosition: e.target.value as any })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             >
               <option value="bottom-center">Bottom Center</option>
               <option value="bottom-right">Bottom Right</option>
@@ -362,7 +362,7 @@ export default function ProcessingView({
                 id="page-number-format"
                 value={s.toolOptions.pageNumberFormat}
                 onChange={(e) => s.setToolOptions({ pageNumberFormat: e.target.value as any })}
-                className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+                className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
               >
                 <option value="page_n_of_m">Page X of Y</option>
                 <option value="page_n">Page X</option>
@@ -380,7 +380,7 @@ export default function ProcessingView({
                 min="1"
                 value={s.toolOptions.pageNumberStart}
                 onChange={(e) => s.setToolOptions({ pageNumberStart: parseInt(e.target.value, 10) || 1 })}
-                className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+                className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
               />
             </div>
           </div>
@@ -399,7 +399,7 @@ export default function ProcessingView({
               placeholder="e.g. Document Title - {date}"
               value={s.toolOptions.headerText}
               onChange={(e) => s.setToolOptions({ headerText: e.target.value })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
           </div>
           <div className="space-y-2">
@@ -412,7 +412,7 @@ export default function ProcessingView({
               placeholder="e.g. Confidential - Page {page} of {total}"
               value={s.toolOptions.footerText}
               onChange={(e) => s.setToolOptions({ footerText: e.target.value })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
           </div>
           <p className="text-[11px] text-slate-400">
@@ -437,7 +437,7 @@ export default function ProcessingView({
                 const val = parseInt(e.target.value, 10) || 0;
                 s.setToolOptions({ cropMargins: { top: val, bottom: val, left: val, right: val } });
               }}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
           </div>
           <div className="space-y-2">
@@ -448,7 +448,7 @@ export default function ProcessingView({
               id="target-size"
               value={String(s.toolOptions.targetSize || '')}
               onChange={(e) => s.setToolOptions({ targetSize: e.target.value as any })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             >
               <option value="">Maintain Original Size</option>
               <option value="A4">A4 (210 x 297 mm)</option>
@@ -473,7 +473,7 @@ export default function ProcessingView({
               placeholder="Document Title"
               value={s.toolOptions.metaTitle}
               onChange={(e) => s.setToolOptions({ metaTitle: e.target.value })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
           </div>
           <div className="space-y-2">
@@ -486,7 +486,7 @@ export default function ProcessingView({
               placeholder="Author Name"
               value={s.toolOptions.metaAuthor}
               onChange={(e) => s.setToolOptions({ metaAuthor: e.target.value })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
           </div>
           <div className="space-y-2">
@@ -499,7 +499,7 @@ export default function ProcessingView({
               placeholder="Subject or Summary"
               value={s.toolOptions.metaSubject}
               onChange={(e) => s.setToolOptions({ metaSubject: e.target.value })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
           </div>
           <label className="flex items-center gap-3 pt-2 cursor-pointer">
@@ -507,7 +507,7 @@ export default function ProcessingView({
               type="checkbox"
               checked={s.toolOptions.stripMetadata}
               onChange={(e) => s.setToolOptions({ stripMetadata: e.target.checked })}
-              className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+              className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500"
             />
             <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
               Strip all identifying metadata and creator stamps
@@ -593,7 +593,7 @@ export default function ProcessingView({
               placeholder='e.g. "What is the total contract value and renewal terms?"'
               value={s.toolOptions.qaQuestion}
               onChange={(e) => s.setToolOptions({ qaQuestion: e.target.value })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
           </div>
           {isPdf && firstBatchFile && (
@@ -613,7 +613,7 @@ export default function ProcessingView({
                 id="summary-length"
                 value={s.toolOptions.summaryLength}
                 onChange={(e) => s.setToolOptions({ summaryLength: e.target.value as any })}
-                className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+                className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
               >
                 <option value="short">Short (Quick bullet points)</option>
                 <option value="medium">Medium (Executive summary)</option>
@@ -630,7 +630,7 @@ export default function ProcessingView({
                 placeholder='e.g. "Financial risks & deadlines"'
                 value={s.toolOptions.summaryFocus}
                 onChange={(e) => s.setToolOptions({ summaryFocus: e.target.value })}
-                className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+                className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
               />
             </div>
           </div>
@@ -718,7 +718,7 @@ export default function ProcessingView({
               id="nup-layout"
               value={s.toolOptions.nUpGrid}
               onChange={(e) => s.setToolOptions({ nUpGrid: Number(e.target.value) as 2 | 4 | 9 })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             >
               <option value="2">2 Pages Per Sheet (2-in-1 Side-by-Side)</option>
               <option value="4">4 Pages Per Sheet (4-in-1 2x2 Grid)</option>
@@ -805,7 +805,7 @@ export default function ProcessingView({
               placeholder="e.g. APPROVED, CONFIDENTIAL, REJECTED, FINAL"
               value={s.toolOptions.stampText}
               onChange={(e) => s.setToolOptions({ stampText: e.target.value })}
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-200 dark:text-white"
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
           </div>
           <div className="space-y-2">
@@ -825,7 +825,7 @@ export default function ProcessingView({
                         : col === 'green'
                         ? 'bg-emerald-50 border-emerald-500 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
                         : 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
-                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                      : 'bg-surface dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
                   }`}
                 >
                   {col}
@@ -886,11 +886,11 @@ export default function ProcessingView({
         />
       )}
 
-      <div className="bg-white rounded-[40px] border border-slate-100 shadow-2xl overflow-hidden">
+      <div className="bg-surface rounded-[40px] border border-slate-100 shadow-2xl overflow-hidden">
         <div
           className={`p-10 lg:p-20 border-4 border-dashed m-4 rounded-[32px] flex flex-col items-center text-center transition-all duration-300 ${
             s.isDragging
-              ? 'border-indigo-400 bg-indigo-50/40 scale-[1.01]'
+              ? 'border-brand-400 bg-brand-50/40 scale-[1.01]'
               : 'border-slate-200 bg-slate-50/30 hover:bg-slate-50 hover:border-slate-300'
           }`}
           onDragOver={e => { e.preventDefault(); s.setIsDragging(true); }}
@@ -901,8 +901,8 @@ export default function ProcessingView({
             if (!isTauriEnvironment()) void onFilesSelected(Array.from(e.dataTransfer.files));
           }}
         >
-          <div className="w-16 h-16 bg-white rounded-2xl shadow-lg flex items-center justify-center mb-6">
-            <Plus className={`w-8 h-8 text-indigo-500 ${s.isDragging ? 'animate-pulse' : ''}`} />
+          <div className="w-16 h-16 bg-surface rounded-2xl shadow-lg flex items-center justify-center mb-6">
+            <Plus className={`w-8 h-8 text-brand-500 ${s.isDragging ? 'animate-pulse' : ''}`} />
           </div>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button onClick={onSelectFiles} className="prism-gradient text-white font-black py-4 px-8 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-200 flex items-center">
@@ -917,7 +917,7 @@ export default function ProcessingView({
                 }}
                 className="bg-slate-900 dark:bg-slate-800 text-white font-black py-4 px-6 rounded-2xl shadow-xl hover:bg-slate-800 transition-all duration-200 flex items-center border border-slate-700 active:scale-95"
               >
-                <Camera className="w-5 h-5 inline mr-2 text-indigo-400" />Scan Document
+                <Camera className="w-5 h-5 inline mr-2 text-brand-400" />Scan Document
               </button>
             )}
           </div>
@@ -938,13 +938,13 @@ export default function ProcessingView({
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {i.status === ProcessStatus.COMPLETED && i.resultBlob && (
-                      <button onClick={() => onDownloadBlob(i.resultBlob!, i.fileName.replace(/\.[^/.]+$/, '') + '.pdf')} className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                      <button onClick={() => onDownloadBlob(i.resultBlob!, i.fileName.replace(/\.[^/.]+$/, '') + '.pdf')} className="p-2 bg-brand-50 text-brand-600 rounded-lg">
                         <Download className="w-4 h-4" />
                       </button>
                     )}
                     {i.status === ProcessStatus.COMPLETED && <CheckCircle className="w-5 h-5 text-green-500" />}
                     {i.status === ProcessStatus.ERROR && <AlertCircle className="w-5 h-5 text-red-500" />}
-                    {i.status === ProcessStatus.PROCESSING && <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />}
+                    {i.status === ProcessStatus.PROCESSING && <Loader2 className="w-5 h-5 text-brand-500 animate-spin" />}
                     <button disabled={s.isProcessing} onClick={() => s.removeItem(i.id)} className="text-slate-300 hover:text-red-500">
                       <Trash2 className="w-4 h-4" />
                     </button>

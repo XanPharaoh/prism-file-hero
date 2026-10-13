@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useClerk } from '@clerk/react';
 import { LogOut, ArrowUpRight } from 'lucide-react';
 import { useAppStore, type AppUser } from '../store/appStore';
@@ -22,6 +22,21 @@ export default function AccountPanel({ user, onSignOut }: Props) {
   const initials = getInitials(user.name, user.email);
   const [ent, setEnt] = useState<Entitlement & { activeSubscriptionId?: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  // The card is a popover: it must close on Escape and on any click outside it, otherwise it
+  // stays floating over the workspace.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
 
   // R7 Req 8 — subscription status + cancellation, all server-derived (never a browser claim).
   useEffect(() => {
@@ -39,30 +54,45 @@ export default function AccountPanel({ user, onSignOut }: Props) {
   };
 
   return (
-    <div className="rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111622] p-3 text-xs shadow-sm space-y-2.5">
+    <div className="relative" ref={wrapRef}>
+      <button
+        type="button"
+        aria-label={`Account: ${s.isPremium ? 'PRO' : 'FREE'} plan`}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 rounded-full border border-[var(--nav-line)] px-2 py-1 text-[var(--nav-ink)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+      >
+        <span className="w-6 h-6 rounded-full bg-accent text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+          {initials}
+        </span>
+        <span className="font-mono uppercase tracking-wider text-[10px] font-bold">{s.isPremium ? 'PRO' : 'FREE'}</span>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-3 z-50 w-60 rounded-xl border border-hairline bg-surface p-3 text-xs space-y-2.5" style={{ boxShadow: 'var(--shadow-card)' }}>
       <div className="flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded bg-slate-900 text-white dark:bg-white dark:text-slate-950 flex items-center justify-center text-[11px] font-bold shrink-0">
+        <div className="w-7 h-7 rounded-full bg-ink text-ground dark:bg-white dark:text-slate-950 flex items-center justify-center text-[11px] font-bold shrink-0">
           {initials}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-slate-900 dark:text-[#fafafa] font-semibold truncate leading-tight">
+          <p className="text-ink font-semibold truncate leading-tight">
             {user.name || user.email}
           </p>
-          <p className="text-slate-400 dark:text-slate-500 text-[10px] truncate leading-tight">
+          <p className="text-muted text-[10px] truncate leading-tight">
             {user.email}
           </p>
         </div>
       </div>
 
-      <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+      <div className="pt-2 border-t border-hairline flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Plan:</span>
+          <span className="text-[10px] font-mono uppercase tracking-wider text-muted">Plan:</span>
           {s.isPremium ? (
-            <span className="px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold font-mono">
+            <span className="px-1.5 py-0.5 rounded-full bg-credit/10 text-credit text-[10px] font-bold font-mono">
               PRO
             </span>
           ) : (
-            <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-medium font-mono">
+            <span className="px-1.5 py-0.5 rounded-full bg-sunken text-muted text-[10px] font-medium font-mono">
               FREE
             </span>
           )}
@@ -72,7 +102,7 @@ export default function AccountPanel({ user, onSignOut }: Props) {
           <button
             type="button"
             onClick={() => s.setShowUpgradeCTA(true)}
-            className="flex items-center gap-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+            className="flex items-center gap-0.5 text-[10px] font-bold text-accent hover:underline"
           >
             <span>Upgrade</span>
             <ArrowUpRight className="w-3 h-3" />
@@ -81,10 +111,10 @@ export default function AccountPanel({ user, onSignOut }: Props) {
       </div>
 
       {s.isPremium && (
-        <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
+        <div className="pt-2 border-t border-hairline space-y-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">PayPal subscription</span>
-            <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-muted">PayPal subscription</span>
+            <span className="text-[10px] font-semibold text-ink">
               {(ent?.subscription_status ?? 'active').toUpperCase()}
             </span>
           </div>
@@ -94,26 +124,28 @@ export default function AccountPanel({ user, onSignOut }: Props) {
                 type="button"
                 onClick={doCancel}
                 disabled={busy}
-                className="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+                className="text-[10px] font-bold text-accent hover:underline disabled:opacity-50"
               >
                 {busy ? 'Cancelling…' : 'Cancel subscription'}
               </button>
             ) : (
-              <span className="text-[10px] text-slate-400">Manage via your PayPal account.</span>
+              <span className="text-[10px] text-muted">Manage via your PayPal account.</span>
             )}
-            <span className="text-[9px] font-mono text-slate-400 truncate max-w-[40%]">{ent?.activeSubscriptionId ?? ''}</span>
+            <span className="text-[9px] font-mono text-muted truncate max-w-[40%]">{ent?.activeSubscriptionId ?? ''}</span>
           </div>
         </div>
       )}
 
       <button
         type="button"
-        onClick={async () => { await clerk.signOut(); onSignOut(); }}
-        className="w-full flex items-center justify-center gap-1.5 pt-1 text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 text-[11px] font-medium transition-colors"
+        onClick={async () => { await clerk.signOut(); setOpen(false); onSignOut(); }}
+        className="w-full flex items-center justify-center gap-1.5 pt-1 text-muted hover:text-accent text-[11px] font-medium transition-colors"
       >
         <LogOut className="w-3 h-3" />
         <span>Sign Out</span>
       </button>
+        </div>
+      )}
     </div>
   );
 }

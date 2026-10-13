@@ -142,12 +142,12 @@ export const PDFPageGrid: React.FC<PDFPageGridProps> = ({
       {showControls && (
         <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
           <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <Layers className="w-4 h-4 text-brand-600 dark:text-brand-400" />
             <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
               {totalPages} {totalPages === 1 ? 'Page' : 'Pages'}
             </span>
             {selectable && selectedPages.length > 0 && (
-              <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
+              <span className="text-xs font-semibold text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-950/60 px-2 py-0.5 rounded-full border border-brand-200 dark:border-brand-800">
                 {selectedPages.length} selected
               </span>
             )}
@@ -160,7 +160,7 @@ export const PDFPageGrid: React.FC<PDFPageGridProps> = ({
                   <button
                     type="button"
                     onClick={onSelectAll}
-                    className="px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-indigo-600 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-indigo-300 transition-colors"
+                    className="px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-brand-600 bg-surface dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-brand-300 transition-colors"
                   >
                     Select All
                   </button>
@@ -169,7 +169,7 @@ export const PDFPageGrid: React.FC<PDFPageGridProps> = ({
                   <button
                     type="button"
                     onClick={onDeselectAll}
-                    className="px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg transition-colors"
+                    className="px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 bg-surface dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg transition-colors"
                   >
                     Clear Selection
                   </button>
@@ -183,7 +183,7 @@ export const PDFPageGrid: React.FC<PDFPageGridProps> = ({
       {/* Loading / Error States */}
       {isLoadingDoc && (
         <div className="flex items-center justify-center py-12 text-slate-400 dark:text-slate-500">
-          <Loader2 className="w-6 h-6 animate-spin mr-2 text-indigo-500" />
+          <Loader2 className="w-6 h-6 animate-spin mr-2 text-brand-500" />
           <span className="text-xs font-bold">Rendering page previews...</span>
         </div>
       )}
@@ -209,9 +209,9 @@ export const PDFPageGrid: React.FC<PDFPageGridProps> = ({
                   if (selectable) handleToggle(pageNum);
                   onPageClick?.(pageNum);
                 }}
-                className={`group relative flex flex-col items-center bg-white dark:bg-slate-800 rounded-xl border p-2 cursor-pointer transition-all duration-150 shadow-sm hover:shadow-md ${
+                className={`group relative flex flex-col items-center bg-surface dark:bg-slate-800 rounded-xl border p-2 cursor-pointer transition-all duration-150 shadow-sm hover:shadow-md ${
                   isSelected
-                    ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/20 dark:bg-indigo-950/30'
+                    ? 'border-brand-500 ring-2 ring-brand-500/20 bg-brand-50/20 dark:bg-brand-950/30'
                     : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
                 }`}
               >
@@ -224,8 +224,8 @@ export const PDFPageGrid: React.FC<PDFPageGridProps> = ({
                     <div
                       className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
                         isSelected
-                          ? 'bg-indigo-600 border-indigo-600 text-white'
-                          : 'bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-600'
+                          ? 'bg-brand-600 border-brand-600 text-white'
+                          : 'bg-surface dark:bg-slate-700 border-slate-300 dark:border-slate-600'
                       }`}
                     >
                       {isSelected && <CheckCircle className="w-3.5 h-3.5 text-white fill-current" />}
@@ -255,7 +255,7 @@ export const PDFPageGrid: React.FC<PDFPageGridProps> = ({
                       type="button"
                       disabled={index === 0}
                       onClick={() => handleMovePage(index, 'left')}
-                      className="p-1 rounded text-slate-400 hover:text-indigo-600 disabled:opacity-20 disabled:hover:text-slate-400"
+                      className="p-1 rounded text-slate-400 hover:text-brand-600 disabled:opacity-20 disabled:hover:text-slate-400"
                       title="Move left"
                     >
                       <ArrowLeft className="w-3 h-3" />
@@ -265,7 +265,7 @@ export const PDFPageGrid: React.FC<PDFPageGridProps> = ({
                       type="button"
                       disabled={index === pageOrder.length - 1}
                       onClick={() => handleMovePage(index, 'right')}
-                      className="p-1 rounded text-slate-400 hover:text-indigo-600 disabled:opacity-20 disabled:hover:text-slate-400"
+                      className="p-1 rounded text-slate-400 hover:text-brand-600 disabled:opacity-20 disabled:hover:text-slate-400"
                       title="Move right"
                     >
                       <ArrowRight className="w-3 h-3" />

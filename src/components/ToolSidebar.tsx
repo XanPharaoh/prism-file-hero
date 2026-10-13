@@ -70,7 +70,7 @@ export const SidebarContent: React.FC = () => {
                 <span
                   className={`text-[10px] font-mono px-1 py-0.2 rounded ${
                     isActive
-                      ? 'bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-900'
+                      ? 'bg-surface text-white dark:bg-slate-900/20 dark:text-slate-900'
                       : 'text-slate-400 dark:text-slate-500'
                   }`}
                 >
@@ -83,12 +83,12 @@ export const SidebarContent: React.FC = () => {
 
         {/* Active Tool Chip */}
         {currentTool && (
-          <div className="p-3 bg-slate-100 dark:bg-[#111622] rounded-md text-slate-900 dark:text-[#fafafa] border border-slate-200 dark:border-slate-800 flex items-center gap-2.5">
-            <div className="p-1.5 rounded bg-slate-900 text-white dark:bg-white dark:text-slate-950">
+          <div className="p-3 bg-slate-100 rounded-md text-slate-900 border border-slate-200 dark:border-slate-800 flex items-center gap-2.5">
+            <div className="p-1.5 rounded bg-slate-900 text-white dark:bg-surface dark:text-slate-950">
               <Layout className="w-3.5 h-3.5" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate text-slate-900 dark:text-[#fafafa]">{currentTool.name}</p>
+              <p className="text-xs font-bold truncate text-slate-900 ">{currentTool.name}</p>
               <p className="text-[9px] font-mono text-slate-500 uppercase">Active Workspace</p>
             </div>
           </div>
@@ -103,8 +103,8 @@ export const SidebarContent: React.FC = () => {
             }}
             className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-colors duration-100 ${
               showHistory
-                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 dark:text-[#d4d4d8] dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80'
+                ? 'bg-slate-900 text-white dark:bg-surface dark:text-slate-950 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80'
             }`}
           >
             <History className="w-3.5 h-3.5" />
@@ -119,16 +119,16 @@ export const SidebarContent: React.FC = () => {
               setShowUpgradeCTA(true);
               setIsMobileMenuOpen(false);
             }}
-            className="w-full p-2.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-[#111622] dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-left transition-colors flex items-center justify-between group"
+            className="w-full p-2.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-left transition-colors flex items-center justify-between group"
           >
             <div>
-              <p className="text-[11px] font-bold text-slate-900 dark:text-[#fafafa] flex items-center gap-1.5">
+              <p className="text-[11px] font-bold text-slate-900 flex items-center gap-1.5">
                 <span>Prism Pro</span>
-                <span className="px-1.5 py-0.2 rounded bg-slate-900 text-white dark:bg-white dark:text-slate-950 text-[9px] font-mono uppercase font-bold">
+                <span className="px-1.5 py-0.2 rounded bg-slate-900 text-white dark:bg-surface dark:text-slate-950 text-[9px] font-mono uppercase font-bold">
                   Upgrade
                 </span>
               </p>
-              <p className="text-[10px] text-slate-500 dark:text-[#d4d4d8]">100 AI bank statement pages/mo</p>
+              <p className="text-[10px] text-slate-500 ">100 AI bank statement pages/mo</p>
             </div>
             <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors" />
           </button>
@@ -136,12 +136,12 @@ export const SidebarContent: React.FC = () => {
       </div>
 
       {/* Bottom Privacy & Security Badge */}
-      <div className="p-3 rounded-md bg-slate-50 dark:bg-[#111622] border border-slate-200 dark:border-slate-800 text-left space-y-1">
-        <div className="flex items-center gap-1.5 text-slate-800 dark:text-[#fafafa] text-xs font-semibold">
+      <div className="p-3 rounded-md bg-slate-50 border border-slate-200 dark:border-slate-800 text-left space-y-1">
+        <div className="flex items-center gap-1.5 text-slate-800 text-xs font-semibold">
           <Shield className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
           <span>Local Client-Side</span>
         </div>
-        <p className="text-[10px] text-slate-500 dark:text-[#d4d4d8] leading-normal">
+        <p className="text-[10px] text-slate-500 leading-normal">
           Zero data uploads. Documents are processed entirely in your browser sandbox.
         </p>
       </div>

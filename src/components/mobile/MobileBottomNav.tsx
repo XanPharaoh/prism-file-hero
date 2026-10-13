@@ -55,7 +55,7 @@ export const MobileBottomNav: React.FC = () => {
           })}
           className={`flex flex-col items-center py-1 px-3 rounded-2xl transition-all duration-200 ${
             isHomeActive
-              ? 'text-indigo-400 font-bold scale-105'
+              ? 'text-brand-400 font-bold scale-105'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -73,7 +73,7 @@ export const MobileBottomNav: React.FC = () => {
           })}
           className={`flex flex-col items-center py-1 px-3 rounded-2xl transition-all duration-200 ${
             s.activeCategory === 'AI Labs' && !s.selectedTool && !s.showHistory
-              ? 'text-indigo-400 font-bold scale-105'
+              ? 'text-brand-400 font-bold scale-105'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -87,10 +87,10 @@ export const MobileBottomNav: React.FC = () => {
           onClick={handleCameraScan}
           className="flex flex-col items-center -mt-6 group"
         >
-          <div className="w-12 h-12 rounded-2xl prism-gradient flex items-center justify-center text-white shadow-lg shadow-indigo-500/40 group-active:scale-95 transition-transform border border-white/20">
+          <div className="w-12 h-12 rounded-2xl prism-gradient flex items-center justify-center text-white shadow-lg shadow-brand-500/40 group-active:scale-95 transition-transform border border-white/20">
             <Camera className="w-6 h-6" />
           </div>
-          <span className="text-[9px] font-bold mt-1 text-indigo-400">Scan & Save</span>
+          <span className="text-[9px] font-bold mt-1 text-brand-400">Scan & Save</span>
         </button>
 
         {/* Tab 4: History / Files */}
@@ -107,7 +107,7 @@ export const MobileBottomNav: React.FC = () => {
           })}
           className={`flex flex-col items-center py-1 px-3 rounded-2xl transition-all duration-200 ${
             s.showHistory
-              ? 'text-indigo-400 font-bold scale-105'
+              ? 'text-brand-400 font-bold scale-105'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >

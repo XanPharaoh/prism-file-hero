@@ -15,7 +15,7 @@
  *   node scripts/checkout-return-check.mjs
  */
 import { chromium } from 'playwright';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
 
 const APP = process.env.APP_URL || 'http://127.0.0.1:5174';   // dev server bound to the localtest Worker
 const WORKER = process.env.WORKER_URL || 'http://127.0.0.1:8788';   // stand-in-JWKS Worker (see worker/wrangler.toml [env.localtest])
@@ -149,7 +149,45 @@ async function open({ signedIn }) {
   await ctx.close();
 }
 
+// ── G. The same return experience in the GENUINE Clerk browser session ─────────────────
+// No injected Authorization header and no minted token: this is the session the journey
+// created by signing in through the Clerk dev instance, driving the journey app (:5173)
+// against the real-Clerk Worker (:8787). Skipped when no session is stored.
+if (existsSync('evidence/journey-session.json')) {
+  const LIVE_APP = process.env.LIVE_APP_URL || 'http://127.0.0.1:5173';
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 }, storageState: 'evidence/journey-session.json' });
+  const page = await ctx.newPage();
+  const seen = [];
+  page.on('response', async (r) => {
+    if (r.url().includes('/api/billing/entitlement')) {
+      seen.push({ status: r.status(), body: await r.json().catch(() => null), authed: Boolean((await r.request().allHeaders()).authorization) });
+    }
+  });
+  await page.goto(`${LIVE_APP}/app?checkout=success`, { waitUntil: 'domcontentloaded' });
+  try {
+    await page.waitForFunction(() => /is active|Not confirmed yet|Sign in to confirm/.test(document.body.innerText), null, { timeout: 30000 });
+  } catch {}
+  const txt = await page.getByRole('status').textContent().catch(() => '');
+  const server = seen.find((s) => s.status === 200)?.body ?? null;
+  console.log(`G server answer: ${JSON.stringify(server).slice(0, 200)}`);
+  ok('G: a real Clerk session is what reached the server', seen.some((s) => s.authed && s.status === 200), JSON.stringify(seen[0] ?? null));
+  ok('G: the panel names the server-confirmed plan', /is active/i.test(txt ?? ''), JSON.stringify(txt).slice(0, 200));
+  ok('G: paid-through coverage comes from the server value', server?.paid_until ? /Paid through/i.test(txt ?? '') : false, JSON.stringify(txt).slice(0, 200));
+  ok('G: ?checkout= is stripped from the address bar', !new URL(page.url()).searchParams.has('checkout'), page.url());
+  await page.screenshot({ path: `${OUT}/G1-entitled-panel.png` });
+  const back = page.getByRole('button', { name: /Open the workspace/ });
+  ok('G: a route back to the tool workspace is offered', (await back.count()) === 1, '');
+  if ((await back.count()) === 1) {
+    await back.click();
+    await page.waitForTimeout(1200);
+    ok('G: the panel dismisses and the upload workspace is on screen',
+      (await page.getByRole('status').count()) === 0 && (await page.locator('[aria-label="Upload PDF document"]').count()) > 0, '');
+  }
+  await page.screenshot({ path: `${OUT}/G-genuine-session-entitled.png` });
+  await ctx.close();
+}
+
 await browser.close();
-console.log(`\nSaved: ${OUT}/{A-needs-signin,B-entitled,C-cancelled,F-unconfirmed}.png`);
+console.log(`\nSaved: ${OUT}/{A-needs-signin,B-entitled,C-cancelled,F-unconfirmed,G-genuine-session-entitled}.png`);
 console.log(`\n=== checkout-return-check: ${pass} passed, ${fail} failed ===`);
 process.exit(fail === 0 ? 0 : 1);

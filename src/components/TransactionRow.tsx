@@ -28,7 +28,7 @@ export default function TransactionRow({ tx, reconError, onEdit }: { tx: any; re
   const amountColor = numAmount !== null && numAmount >= 0 ? 'text-emerald-700' : 'text-slate-900';
 
   return (
-    <tr className={`hover:bg-indigo-50/40 cursor-pointer transition-colors ${bgColor}`} onClick={onEdit} role="button">
+    <tr className={`hover:bg-brand-50/40 cursor-pointer transition-colors ${bgColor}`} onClick={onEdit} role="button">
       <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{dateVal}</td>
       <td className="px-4 py-2.5 text-slate-800 max-w-[240px] truncate" title={displayDesc}>{displayDesc}</td>
       <td className={`px-4 py-2.5 text-right font-mono tabular-nums ${amountColor}`}>

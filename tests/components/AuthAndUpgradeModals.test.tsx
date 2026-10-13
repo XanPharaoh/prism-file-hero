@@ -82,9 +82,12 @@ describe('AccountPanel', () => {
       />
     );
 
+    // The pill carries only the account chip; the summary card is a popover.
+    fireEvent.click(screen.getByRole('button', { name: /account/i }));
+
     expect(screen.getByText('John Doe')).toBeInTheDocument();
     expect(screen.getByText('accountant@test.co.za')).toBeInTheDocument();
-    expect(screen.getByText('FREE')).toBeInTheDocument();
+    expect(screen.getAllByText('FREE').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/Upgrade/i)).toBeInTheDocument();
 
     // Click Upgrade

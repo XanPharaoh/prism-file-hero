@@ -105,12 +105,12 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
 
   return (
     <div className="fixed inset-0 bg-black/60 z-[300] flex items-center justify-center p-4 overflow-y-auto">
-      <div className="w-full max-w-4xl relative bg-white dark:bg-[#111622] border border-slate-200 dark:border-slate-800 rounded-lg shadow-2xl overflow-hidden my-6 animate-in fade-in zoom-in-95 duration-150">
+      <div className="w-full max-w-4xl relative bg-surface border border-slate-200 dark:border-slate-800 rounded-lg shadow-2xl overflow-hidden my-6 animate-in fade-in zoom-in-95 duration-150">
         {/* Top Bar */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F19]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 ">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-[#fafafa]">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-900 ">
               Prism File Hero Subscription Plans
             </span>
           </div>
@@ -125,10 +125,10 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
 
         {/* Header & Controls */}
         <div className="p-6 text-center space-y-4 border-b border-slate-200 dark:border-slate-800">
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-[#fafafa]">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 ">
             High-Volume Document & Bank Statement Intelligence
           </h2>
-          <p className="text-xs sm:text-sm text-slate-600 dark:text-[#d4d4d8] max-w-xl mx-auto leading-relaxed">
+          <p className="text-xs sm:text-sm text-slate-600 max-w-xl mx-auto leading-relaxed">
             Eliminate daily limits, batch-process multi-page financial statements into reconciled Excel sheets, and run unlimited private PDF operations.
           </p>
 
@@ -141,7 +141,7 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
                 onClick={() => setBillingCycle('monthly')}
                 className={`px-3 py-1 font-semibold rounded text-xs transition-colors duration-100 ${
                   billingCycle === 'monthly'
-                    ? 'bg-white dark:bg-[#111622] text-slate-900 dark:text-[#fafafa] shadow-xs'
+                    ? 'bg-surface text-slate-900 shadow-xs'
                     : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'
                 }`}
               >
@@ -152,7 +152,7 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
                 onClick={() => setBillingCycle('annual')}
                 className={`px-3 py-1 font-semibold rounded text-xs transition-colors duration-100 flex items-center gap-1.5 ${
                   billingCycle === 'annual'
-                    ? 'bg-white dark:bg-[#111622] text-slate-900 dark:text-[#fafafa] shadow-xs'
+                    ? 'bg-surface text-slate-900 shadow-xs'
                     : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'
                 }`}
               >
@@ -170,7 +170,7 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
                 onClick={() => setCurrency('ZAR')}
                 className={`px-2.5 py-1 font-mono font-semibold rounded text-xs transition-colors duration-100 ${
                   currency === 'ZAR'
-                    ? 'bg-white dark:bg-[#111622] text-slate-900 dark:text-[#fafafa] shadow-xs'
+                    ? 'bg-surface text-slate-900 shadow-xs'
                     : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'
                 }`}
               >
@@ -181,7 +181,7 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
                 onClick={() => setCurrency('USD')}
                 className={`px-2.5 py-1 font-mono font-semibold rounded text-xs transition-colors duration-100 ${
                   currency === 'USD'
-                    ? 'bg-white dark:bg-[#111622] text-slate-900 dark:text-[#fafafa] shadow-xs'
+                    ? 'bg-surface text-slate-900 shadow-xs'
                     : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white'
                 }`}
               >
@@ -194,19 +194,19 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
         {/* Pricing Cards Grid */}
         <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
           {/* FREE PLAN */}
-          <div className="rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111622] p-5 flex flex-col justify-between space-y-5">
+          <div className="rounded-md border border-slate-200 dark:border-slate-800 bg-surface p-5 flex flex-col justify-between space-y-5">
             <div className="space-y-4">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Starter / Free
                 </span>
                 <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-slate-900 dark:text-[#fafafa]">
+                  <span className="text-2xl font-bold text-slate-900 ">
                     {currencySymbol}0
                   </span>
                   <span className="text-xs text-slate-500 dark:text-slate-400">/ forever</span>
                 </div>
-                <p className="mt-2 text-xs text-slate-500 dark:text-[#d4d4d8] leading-relaxed">
+                <p className="mt-2 text-xs text-slate-500 leading-relaxed">
                   Basic utility conversion and daily statement verification for casual use.
                 </p>
               </div>
@@ -242,9 +242,9 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
           </div>
 
           {/* PRO PLAN (RECOMMENDED) */}
-          <div className="relative rounded-md border-2 border-slate-900 dark:border-white bg-slate-50/70 dark:bg-[#151c2c] p-5 flex flex-col justify-between space-y-5 shadow-md">
+          <div className="relative rounded-md border-2 border-slate-900 dark:border-hairline bg-slate-50/70 p-5 flex flex-col justify-between space-y-5 shadow-md">
             {/* Top Recommended Tag */}
-            <div className="absolute -top-3 right-4 px-2 py-0.5 rounded bg-slate-900 text-white dark:bg-white dark:text-slate-950 text-[10px] font-mono font-bold tracking-wider uppercase">
+            <div className="absolute -top-3 right-4 px-2 py-0.5 rounded bg-slate-900 text-white dark:bg-surface dark:text-slate-950 text-[10px] font-mono font-bold tracking-wider uppercase">
               Most Popular
             </div>
 
@@ -254,22 +254,22 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
                   Professional
                 </span>
                 <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-3xl font-bold text-slate-900 dark:text-[#fafafa]">
+                  <span className="text-3xl font-bold text-slate-900 ">
                     {currencySymbol}{prices.pro[currency]}
                   </span>
                   <span className="text-xs text-slate-500 dark:text-slate-400">/ month</span>
                 </div>
-                <p className="mt-2 text-xs text-slate-600 dark:text-[#d4d4d8] leading-relaxed">
+                <p className="mt-2 text-xs text-slate-600 leading-relaxed">
                   Ideal for accountants, financial advisors, SME owners, and power users.
                 </p>
               </div>
 
               <div className="space-y-2 border-t border-slate-200 dark:border-slate-800 pt-4 text-xs">
-                <div className="flex items-start gap-2 text-slate-900 dark:text-[#fafafa] font-semibold">
+                <div className="flex items-start gap-2 text-slate-900 font-semibold">
                   <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
                   <span>Unlimited local operations (Merge, Split, OCR)</span>
                 </div>
-                <div className="flex items-start gap-2 text-slate-900 dark:text-[#fafafa] font-semibold">
+                <div className="flex items-start gap-2 text-slate-900 font-semibold">
                   <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
                   <span>100 AI statement pages / month</span>
                 </div>
@@ -296,7 +296,7 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
               type="button"
               disabled={loadingPlan === 'pro'}
               onClick={() => handleSubscribe('pro')}
-              className="w-full py-2.5 px-3 rounded-md bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 text-xs font-bold transition-colors duration-100 flex items-center justify-center gap-1.5 shadow-sm active:translate-y-px"
+              className="w-full py-2.5 px-3 rounded-md bg-slate-900 hover:bg-slate-800 text-white dark:bg-surface dark:text-slate-950 dark:hover:bg-slate-200 text-xs font-bold transition-colors duration-100 flex items-center justify-center gap-1.5 shadow-sm active:translate-y-px"
             >
               {loadingPlan === 'pro' ? (
                 <span>Loading checkout...</span>
@@ -312,19 +312,19 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
           </div>
 
           {/* BUSINESS PLAN */}
-          <div className="rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111622] p-5 flex flex-col justify-between space-y-5">
+          <div className="rounded-md border border-slate-200 dark:border-slate-800 bg-surface p-5 flex flex-col justify-between space-y-5">
             <div className="space-y-4">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Business / Firm
                 </span>
                 <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-slate-900 dark:text-[#fafafa]">
+                  <span className="text-2xl font-bold text-slate-900 ">
                     {currencySymbol}{prices.business[currency]}
                   </span>
                   <span className="text-xs text-slate-500 dark:text-slate-400">/ month</span>
                 </div>
-                <p className="mt-2 text-xs text-slate-500 dark:text-[#d4d4d8] leading-relaxed">
+                <p className="mt-2 text-xs text-slate-500 leading-relaxed">
                   For accounting practices, legal firms, and corporate audit teams.
                 </p>
               </div>
@@ -357,7 +357,7 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
               type="button"
               disabled={loadingPlan === 'business'}
               onClick={() => handleSubscribe('business')}
-              className="w-full py-2 px-3 rounded-md border border-slate-900 dark:border-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-[#fafafa] text-xs font-bold transition-colors duration-100 flex items-center justify-center gap-1.5 active:translate-y-px"
+              className="w-full py-2 px-3 rounded-md border border-slate-900 dark:border-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 text-xs font-bold transition-colors duration-100 flex items-center justify-center gap-1.5 active:translate-y-px"
             >
               {loadingPlan === 'business' ? (
                 <span>Loading checkout...</span>
@@ -372,7 +372,7 @@ export default function UpgradeModal({ onClose, defaultPlan = 'pro' }: UpgradeMo
         </div>
 
         {/* Security & Guarantees Footer */}
-        <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F19] flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+        <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500 dark:text-slate-400">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />

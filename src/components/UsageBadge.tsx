@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Zap, AlertCircle, Cpu } from './ui/Icon';
 import { fetchUsageFromServer, getToolDisplayName, type UsageData } from '../../services/usageTrackingService';
-import { getFeatureType, getDailyLimit } from '../../services/usageConfig';
+import { getFeatureType, getDailyLimit, isUnlimited } from '../../services/usageConfig';
 import { useCountdown } from '../hooks/useCountdown';
 import { useLocalTimezoneFormat } from '../hooks/useLocalTimezoneFormat';
 import { useAppStore, type AppUser } from '../store/appStore';
@@ -89,6 +89,14 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
   const aiUsed = usage?.ai_pages_used_today ?? 0;
   const aiCap = usage?.ai_daily_limit ?? 6;
   const byTool = usage?.by_tool ?? {};
+  const plan = usage?.plan === 'pro' || usage?.plan === 'business' ? usage.plan : 'free';
+
+  // Paid plans have no daily ceiling; their budget is the monthly page allowance, so the
+  // meter must not render -1 as a number or treat any usage as "over".
+  const capText = (cap: number) => (isUnlimited(cap) ? '∞' : String(cap));
+  const fillPct = (used: number, cap: number) => (isUnlimited(cap) || cap <= 0 ? 0 : Math.min(100, (used / cap) * 100));
+  const tone = (used: number, cap: number, over: string, near: string, ok: string) =>
+    isUnlimited(cap) ? ok : used >= cap ? over : used >= cap * 0.7 ? near : ok;
 
   // Calculate tool breakdown
   const toolBreakdownList = Object.entries(byTool)
@@ -100,7 +108,7 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
       <div className="relative" ref={triggerRef}>
         {/* Compact trigger badge */}
         <div
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer transition-all duration-200 hover:shadow-lg bg-slate-50 text-slate-600 border border-slate-200/50 hover:bg-white"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer transition-all duration-200 hover:shadow-lg bg-sunken text-ink border border-hairline hover:bg-surface"
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onClick={handleClick}
@@ -109,10 +117,10 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
         >
           <Zap className="w-3 h-3 text-emerald-500" />
-          <span className="hidden sm:inline">{localUsed}/{localCap}</span>
+          <span className="hidden sm:inline">{localUsed}/{capText(localCap)}</span>
           <span className="hidden sm:inline text-slate-300">|</span>
-          <Cpu className="w-3 h-3 text-indigo-500" />
-          <span>{aiUsed}/{aiCap}</span>
+          <Cpu className="w-3 h-3 text-brand-500" />
+          <span>{aiUsed}/{capText(aiCap)}</span>
         </div>
 
         {/* Glassmorphic Popover */}
@@ -123,13 +131,13 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
           >
-            <div className="bg-white/80 backdrop-blur-xl border border-white/40 shadow-2xl rounded-2xl p-4 w-72 transition-all duration-200">
+            <div className="bg-surface border border-hairline rounded-2xl p-4 w-72 transition-all duration-200" style={{ boxShadow: 'var(--shadow-float)' }}>
               {/* Header */}
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-indigo-500" />
+                  <Zap className="w-4 h-4 text-brand-500" />
                   <span className="text-xs font-black uppercase tracking-widest text-slate-500">
-                    Daily Usage
+                    Today’s usage
                   </span>
                 </div>
                 <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
@@ -137,19 +145,19 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
                 </span>
               </div>
 
-              {/* Local Section */}
+              {/* On-device section */}
               <div className="mb-3">
                 <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
                   <span className="flex items-center gap-1">
                     <Zap className="w-3 h-3 text-emerald-500" />
-                    Free
+                    On-device
                   </span>
-                  <span>{localUsed}/{localCap} pages</span>
+                  <span>{localUsed}/{capText(localCap)} pages</span>
                 </div>
                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${localUsed >= localCap ? 'bg-red-500' : localUsed >= localCap * 0.7 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                    style={{ width: `${localCap > 0 ? Math.min(100, (localUsed / localCap) * 100) : 0}%` }}
+                    className={`h-full rounded-full transition-all duration-500 ${tone(localUsed, localCap, 'bg-red-500', 'bg-amber-500', 'bg-emerald-500')}`}
+                    style={{ width: `${fillPct(localUsed, localCap)}%` }}
                   />
                 </div>
                 {/* Local tool breakdown */}
@@ -159,12 +167,12 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
                       .filter(([id]) => getFeatureType(id) === 'local')
                       .slice(0, 4)
                       .map(([toolId, pages]) => {
-                        const limit = getDailyLimit('local');
+                        const limit = getDailyLimit('local', plan);
                         return (
                           <div key={toolId} className="flex items-center justify-between text-[10px]">
                             <span className="text-slate-500 truncate max-w-[140px]">{getToolDisplayName(toolId)}</span>
-                            <span className={`font-bold ${Number(pages) >= limit ? 'text-red-500' : 'text-slate-600'}`}>
-                              {String(pages)}/{limit} pg
+                            <span className={`font-bold ${!isUnlimited(limit) && Number(pages) >= limit ? 'text-accent' : 'text-slate-600'}`}>
+                              {String(pages)}/{capText(limit)} pg
                             </span>
                           </div>
                         );
@@ -173,21 +181,26 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
                 )}
               </div>
 
-              {/* Premium Section */}
+              {/* Cloud AI section */}
               <div className="mb-3">
                 <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
                   <span className="flex items-center gap-1">
-                    <Cpu className="w-3 h-3 text-indigo-500" />
-                    Premium
+                    <Cpu className="w-3 h-3 text-brand-500" />
+                    Cloud AI
                   </span>
-                  <span>{aiUsed}/{aiCap} pages</span>
+                  <span>{aiUsed}/{capText(aiCap)} pages</span>
                 </div>
                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${aiUsed >= aiCap ? 'bg-red-500' : aiUsed >= aiCap * 0.7 ? 'bg-amber-500' : 'bg-indigo-500'}`}
-                    style={{ width: `${aiCap > 0 ? Math.min(100, (aiUsed / aiCap) * 100) : 0}%` }}
+                    className={`h-full rounded-full transition-all duration-500 ${tone(aiUsed, aiCap, 'bg-red-500', 'bg-amber-500', 'bg-brand-500')}`}
+                    style={{ width: `${fillPct(aiUsed, aiCap)}%` }}
                   />
                 </div>
+                {!isUnlimited(usage?.pages_limit ?? -1) && (
+                  <div className="mt-1 text-[10px] font-bold text-slate-400">
+                    {usage?.pages_used ?? 0} of {usage?.pages_limit} AI pages this month
+                  </div>
+                )}
                 {/* AI tool breakdown */}
                 {toolBreakdownList.filter(([id]) => getFeatureType(id) === 'ai').length > 0 && (
                   <div className="mt-2 space-y-1">
@@ -195,12 +208,12 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
                       .filter(([id]) => getFeatureType(id) === 'ai')
                       .slice(0, 4)
                       .map(([toolId, pages]) => {
-                        const limit = getDailyLimit('ai');
+                        const limit = getDailyLimit('ai', plan);
                         return (
                           <div key={toolId} className="flex items-center justify-between text-[10px]">
                             <span className="text-slate-500 truncate max-w-[140px]">{getToolDisplayName(toolId)}</span>
-                            <span className={`font-bold ${Number(pages) >= limit ? 'text-red-500' : 'text-slate-600'}`}>
-                              {String(pages)}/{limit} pg
+                            <span className={`font-bold ${!isUnlimited(limit) && Number(pages) >= limit ? 'text-accent' : 'text-slate-600'}`}>
+                              {String(pages)}/{capText(limit)} pg
                             </span>
                           </div>
                         );
@@ -241,12 +254,12 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
 
   // Full view (non-compact) — kept for AccountPanel integration
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+    <div className="bg-surface border border-hairline rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-indigo-500" />
+          <Zap className="w-4 h-4 text-brand-500" />
           <span className="text-xs font-black uppercase tracking-widest text-slate-500">
-            Daily Usage
+            Today’s usage
           </span>
         </div>
         <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
@@ -257,24 +270,24 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
       {/* Local progress */}
       <div className="mb-2">
         <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
-          <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-emerald-500" /> Free</span>
-          <span>{localUsed}/{localCap} pages</span>
+          <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-emerald-500" /> On-device</span>
+          <span>{localUsed}/{capText(localCap)} pages</span>
         </div>
         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-          <div className={`h-full rounded-full ${localUsed >= localCap ? 'bg-red-500' : localUsed >= localCap * 0.7 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-            style={{ width: `${localCap > 0 ? Math.min(100, (localUsed / localCap) * 100) : 0}%` }} />
+          <div className={`h-full rounded-full ${tone(localUsed, localCap, 'bg-red-500', 'bg-amber-500', 'bg-emerald-500')}`}
+            style={{ width: `${fillPct(localUsed, localCap)}%` }} />
         </div>
       </div>
 
       {/* AI progress */}
       <div className="mb-2">
         <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
-          <span className="flex items-center gap-1"><Cpu className="w-3 h-3 text-indigo-500" /> Premium</span>
-          <span>{aiUsed}/{aiCap} pages</span>
+          <span className="flex items-center gap-1"><Cpu className="w-3 h-3 text-brand-500" /> Cloud AI</span>
+          <span>{aiUsed}/{capText(aiCap)} pages</span>
         </div>
         <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-          <div className={`h-full rounded-full ${aiUsed >= aiCap ? 'bg-red-500' : aiUsed >= aiCap * 0.7 ? 'bg-amber-500' : 'bg-indigo-500'}`}
-            style={{ width: `${aiCap > 0 ? Math.min(100, (aiUsed / aiCap) * 100) : 0}%` }} />
+          <div className={`h-full rounded-full ${tone(aiUsed, aiCap, 'bg-red-500', 'bg-amber-500', 'bg-brand-500')}`}
+            style={{ width: `${fillPct(aiUsed, aiCap)}%` }} />
         </div>
       </div>
 
@@ -304,7 +317,7 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
             setPopoverOpen(false);
             useAppStore.getState().setShowUpgradeCTA(true);
           }}
-          className="mt-2 w-full flex items-center justify-between text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-md px-2.5 py-1.5 transition-colors text-left"
+          className="mt-2 w-full flex items-center justify-between text-xs text-accent bg-accent/10 hover:bg-accent/15 rounded-md px-2.5 py-1.5 transition-colors text-left"
         >
           <div className="flex items-center gap-1.5">
             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -320,7 +333,7 @@ export default function UsageBadge({ user, compact = false }: UsageBadgeProps) {
             setPopoverOpen(false);
             useAppStore.getState().setShowUpgradeCTA(true);
           }}
-          className="mt-2 w-full flex items-center justify-between text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-md px-2.5 py-1.5 transition-colors text-left"
+          className="mt-2 w-full flex items-center justify-between text-xs text-accent bg-accent/10 hover:bg-accent/15 rounded-md px-2.5 py-1.5 transition-colors text-left"
         >
           <div className="flex items-center gap-1.5">
             <AlertCircle className="w-3.5 h-3.5 shrink-0" />

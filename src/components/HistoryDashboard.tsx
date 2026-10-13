@@ -99,12 +99,12 @@ export default function HistoryDashboard({ onBack }: Props) {
         <div className="flex items-center gap-4">
           <button
             onClick={onBack}
-            className="flex items-center gap-3 text-slate-400 hover:text-indigo-600 font-black text-xs tracking-widest uppercase transition-all bg-white py-2.5 px-5 rounded-full border border-slate-100 shadow-sm hover:shadow-md active:scale-95"
+            className="flex items-center gap-3 text-slate-400 hover:text-brand-600 font-black text-xs tracking-widest uppercase transition-all bg-surface py-2.5 px-5 rounded-full border border-slate-100 shadow-sm hover:shadow-md active:scale-95"
           >
             <ChevronLeft className="w-4 h-4" />
             Back
           </button>
-          <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-indigo-100">
+          <div className="flex items-center gap-2 px-4 py-2 bg-brand-50 text-brand-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-brand-100">
             <History className="w-3 h-3" />
             Extraction History
           </div>
@@ -113,16 +113,16 @@ export default function HistoryDashboard({ onBack }: Props) {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+        <div className="bg-surface rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
-              <FileText className="w-4 h-4 text-indigo-500" />
+            <div className="w-8 h-8 rounded-xl bg-brand-50 flex items-center justify-center">
+              <FileText className="w-4 h-4 text-brand-500" />
             </div>
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Extractions</span>
           </div>
           <p className="text-2xl font-black text-slate-900">{totalExtractions}</p>
         </div>
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+        <div className="bg-surface rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center">
               <TrendingUp className="w-4 h-4 text-emerald-500" />
@@ -131,7 +131,7 @@ export default function HistoryDashboard({ onBack }: Props) {
           </div>
           <p className="text-2xl font-black text-slate-900">{avgConfidence}%</p>
         </div>
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+        <div className="bg-surface rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center">
               <BarChart3 className="w-4 h-4 text-amber-500" />
@@ -140,7 +140,7 @@ export default function HistoryDashboard({ onBack }: Props) {
           </div>
           <p className="text-2xl font-black text-slate-900">{topBank ? topBank[0] : '—'}</p>
         </div>
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+        <div className="bg-surface rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center">
               <Clock className="w-4 h-4 text-rose-500" />
@@ -158,10 +158,10 @@ export default function HistoryDashboard({ onBack }: Props) {
       {/* Main Content */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-indigo-500" />
+          <Loader2 className="w-8 h-8 text-brand-500" />
         </div>
       ) : records.length === 0 ? (
-        <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-12 text-center">
+        <div className="bg-surface rounded-[32px] border border-slate-100 shadow-sm p-12 text-center">
           <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <History className="w-8 h-8 text-slate-300" />
           </div>
@@ -175,17 +175,17 @@ export default function HistoryDashboard({ onBack }: Props) {
             {pageRecords.map((record) => (
               <div
                 key={record.id}
-                className={`bg-white rounded-2xl border p-5 transition-all cursor-pointer group ${
+                className={`bg-surface rounded-2xl border p-5 transition-all cursor-pointer group ${
                   selectedRecord?.id === record.id
-                    ? 'border-indigo-300 shadow-md ring-1 ring-indigo-100'
-                    : 'border-slate-100 shadow-sm hover:border-indigo-200 hover:shadow-md'
+                    ? 'border-brand-300 shadow-md ring-1 ring-brand-100'
+                    : 'border-slate-100 shadow-sm hover:border-brand-200 hover:shadow-md'
                 }`}
                 onClick={() => setSelectedRecord(record)}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-4 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
-                      <FileSpreadsheet className="w-5 h-5 text-indigo-500" />
+                    <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+                      <FileSpreadsheet className="w-5 h-5 text-brand-500" />
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-black text-slate-900 truncate">{record.filename}</p>
@@ -200,7 +200,7 @@ export default function HistoryDashboard({ onBack }: Props) {
                           {record.confidence}% conf.
                         </span>
                         {record.bank_code && record.bank_code !== 'UNKNOWN' && (
-                          <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">
+                          <span className="text-[10px] font-bold text-brand-500 uppercase tracking-wider">
                             {record.bank_code}
                           </span>
                         )}
@@ -213,7 +213,7 @@ export default function HistoryDashboard({ onBack }: Props) {
                   <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={(e) => { e.stopPropagation(); void handleDownloadExcel(record); }}
-                      className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all"
+                      className="p-2 bg-brand-50 text-brand-600 rounded-lg hover:bg-brand-600 hover:text-white transition-all"
                       title="Download Excel"
                     >
                       <Download className="w-3.5 h-3.5" />
@@ -270,7 +270,7 @@ export default function HistoryDashboard({ onBack }: Props) {
 
           {/* Detail Panel */}
           {selectedRecord && (
-            <div className="lg:w-1/2 bg-white rounded-2xl border border-slate-100 shadow-lg overflow-hidden sticky top-24 h-fit max-h-[70vh] flex flex-col">
+            <div className="lg:w-1/2 bg-surface rounded-2xl border border-slate-100 shadow-lg overflow-hidden sticky top-24 h-fit max-h-[70vh] flex flex-col">
               <div className="flex items-center justify-between p-5 border-b border-slate-100">
                 <div className="min-w-0">
                   <p className="text-sm font-black text-slate-900 truncate">{selectedRecord.filename}</p>
@@ -279,7 +279,7 @@ export default function HistoryDashboard({ onBack }: Props) {
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={() => void handleDownloadExcel(selectedRecord)}
-                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold rounded-lg text-xs transition-all border border-indigo-200"
+                    className="px-3 py-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 font-semibold rounded-lg text-xs transition-all border border-brand-200"
                   >
                     <Download className="w-3.5 h-3.5 inline mr-1" />
                     Excel

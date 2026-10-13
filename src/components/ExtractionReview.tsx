@@ -86,9 +86,9 @@ export default function ExtractionReview({ transactions: initialTransactions, on
   }
 
   const dataGrid = (
-    <div className="w-full h-full flex flex-col bg-white overflow-hidden">
+    <div className="w-full h-full flex flex-col bg-surface overflow-hidden">
       {/* Toolbar */}
-      <div className="flex-none p-4 border-b border-slate-200 bg-white">
+      <div className="flex-none p-4 border-b border-slate-200 bg-surface">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
             <h2 className="text-xl font-black text-slate-900 tracking-tight">{summary.total} Transactions</h2>
@@ -102,10 +102,10 @@ export default function ExtractionReview({ transactions: initialTransactions, on
             <button onClick={onClearReview} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold rounded-lg text-xs transition-all border border-slate-200">Reset</button>
             <button onClick={resetToOriginal} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold rounded-lg text-xs transition-all border border-slate-200">Revert edits</button>
             <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden">
-              <button onClick={undoEdit} disabled={!canUndo} className={`px-3 py-1.5 font-semibold text-xs transition-all border-r border-slate-200 ${canUndo ? 'hover:bg-white text-slate-700' : 'text-slate-400 cursor-not-allowed'}`}>Undo</button>
-              <button onClick={redoEdit} disabled={!canRedo} className={`px-3 py-1.5 font-semibold text-xs transition-all ${canRedo ? 'hover:bg-white text-slate-700' : 'text-slate-400 cursor-not-allowed'}`}>Redo</button>
+              <button onClick={undoEdit} disabled={!canUndo} className={`px-3 py-1.5 font-semibold text-xs transition-all border-r border-slate-200 ${canUndo ? 'hover:bg-surface text-slate-700' : 'text-slate-400 cursor-not-allowed'}`}>Undo</button>
+              <button onClick={redoEdit} disabled={!canRedo} className={`px-3 py-1.5 font-semibold text-xs transition-all ${canRedo ? 'hover:bg-surface text-slate-700' : 'text-slate-400 cursor-not-allowed'}`}>Redo</button>
             </div>
-            <button disabled={!exportAllowed} onClick={exportAll} className="px-4 py-1.5 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed text-indigo-700 font-semibold rounded-lg text-xs transition-all border border-indigo-200">Export Excel</button>
+            <button disabled={!exportAllowed} onClick={exportAll} className="px-4 py-1.5 bg-brand-50 hover:bg-brand-100 disabled:opacity-40 disabled:cursor-not-allowed text-brand-700 font-semibold rounded-lg text-xs transition-all border border-brand-200">Export Excel</button>
             <button disabled={!exportAllowed} onClick={() => onSave && onSave(exportTransactions())} className="px-4 py-1.5 bg-slate-900 hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-lg text-xs transition-all shadow-sm">Save</button>
           </div>
         </div>
@@ -133,7 +133,7 @@ export default function ExtractionReview({ transactions: initialTransactions, on
       </div>
 
       {/* Pagination footer */}
-      <div className="flex-none p-3 border-t border-slate-200 bg-white flex items-center justify-between">
+      <div className="flex-none p-3 border-t border-slate-200 bg-surface flex items-center justify-between">
         <div className="text-xs font-semibold text-slate-400">Page {page + 1} of {pageCount}</div>
         <div className="flex items-center gap-1">
           <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg font-semibold text-xs text-slate-600 hover:bg-slate-200 disabled:opacity-40 transition-all">Prev</button>
@@ -144,7 +144,7 @@ export default function ExtractionReview({ transactions: initialTransactions, on
   );
 
   return (
-    <div className="flex flex-col h-full border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-lg">
+    <div className="flex flex-col h-full border border-slate-200 rounded-2xl overflow-hidden bg-surface shadow-lg">
       {/* Editable data grid */}
       {dataGrid}
 
