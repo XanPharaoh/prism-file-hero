@@ -24,6 +24,7 @@
     "check:release": "node scripts/release-artifact-check.mjs",
     "check:schema-release": "node scripts/schema-release-check.mjs",
     "check:auth-isolation": "node scripts/auth-isolation-check.mjs",
+    "check:quota": "node scripts/quota-policy-check.mjs",
     "check:prod-auth": "node scripts/prod-auth-check.mjs",
     "check:remote-schema": "node scripts/remote-schema-probe.mjs",
     "journey:auth": "node scripts/clerk-journey-check.mjs --phase=auth",
