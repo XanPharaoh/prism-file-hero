@@ -33,7 +33,7 @@ const phase = String(args.phase || 'auth');
 let pass = 0, fail = 0;
 const ok = (n, c, e = '') => { c ? (pass++, console.log(`PASS ${n}`)) : (fail++, console.log(`FAIL ${n} ${e}`)); return c; };
 
-const browser = await chromium.launch({ headless: !args.includes('headed') });
+const browser = await chromium.launch({ headless: !process.argv.includes('--headed') });
 async function context(name) {
   const opts = { viewport: { width: 1400, height: 1000 }, acceptDownloads: true };
   if (name === 'primary' && existsSync(SESSION)) opts.storageState = SESSION;
@@ -69,30 +69,51 @@ if (phase === 'auth') {
   const { page, errors } = await openApp(ctx);
   const startText = await page.textContent('body');
   ok('app boots with the Clerk dev instance mounted', /prism file hero/i.test(startText ?? ''), '');
-  // Open sign-up and fill it like a person.
-  await page.getByRole('button', { name: /sign up free/i }).first().click();
-  await page.waitForTimeout(2500);
-  const emailInput = page.locator('input[name="emailAddress"], input[name="identifier"], input#identifier').first();
-  await emailInput.waitFor({ state: 'visible', timeout: 15000 });
-  await emailInput.fill(EMAIL);
-  // This instance renders email + password in one step; fill whatever is present, then submit once.
-  const pw = page.locator('input[name="password"], input#password').first();
-  if (await pw.isVisible().catch(() => false)) await pw.fill(PASSWORD);
-  await page.keyboard.press('Enter').catch(() => {});
-  await page.waitForTimeout(5000);
-  // A second step (separate password screen, or an unfinished sign-up) gets the same treatment.
-  if (await pw.isVisible().catch(() => false)) {
-    await pw.fill(PASSWORD);
+
+  const emailSel = 'input[name="emailAddress"], input[name="identifier"], input#identifier';
+  const pwSel = 'input[name="password"], input#password';
+  const submitWith = async () => {
+    const em = page.locator(emailSel).first();
+    await em.waitFor({ state: 'visible', timeout: 15000 });
+    await em.fill(EMAIL);
+    const pw = page.locator(pwSel).first();
+    if (await pw.isVisible().catch(() => false)) await pw.fill(PASSWORD);
     await page.keyboard.press('Enter').catch(() => {});
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(4000);
+    if (await pw.isVisible().catch(() => false)) {   // two-step form: password on its own screen
+      await pw.fill(PASSWORD);
+      await page.keyboard.press('Enter').catch(() => {});
+      await page.waitForTimeout(4000);
+    }
+  };
+  const session = async () => Boolean(await appUserId(page));
+
+  // Sign-in first: it carries no human-verification widget, and if the account already exists this is
+  // the ordinary customer path. Sign-up is only the fallback for a missing account.
+  await page.getByRole('button', { name: /^(log in|sign in)$/i }).first().click();
+  await page.waitForTimeout(2500);
+  await submitWith();
+  let via = 'sign-in';
+  if (!(await session())) {
+    const text = (await page.textContent('body')) ?? '';
+    const missing = /couldn.t find|not found|invalid|incorrect|no account|bad email/i.test(text);
+    console.log(`NOTE  sign-in did not produce a session (${missing ? 'account not found' : 'form still open'}); trying Create Account.`);
+    await page.getByRole('button', { name: /sign up free|create account/i }).first().click();
+    await page.waitForTimeout(2500);
+    await submitWith();
+    via = 'sign-up';
   }
-  const body = await page.textContent('body');
-  const needsVerification = /enter the code|verification code|check your email/i.test(body ?? '');
-  if (needsVerification) console.log('NOTE  Clerk is asking for an email verification code — the dev instance may need a test email address or a code relay.');
+  const body = (await page.textContent('body')) ?? '';
+  if (/verify you are human|captcha|are you a robot/i.test(body)) {
+    console.log('BLOCKED  Clerk shows a human-verification widget on sign-up. Re-run with --headed to solve it, or create the user in the dashboard / disable sign-up CAPTCHA on this development instance. Nothing is bypassed or substituted here.');
+  }
+  if (/enter the code|verification code|check your email/i.test(body)) {
+    console.log('NOTE  Clerk is asking for an email verification code (a *_test_* address on a development instance normally skips this).');
+  }
   await page.screenshot({ path: `${OUT}/journey-auth.png` });
   // In headed mode a human finishes the sign-up (Clerk's dev instance puts a CAPTCHA on sign-up).
   // Wait for a real session instead of guessing; nothing is injected.
-  const waitSeconds = Number(args.wait ?? (args.headed ? 300 : 0)) || 0;
+  const waitSeconds = Number(args.wait ?? (process.argv.includes('--headed') ? 300 : 0)) || 0;
   if (waitSeconds > 0) {
     console.log(`Waiting up to ${waitSeconds}s for you to finish sign-up in the browser window…`);
     const deadline = Date.now() + waitSeconds * 1000;
@@ -102,7 +123,7 @@ if (phase === 'auth') {
     }
   }
   const sub = await appUserId(page);
-  ok('browser holds a real Clerk session (sub read from its own token)', typeof sub === 'string' && sub.startsWith('user_'), `sub=${sub}`);
+  ok(`browser holds a real Clerk session via ${via} (sub read from its own token)`, typeof sub === 'string' && sub.startsWith('user_'), `sub=${sub}`);
   ok('no uncaught page errors during sign-up', errors.length === 0, errors.join(' | '));
   if (sub) {
     // The Worker must accept that session's token WITHOUT us attaching anything ourselves.

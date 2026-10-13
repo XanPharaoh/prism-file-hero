@@ -1139,3 +1139,43 @@ request-injection code exists in app or Worker sources. Two of those checks init
 *comments* mentioning the stand-in, so they were narrowed to assignment lines and real invocations,
 and a negative control (injecting `CLERK_JWKS_URL = "http://127.0.0.1:8799/..."` into the default
 section) makes the check fail as it must.
+
+## 35. Remote schema inspected read-only, and the pending migration list corrected (2026-10-13)
+
+`npm run check:remote-schema` (`scripts/remote-schema-probe.mjs`) probes PostgREST with the **anon**
+key and prints the remote answer next to a control answer from this session's fully migrated local
+database, because a bare remote `404` proves nothing on its own:
+
+| table | remote | local control | reading |
+|---|---|---|---|
+| `user_plans` | 200 | 200 | present on both |
+| `usage_logs` | 200 | 200 | present on both |
+| `plan_grants` | 404 PGRST205 | 200 | **absent (or ungranted) remotely** |
+| `credit_reservations` | 404 PGRST205 | 200 | **absent (or ungranted) remotely** |
+| `billing_events` | 404 PGRST205 | 200 | **absent (or ungranted) remotely** |
+| `billing_subscriptions` | 404 PGRST205 | 200 | **absent (or ungranted) remotely** |
+| `billing_price_plans` | 404 PGRST205 | 200 | **absent (or ungranted) remotely** |
+| `billing_payments` | 404 PGRST205 | 200 | **absent (or ungranted) remotely** |
+| `user_plan` (singular, orphaned) | 404 PGRST205 | 200 | present only locally — the two databases have different baselines |
+
+**Corrected conclusion.** The earlier §34 statement "the pending set is unknown" is replaced by
+evidence: seven tables that exist on the migrated database are not reachable on the remote, and the
+oldest of them (`plan_grants`, `credit_reservations`) is created by
+`20261010000000_authoritative_plan_credits`. So the pending migration set **begins at
+`20261010000000`** and includes `…000001`–`…000007` and `20261012000001`–`…000007` — sixteen files,
+not the nine PayPal-era ones first assumed.
+
+**Two limits, kept explicit rather than glossed.** (1) Anon visibility depends on Supabase default
+privileges, so a table that exists but was explicitly `REVOKE`d from `anon` also answers PGRST205;
+"absent" here means *absent or ungranted*, settled only by `SUPABASE_ACCESS_TOKEN=… supabase
+migration list --linked` or a DB login. (2) RPC probes were run with deliberately invalid arguments so
+nothing could execute, and they are reported as **inconclusive**: `get_user_entitlement` answers
+`404/PGRST202` identically on the remote and on a database that certainly has it, so this method
+cannot distinguish absent from revoked for functions. The earlier table-presence signal is meaningful
+only because the local control differs from the remote answer; where they match, no claim is made.
+
+**Journey status, measured rather than assumed.** `scripts/clerk-journey-check.mjs --phase=auth` now
+tries **sign-in first** (that path has no human-verification widget) and only falls back to Create
+Account. Result: sign-in reports the account is not found, and sign-up produces no session — the
+development instance's CAPTCHA still blocks it. No token was minted, substituted or injected to get
+past that; the run stops and says so.
