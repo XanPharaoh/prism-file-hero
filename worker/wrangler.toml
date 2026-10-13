@@ -47,3 +47,35 @@ crons = ["0 */6 * * *"]
 [env.localtest.vars]
 CLERK_JWKS_URL = "http://127.0.0.1:8799/.well-known/jwks.json"
 CLERK_JWT_ISSUER = "http://127.0.0.1:8799"
+
+# ── Staging: isolated, sandbox, genuine Clerk ──────────────────────────────────────────────
+# `--env staging` is the pre-production target. It never inherits the production bindings: the
+# default [vars] above point at the live Supabase project and the live Clerk domain, and an env
+# only overrides what it restates, so every one of those is redeclared here. Deploying this env
+# before the two resources below exist is inert by design — the Worker cannot read a plan or write
+# a ledger row against a placeholder origin, and every billing route fails closed.
+#
+# Prerequisites (docs/staging-runbook.md, steps 1–3): a separate Supabase project with the
+# committed migrations applied, a separate KV namespace, and the per-env secrets. PayPal stays in
+# sandbox; paid AI providers are deliberately not configured, so /api/ai answers 502 and no
+# provider spend is possible from staging.
+[env.staging]
+name = "prism-worker-staging"
+workers_dev = true          # *.workers.dev only — no custom domain, never prismfilehero.com
+
+[env.staging.vars]
+# Clerk DEVELOPMENT instance: genuine tokens, genuine signatures, zero production accounts.
+CLERK_JWKS_URL = "https://innocent-manatee-90.clerk.accounts.dev/.well-known/jwks.json"
+CLERK_JWT_ISSUER = "https://innocent-manatee-90.clerk.accounts.dev"
+# Set by `supabase projects create` / the dashboard — see the runbook. Left unset on purpose so a
+# half-configured deploy cannot silently reach the production database.
+# SUPABASE_URL = "https://<staging-project-ref>.supabase.co"
+ALLOWED_ORIGINS = "https://prism-file-hero-staging.pages.dev"
+ALLOWED_ORIGIN_SUFFIXES = "prism-file-hero-staging.pages.dev"
+FRONTEND_URL = "https://prism-file-hero-staging.pages.dev"
+PAYPAL_ENV = "sandbox"
+ENVIRONMENT = "staging"
+
+[[env.staging.kv_namespaces]]
+binding = "KV"
+id = "<staging-kv-id>"      # runbook step 2; a placeholder cannot read production device records
