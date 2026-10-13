@@ -1219,3 +1219,18 @@ against — and a production instance `ins_3IDcz3bi87o8HAIIEryVK0SM4ux`. Every c
 **Paused for the human step:** the sandbox buyer must approve `ba_token=BA-8KK69202GA537760L`. Once
 approved, `--phase=verify` continues to payment → entitlement → paid-tool output → refresh /
 logout-login / second session / separate free user.
+
+### Journey verification results and the remaining wiring gap
+
+`--phase=verify` is implemented (entitlement poll, payment-row assertions, refresh, logout→login,
+second browser session, separate free user, and a free-user attempt to cancel the paid subscription
+expecting 403) and runs after the buyer approves.
+
+`paid-tool-output-check --live` now reaches a genuine signed-in browser session — confirmed by the
+header showing `Upgrade`/`Sign Out` and the usage badge — but **the uploaded file does not register**
+in the OCR landing view: the header counter stays `0/0`, "Start Operation" then routes to `/` with the
+upsell screen, and no artifact is produced. `setInputFiles('input[type=file]')` and the
+`filechooser` path were both tried; neither registers the file, so this view needs its own
+selection wiring. The harness now fails immediately with that reason instead of a bare download
+timeout. Item 7's paid artifact therefore remains **outstanding**, and it also depends on the
+approval below.

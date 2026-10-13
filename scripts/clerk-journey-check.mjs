@@ -210,8 +210,104 @@ if (phase === 'auth') {
   writeFileSync(`${OUT}/journey-pending.json`, JSON.stringify({ sub, subscriptionId: subscribeBody?.subscriptionId, approveUrl }, null, 2));
   console.log('\nPAUSE: approve this subscription in the PayPal tab (sandbox buyer), then run --phase=verify.');
   await ctx.close();
+} else if (phase === 'verify') {
+  const pending = existsSync(`${OUT}/journey-pending.json`) ? JSON.parse(readFileSync(`${OUT}/journey-pending.json`, 'utf8')) : {};
+  const SR = existsSync('.localdev/tokens.json') ? JSON.parse(readFileSync('.localdev/tokens.json', 'utf8')).service_role : '';
+  const db = async (qs) => (await fetch(`${process.env.SUPABASE_URL || 'http://127.0.0.1:54321'}/rest/v1/${qs}`, { headers: { apikey: SR, Authorization: `Bearer ${SR}` } })).json().catch(() => []);
+
+  const ctx = await context('primary');
+  const { page } = await openApp(ctx);
+  const sub = await appUserId(page);
+  ok('verify starts from the same real Clerk session', sub === pending.sub, `sub=${sub} expected=${pending.sub}`);
+
+  // Buyer approval and the payment webhook are asynchronous: poll the SERVER, don't assume.
+  let ent = null;
+  for (let i = 0; i < 40 && !(ent && ent.entitled); i++) {
+    ent = await page.evaluate(async () => {
+      const c = window.Clerk; const t = c?.session ? await c.session.getToken() : null;
+      const r = await fetch('http://127.0.0.1:8787/api/billing/entitlement', { headers: { Authorization: `Bearer ${t}` } });
+      return r.ok ? await r.json() : null;
+    }).catch(() => null);
+    if (!ent || !ent.entitled) await page.waitForTimeout(3000);
+  }
+  ok('verified payment produced server-derived entitlement (pro)', ent?.entitled === true && ent?.plan === 'pro', JSON.stringify(ent));
+  ok('the entitled subscription is the one this user created', ent?.activeSubscriptionId === pending.subscriptionId, JSON.stringify({ got: ent?.activeSubscriptionId, want: pending.subscriptionId }));
+
+  const payments = await db(`billing_payments?subscription_id=eq.${pending.subscription_id}&select=payment_id,currency,gross_amount,period_start,period_end,status,source_event_id`);
+  const events = await db(`billing_events?subscription_id=eq.${pending.subscription_id}&select=event_id,event_type&order=received_at.desc`);
+  console.log(`\nPayPal payment record(s): ${JSON.stringify(payments)}`);
+  console.log(`Stored events: ${events.map((e) => e.event_type).join(', ')}`);
+  ok('a captured payment row exists for the approved subscription', payments.some((p) => p.status === 'captured' && p.currency === 'USD' && new Date(p.period_end) > new Date()), JSON.stringify(payments).slice(0, 220));
+  ok('the payment window is bounded (paid-through date known, not guessed)', payments.some((p) => p.period_end && p.period_start), '');
+  await page.screenshot({ path: `${OUT}/journey-entitled.png` });
+
+  // Persistence: refresh
+  await page.reload({ waitUntil: 'load' }); await page.waitForTimeout(3000);
+  const afterReload = await page.textContent('body');
+  ok('refresh keeps the paid state in the UI (no Upgrade CTA, PRO shown)', /PRO/i.test(afterReload ?? '') && !/Subscribe to Pro/i.test(afterReload ?? ''), (afterReload ?? '').slice(0, 0));
+
+  // Persistence: logout then login again
+  const acct = page.locator('button[aria-label*="account" i], button:has(svg.lucide-circle-user)').first();
+  if (await acct.isVisible().catch(() => false)) { await acct.click(); await page.waitForTimeout(1200); }
+  const signOut = page.getByRole('button', { name: /sign out|log out/i }).first();
+  if (await signOut.isVisible().catch(() => false)) { await signOut.click(); await page.waitForTimeout(3000); }
+  ok('signed out (session cleared in this browser)', (await appUserId(page)) === null, '');
+  await page.getByRole('button', { name: /^(log in|sign in)$/i }).first().click();
+  await page.waitForTimeout(2500);
+  const em = page.locator('input[name="emailAddress"], input[name="identifier"]').first();
+  await em.waitFor({ state: 'visible', timeout: 15000 }); await em.fill(fromJourneyEnv('JOURNEY_EMAIL'));
+  await page.keyboard.press('Enter'); await page.waitForTimeout(3500);
+  const pw = page.locator('input[name="password"]').first();
+  if (await pw.isVisible().catch(() => false)) { await pw.fill(fromJourneyEnv('JOURNEY_PASSWORD')); await page.keyboard.press('Enter'); await page.waitForTimeout(4000); }
+  const resub = await appUserId(page);
+  ok('logging back in returns the SAME canonical user', resub === sub, `resub=${resub}`);
+  const ent2 = await page.evaluate(async () => {
+    const c = window.Clerk; const t = c?.session ? await c.session.getToken() : null;
+    return (await (await fetch('http://127.0.0.1:8787/api/billing/entitlement', { headers: { Authorization: `Bearer ${t}` } })).json());
+  }).catch(() => null);
+  ok('entitlement survives logout/login', ent2?.entitled === true, JSON.stringify(ent2));
+  await save(ctx);
+
+  // Second browser session (separate context, same stored session)
+  const ctx2 = await browser.newContext({ storageState: SESSION, viewport: { width: 1280, height: 900 } });
+  const p2 = await ctx2.newPage();
+  await p2.goto(`${APP}/app`, { waitUntil: 'load' }); await p2.waitForTimeout(3000);
+  const ent3 = await p2.evaluate(async () => {
+    const c = window.Clerk; const t = c?.session ? await c.session.getToken() : null;
+    return (await (await fetch('http://127.0.0.1:8787/api/billing/entitlement', { headers: { Authorization: `Bearer ${t}` } })).json());
+  }).catch(() => null);
+  ok('a second browser session sees the same server-derived plan', ent3?.entitled === true && ent3?.plan === 'pro', JSON.stringify(ent3));
+  await ctx2.close();
+
+  // Separate free user: still free, and cannot adopt the paid subscription
+  const ctxF = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const pF = await ctxF.newPage();
+  await pF.goto(`${APP}/app`, { waitUntil: 'load' }); await pF.waitForTimeout(2500);
+  await pF.getByRole('button', { name: /^(log in|sign in)$/i }).first().click();
+  await pF.waitForTimeout(2500);
+  const emF = pF.locator('input[name="emailAddress"], input[name="identifier"]').first();
+  await emF.waitFor({ state: 'visible', timeout: 15000 }); await emF.fill(fromJourneyEnv('JOURNEY_FREE_EMAIL'));
+  await pF.keyboard.press('Enter'); await pF.waitForTimeout(3500);
+  const pwF = pF.locator('input[name="password"]').first();
+  if (await pwF.isVisible().catch(() => false)) { await pwF.fill(fromJourneyEnv('JOURNEY_FREE_PASSWORD')); await pF.keyboard.press('Enter'); await pF.waitForTimeout(4000); }
+  const freeSub = await appUserId(pF);
+  ok('the separate free user signed in as a DIFFERENT Clerk identity', Boolean(freeSub) && freeSub !== sub, `free=${freeSub} paid=${sub}`);
+  const freeEnt = await pF.evaluate(async () => {
+    const c = window.Clerk; const t = c?.session ? await c.session.getToken() : null;
+    return (await (await fetch('http://127.0.0.1:8787/api/billing/entitlement', { headers: { Authorization: `Bearer ${t}` } })).json());
+  }).catch(() => null);
+  ok('that user remains free with no coverage of its own', freeEnt?.entitled === false && freeEnt?.plan === 'free', JSON.stringify(freeEnt));
+  const adopt = await pF.evaluate(async (sid) => {
+    const c = window.Clerk; const t = c?.session ? await c.session.getToken() : null;
+    const r = await fetch('http://127.0.0.1:8787/api/billing/paypal/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ subscriptionId: sid }) });
+    return r.status;
+  }, pending.subscriptionId);
+  ok('the free user cannot cancel/adopt the paid subscription (403)', adopt === 403, `status=${adopt}`);
+  await ctxF.close();
+  await ctx.close();
+  console.log('\nNext: node scripts/paid-tool-output-check.mjs --live  (real session, no injection)');
 } else {
-  console.log(`phase "${phase}" not implemented yet in this script (auth is).`);
+  console.log(`phase "${phase}" not implemented (auth | upgrade | verify).`);
 }
 
 await browser.close();
