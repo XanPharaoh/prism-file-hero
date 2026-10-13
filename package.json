@@ -27,6 +27,8 @@
     "check:prod-auth": "node scripts/prod-auth-check.mjs",
     "check:remote-schema": "node scripts/remote-schema-probe.mjs",
     "journey:auth": "node scripts/clerk-journey-check.mjs --phase=auth",
+    "journey:upgrade": "node scripts/clerk-journey-check.mjs --phase=upgrade",
+    "journey:verify": "node scripts/clerk-journey-check.mjs --phase=verify",
     "inspect:prod-security": "node scripts/prod-security-inspect.mjs",
     "tokens:local": "node scripts/mint-local-tokens.mjs",
     "check:offline-ocr": "node scripts/offline-ocr-check.mjs",

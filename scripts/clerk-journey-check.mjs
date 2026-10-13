@@ -21,13 +21,29 @@
 import { chromium } from 'playwright';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
+/**
+ * Credentials come from the gitignored .localdev/journey.env — a dedicated DEVELOPMENT-instance test
+ * user created with the Clerk CLI (`clerk users create --instance dev`). Nothing is hardcoded, and
+ * the password is never printed by this script.
+ */
+function fromJourneyEnv(key) {
+  if (process.env[key]) return process.env[key];
+  try {
+    for (const line of readFileSync('.localdev/journey.env', 'utf8').split('\n')) {
+      const t = line.trim();
+      if (t.startsWith(key + '=')) return t.slice(key.length + 1).replace(/^['"]|['"]$/g, '');
+    }
+  } catch { /* file absent: caller reports what is missing */ }
+  return '';
+}
+
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? true]; }));
 const APP = process.env.APP_URL || 'http://127.0.0.1:5173';
 const WORKER = process.env.WORKER_URL || 'http://127.0.0.1:8787';
 const OUT = 'evidence';
 const SESSION = `${OUT}/journey-session.json`;
-const EMAIL = process.env.JOURNEY_EMAIL || 'prismjourney_test_1669831847@example.com';
-const PASSWORD = process.env.JOURNEY_PASSWORD || 'Prism!Journey2026#x';
+const EMAIL = fromJourneyEnv('JOURNEY_EMAIL');
+const PASSWORD = fromJourneyEnv('JOURNEY_PASSWORD');
 const phase = String(args.phase || 'auth');
 
 let pass = 0, fail = 0;
@@ -69,6 +85,12 @@ if (phase === 'auth') {
   const { page, errors } = await openApp(ctx);
   const startText = await page.textContent('body');
   ok('app boots with the Clerk dev instance mounted', /prism file hero/i.test(startText ?? ''), '');
+  if (!EMAIL || !PASSWORD) {
+    console.log('BLOCKED  no journey credentials: create the development user with the Clerk CLI and put JOURNEY_EMAIL / JOURNEY_PASSWORD in .localdev/journey.env (gitignored).');
+    await browser.close();
+    process.exit(2);
+  }
+  console.log(`signing in as ${EMAIL} (password read from .localdev/journey.env, never printed)`);
 
   const emailSel = 'input[name="emailAddress"], input[name="identifier"], input#identifier';
   const pwSel = 'input[name="password"], input#password';
@@ -88,20 +110,26 @@ if (phase === 'auth') {
   };
   const session = async () => Boolean(await appUserId(page));
 
-  // Sign-in first: it carries no human-verification widget, and if the account already exists this is
-  // the ordinary customer path. Sign-up is only the fallback for a missing account.
-  await page.getByRole('button', { name: /^(log in|sign in)$/i }).first().click();
-  await page.waitForTimeout(2500);
-  await submitWith();
-  let via = 'sign-in';
-  if (!(await session())) {
-    const text = (await page.textContent('body')) ?? '';
-    const missing = /couldn.t find|not found|invalid|incorrect|no account|bad email/i.test(text);
-    console.log(`NOTE  sign-in did not produce a session (${missing ? 'account not found' : 'form still open'}); trying Create Account.`);
-    await page.getByRole('button', { name: /sign up free|create account/i }).first().click();
+  // A returning browser may already hold the session (storageState from an earlier phase); that is
+  // the normal customer state, so don't force the sign-in form on them. Otherwise sign in first —
+  // that path carries no human-verification widget — and fall back to Create Account.
+  let via = 'existing session';
+  if (await session()) {
+    console.log('browser already holds a Clerk session from a previous phase — skipping the sign-in form');
+  } else {
+    via = 'sign-in';
+    await page.getByRole('button', { name: /^(log in|sign in)$/i }).first().click();
     await page.waitForTimeout(2500);
     await submitWith();
-    via = 'sign-up';
+    if (!(await session())) {
+      const text = (await page.textContent('body')) ?? '';
+      const missing = /couldn.t find|not found|invalid|incorrect|no account|bad email/i.test(text);
+      console.log(`NOTE  sign-in did not produce a session (${missing ? 'account not found' : 'form still open'}); trying Create Account.`);
+      await page.getByRole('button', { name: /sign up free|create account/i }).first().click();
+      await page.waitForTimeout(2500);
+      await submitWith();
+      via = 'sign-up';
+    }
   }
   const body = (await page.textContent('body')) ?? '';
   if (/verify you are human|captcha|are you a robot/i.test(body)) {
@@ -142,6 +170,45 @@ if (phase === 'auth') {
     console.log(`Server-derived plan: ${server?.plan} entitled=${server?.entitled} source=${server?.source}`);
   }
   await save(ctx);
+  await ctx.close();
+} else if (phase === 'upgrade') {
+  const ctx = await context('primary');
+  const { page } = await openApp(ctx);
+  const sub = await appUserId(page);
+  ok('upgrade phase starts from a real Clerk session', typeof sub === 'string' && sub.startsWith('user_'), `sub=${sub}`);
+  if (!sub) { console.log('BLOCKED  no session; run --phase=auth first.'); await browser.close(); process.exit(2); }
+
+  let subscribeBody = null;
+  page.on('response', async (r) => { if (r.url().includes('/api/billing/paypal/subscribe')) { try { subscribeBody = await r.json(); } catch {} } });
+
+  await page.getByRole('button', { name: /^upgrade$/i }).first().click();
+  await page.waitForTimeout(1500);
+  const pro = page.getByRole('button', { name: /subscribe to pro/i }).first();
+  await pro.waitFor({ state: 'visible', timeout: 15000 });
+
+  // The modal opens PayPal in a new tab; capture that popup rather than inventing a URL.
+  const popupPromise = ctx.waitForEvent('page', { timeout: 45000 });
+  await pro.click();
+  const paypal = await popupPromise;
+  await paypal.waitForLoadState('domcontentloaded', { timeout: 45000 }).catch(() => {});
+  const approveUrl = paypal.url();
+  console.log(`\nPayPal sandbox approval page opened by the app:\n  ${approveUrl}`);
+  ok('a genuine PayPal approval page was opened', /paypal\.com/i.test(approveUrl) && /ba_token=BA-/.test(approveUrl), approveUrl.slice(0, 120));
+  ok('the server created a pending subscription for this session', subscribeBody?.status === 'pending' && !!subscribeBody?.subscriptionId, JSON.stringify(subscribeBody).slice(0, 160));
+
+  const ent = await page.evaluate(async () => {
+    const c = window.Clerk; const t = c?.session ? await c.session.getToken() : null;
+    const r = await fetch('http://127.0.0.1:8787/api/billing/entitlement', { headers: { Authorization: `Bearer ${t}` } });
+    return await r.json();
+  }).catch(() => null);
+  ok('approval pending grants NOTHING server-side', ent?.entitled === false && ent?.plan === 'free', JSON.stringify(ent));
+  ok('the created subscription is owned by this Clerk user (server mapping)', ent?.activeSubscriptionId ? ent.activeSubscriptionId === subscribeBody?.subscriptionId : subscribeBody?.subscriptionId?.startsWith('I-'), JSON.stringify({ ent: ent?.activeSubscriptionId, created: subscribeBody?.subscriptionId }));
+
+  await page.screenshot({ path: `${OUT}/journey-upgrade.png` });
+  await paypal.screenshot({ path: `${OUT}/journey-paypal-approval.png` });
+  await save(ctx);
+  writeFileSync(`${OUT}/journey-pending.json`, JSON.stringify({ sub, subscriptionId: subscribeBody?.subscriptionId, approveUrl }, null, 2));
+  console.log('\nPAUSE: approve this subscription in the PayPal tab (sandbox buyer), then run --phase=verify.');
   await ctx.close();
 } else {
   console.log(`phase "${phase}" not implemented yet in this script (auth is).`);

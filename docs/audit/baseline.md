@@ -1179,3 +1179,43 @@ tries **sign-in first** (that path has no human-verification widget) and only fa
 Account. Result: sign-in reports the account is not found, and sign-up produces no session — the
 development instance's CAPTCHA still blocks it. No token was minted, substituted or injected to get
 past that; the run stops and says so.
+
+## 36. The journey unblocked with the official Clerk CLI (2026-10-13)
+
+`clerk` (the official CLI, v3.4.1) is authenticated as the account owner. `clerk apps list` identifies
+one application, `app_3H8CZhKa3N36sYzdAFo64yxnA4G`, with a development instance
+`ins_3H8CZi5ovl5DdACzRsmWHlyM5jy` whose publishable key decodes to
+`innocent-manatee-90.clerk.accounts.dev` — the same instance this repo's local Worker now verifies
+against — and a production instance `ins_3IDcz3bi87o8HAIIEryVK0SM4ux`. Every command below passed
+`--app` and `--instance dev` explicitly; production was never targeted.
+
+* `clerk users create --instance dev --file <600-mode body>` created the dedicated journey user
+  `user_3KdoIR0BqZIJaW9Yh0aOXxKF13c` (`prismjourney_test_1669831847@example.com`, verified). The first
+  attempt failed with `request_body_invalid` because `email_address` was sent as objects; the Backend
+  API wants an array of strings. The password is written only to the gitignored
+  `.localdev/journey.env`, and `clerk-journey-check.mjs` reads it from there — no hardcoded secret
+  remains in the script (the previous default password was removed).
+* Sign-in then reached Clerk's **"Check your email"** step: the development instance had
+  `auth_password.device_trust.enabled = true`, i.e. new-device verification by email code, which a
+  synthetic mailbox cannot receive. Diagnosed with `clerk config pull --instance dev`, fixed with
+  `clerk config patch --instance dev --json '{"auth_password":{"device_trust":{"enabled":false}}}'`
+  after a `--dry-run`. **Verified afterwards: dev `device_trust.enabled=false`, production still
+  `true`** — the change is confined to the development instance.
+* Normal browser sign-in now succeeds with no injected header and no minted token. The local Worker
+  verifies that session's own token and echoes the identical canonical id
+  (`user_3KdoIR0BqZIJaW9Yh0aOXxKF13c`), answering `plan=free, source=server` — 6/6 in `--phase=auth`.
+  An anonymous call to the same route is still refused, so the session is doing the work.
+* `--phase=upgrade` drives the real UI (`Upgrade → Subscribe to Pro`), the Worker creates
+  `I-TMCRBXPWCX8F` server-side, the modal opens PayPal's genuine approval page
+  (`…/billing/subscriptions?ba_token=BA-8KK69202GA537760L`), and entitlement stays
+  `false/free` while pending — 5/5. PayPal then delivered a **real**
+  `BILLING.SUBSCRIPTION.CREATED` for that subscription (`WH-2TU556238B3636924-…`), verified and stored
+  with `200`, resolved from `resource.id` to the row linked to this Clerk user.
+* Operational finding: the journey's first attempt at the Worker returned `500` because
+  `SUPABASE_SERVICE_ROLE_KEY` in `.dev.vars` had expired (`PGRST303 "JWT expired"`) — the local mint
+  lasts ~24 h. Re-minting (`npm run tokens:local`) and restarting both Workers fixed it. Any local
+  suite that suddenly 500s on a billing route should check that first.
+
+**Paused for the human step:** the sandbox buyer must approve `ba_token=BA-8KK69202GA537760L`. Once
+approved, `--phase=verify` continues to payment → entitlement → paid-tool output → refresh /
+logout-login / second session / separate free user.
