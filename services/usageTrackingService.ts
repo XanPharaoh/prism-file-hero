@@ -6,6 +6,7 @@ import {
   getNextSastMidnightDate,
   getPerToolLimit,
   getToolDisplayName,
+  isUnlimited,
   LOCAL_GLOBAL_CAP,
   AI_GLOBAL_CAP,
   type FeatureType,
@@ -193,17 +194,17 @@ function toLegacyUsageData(summary: UsageSummary): UsageData {
 export async function checkLimit(toolId: string, requestedPages: number, _session: any): Promise<LimitCheckResult> {
   if (isInternalDesktopDistribution) return { allowed: true };
   const featureType = getFeatureType(toolId);
-  const toolLimit = getPerToolLimit(featureType);
-  const globalCap = getGlobalCap(featureType);
   const summary = await getUsageSummary(_session);
+  const limits = PLAN_LIMITS[normalizePlan(summary.plan)];
+  const toolLimit = getPerToolLimit(featureType, normalizePlan(summary.plan));
+  const globalCap = getGlobalCap(featureType, normalizePlan(summary.plan));
   const toolUsed = summary.toolBreakdown[toolId] || 0;
   const globalUsed = featureType === 'ai' ? summary.aiGlobalUsed : summary.localGlobalUsed;
   const nextReset = summary.nextResetUtc;
-  const remainingToolPages = Math.max(0, toolLimit - toolUsed);
-  const remainingGlobalPages = Math.max(0, globalCap - globalUsed);
+  const remainingToolPages = isUnlimited(toolLimit) ? Infinity : Math.max(0, toolLimit - toolUsed);
+  const remainingGlobalPages = isUnlimited(globalCap) ? Infinity : Math.max(0, globalCap - globalUsed);
   const partialAllowedPages = Math.min(remainingToolPages, remainingGlobalPages);
   const cost = calculateToolCost(toolId, requestedPages);
-  const limits = PLAN_LIMITS[normalizePlan(summary.plan)];
 
   // Native tools are billed as operations, not per-page AI work. Never cut a
   // local PDF into a partial statement simply because it has several pages.
@@ -214,8 +215,8 @@ export async function checkLimit(toolId: string, requestedPages: number, _sessio
     return { allowed: true, daily: { featureType, toolUsed, toolLimit, globalUsed, globalCap } };
   }
 
-  const hitToolLimit = toolUsed + requestedPages > toolLimit;
-  const hitGlobalCap = globalUsed + requestedPages > globalCap;
+  const hitToolLimit = !isUnlimited(toolLimit) && toolUsed + requestedPages > toolLimit;
+  const hitGlobalCap = !isUnlimited(globalCap) && globalUsed + requestedPages > globalCap;
   const limitReason = hitToolLimit ? 'tool_limit' : 'global_cap';
 
   if ((hitToolLimit || hitGlobalCap) && partialAllowedPages > 0) {
@@ -348,20 +349,21 @@ export function invalidateOnAuthChange(): void {
   clearLocalCache();
 }
 
-export function getToolButtonLabel(toolId: string): string {
+export function getToolButtonLabel(toolId: string, plan: Plan = 'free'): string {
   const featureType = getFeatureType(toolId);
-  const limit = getPerToolLimit(featureType);
+  const limit = getPerToolLimit(featureType, plan);
   return featureType === 'ai' ? `Try Premium (${limit} Pages/Day)` : `Use Free (${limit} Pages/Day)`;
 }
 
 export function getDailyQuotaInfo(summary: UsageSummary, toolId: string) {
   const featureType = getFeatureType(toolId);
+  const plan = normalizePlan(summary.plan);
   return {
     featureType,
     toolUsed: summary.toolBreakdown[toolId] || 0,
-    toolLimit: getPerToolLimit(featureType),
+    toolLimit: getPerToolLimit(featureType, plan),
     globalUsed: featureType === 'ai' ? summary.aiGlobalUsed : summary.localGlobalUsed,
-    globalCap: getGlobalCap(featureType),
+    globalCap: getGlobalCap(featureType, plan),
   };
 }
 

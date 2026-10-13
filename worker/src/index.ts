@@ -647,7 +647,13 @@ export default {
         // Include the caller's own active PayPal subscription id so the account UI can offer cancel.
         const subs = await (await fetch(`${env.SUPABASE_URL}/rest/v1/billing_subscriptions?user_id=eq.${encodeURIComponent(jp.sub)}&provider=eq.paypal&status=eq.ACTIVE&order=updated_at.desc&limit=1&select=subscription_id,plan_id,status`, { headers: pgHeaders(env) })).json();
         const active = Array.isArray(subs) ? subs[0] : null;
-        return Response.json({ userId: jp.sub, source: 'server', ...row, activeSubscriptionId: active?.subscription_id ?? null, activePlanId: active?.plan_id ?? null }, { headers: cors });
+        // Paid-through coverage comes from the captured payment rows, never from the browser.
+        let paidUntil: string | null = null;
+        if (active?.subscription_id) {
+          const pays = await (await fetch(`${env.SUPABASE_URL}/rest/v1/billing_payments?select=period_end&subscription_id=eq.${encodeURIComponent(active.subscription_id)}&status=eq.captured&period_end=gt.${encodeURIComponent(new Date().toISOString())}&order=period_end.desc&limit=1`, { headers: pgHeaders(env) })).json();
+          paidUntil = Array.isArray(pays) ? pays[0]?.period_end ?? null : null;
+        }
+        return Response.json({ userId: jp.sub, source: 'server', ...row, paid_until: paidUntil, activeSubscriptionId: active?.subscription_id ?? null, activePlanId: active?.plan_id ?? null }, { headers: cors });
       }
 
       // POST /api/billing/paypal/cancel — cancel the CALLER'S OWN linked subscription (ownership checked

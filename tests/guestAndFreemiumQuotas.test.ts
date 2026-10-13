@@ -9,6 +9,8 @@ import {
   AI_PER_TOOL_LIMIT,
   AI_GLOBAL_CAP,
   PLAN_LIMITS,
+  getPerToolLimit,
+  getGlobalCap,
 } from '../services/usageConfig';
 import {
   getGuestTaskCount,
@@ -60,6 +62,23 @@ describe('Freemium Quota Limits', () => {
   it('maintains pro tier limits', () => {
     expect(PLAN_LIMITS.pro.operations).toBe(-1);
     expect(PLAN_LIMITS.pro.aiPages).toBe(500);
+  });
+
+  // The deployed `check_usage_limit` answers free with tool_limit 2 / global_cap 6 for
+  // feature_type 'ai' and paid plans with -1: a Professional plan is bounded by its 500-page
+  // monthly budget, not by a 6-page day ("Unlimited daily operations", site/pricing.html).
+  it('gives paid tiers no daily ceiling and keeps the free tier ceilings', () => {
+    expect(getPerToolLimit('ai', 'free')).toBe(0);
+    expect(getGlobalCap('ai', 'free')).toBe(0);
+    expect(getPerToolLimit('ai', 'pro')).toBe(-1);
+    expect(getGlobalCap('ai', 'pro')).toBe(-1);
+    expect(getPerToolLimit('local', 'pro')).toBe(-1);
+    expect(getGlobalCap('local', 'business')).toBe(-1);
+  });
+
+  it('fails closed for a caller that does not name a plan', () => {
+    expect(getPerToolLimit('ai')).toBe(AI_PER_TOOL_LIMIT);
+    expect(getGlobalCap('ai')).toBe(AI_GLOBAL_CAP);
   });
 });
 

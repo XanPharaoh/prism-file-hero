@@ -89,15 +89,21 @@ const uid = (n) => `11111111-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 // ── 3. Live usage ledger (the path /api/ai actually calls): reserve→settle ───
 {
-  const tk = `ip:usage-${Date.now()}`;
+  // Cloud pages are only bookable by an entitled account (free cloud AI is zero on every layer),
+  // so the ledger mechanics are exercised against a seeded pro subject.
+  const tk = uid(9040);
+  const u = tk;
   await del(SR, 'usage_logs', `request_id=in.(cccccccc-0000-4000-8000-000000000001)`); // re-runnable
-  const r1 = await rpc(SR, 'reserve_usage', { p_request_id: 'cccccccc-0000-4000-8000-000000000001', p_user_id: null, p_tracking_key: tk, p_ip_address: '10.0.0.1', p_tool_id: 'ocr', p_ai_pages: 1, p_operations: 0, p_page_count: 1 });
-  ok('usage: reserve_usage allowed (free plan, within per-tool caps)', r1.json[0] && r1.json[0].allowed === true, JSON.stringify(r1.json));
+  await del(SR, 'user_plans', `user_id=eq.${u}`);
+  await del(SR, 'usage_logs', `user_id=eq.${u}`);
+  await ins(SR, 'user_plans', [{ user_id: u, plan: 'pro', subscription_status: 'active' }]);
+  const r1 = await rpc(SR, 'reserve_usage', { p_request_id: 'cccccccc-0000-4000-8000-000000000001', p_user_id: u, p_tracking_key: tk, p_ip_address: '10.0.0.1', p_tool_id: 'ocr', p_ai_pages: 1, p_operations: 0, p_page_count: 1 });
+  ok('usage: reserve_usage allowed (entitled plan, within caps)', r1.json[0] && r1.json[0].allowed === true, JSON.stringify(r1.json));
   await rpc(SR, 'settle_usage', { p_request_id: 'cccccccc-0000-4000-8000-000000000001', p_status: 'SUCCESS' });
   const sum = await select(SR, 'usage_logs', `tracking_key=eq.${tk}&status=eq.SUCCESS&select=ai_pages`);
   ok('usage: settled SUCCESS recorded', Array.isArray(sum.json) && sum.json.length === 1, JSON.stringify(sum.json));
   // idempotent replay of the SAME request_id must not add a second row
-  const replay = await rpc(SR, 'reserve_usage', { p_request_id: 'cccccccc-0000-4000-8000-000000000001', p_user_id: null, p_tracking_key: tk, p_ip_address: '10.0.0.1', p_tool_id: 'ocr', p_ai_pages: 1, p_operations: 0, p_page_count: 1 });
+  const replay = await rpc(SR, 'reserve_usage', { p_request_id: 'cccccccc-0000-4000-8000-000000000001', p_user_id: u, p_tracking_key: tk, p_ip_address: '10.0.0.1', p_tool_id: 'ocr', p_ai_pages: 1, p_operations: 0, p_page_count: 1 });
   const dup = await select(SR, 'usage_logs', `request_id=eq.cccccccc-0000-4000-8000-000000000001&select=request_id`);
   ok('usage: unique request_id prevents a second reservation row', Array.isArray(dup.json) && dup.json.length === 1, JSON.stringify(replay.json));
   // settle of an unknown id errors (authoritative, not silent)

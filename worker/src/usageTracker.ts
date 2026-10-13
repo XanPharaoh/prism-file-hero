@@ -1,13 +1,10 @@
 import { getUserPlan, type SupabaseEnv } from './db';
 import {
-  AI_GLOBAL_CAP,
-  AI_PER_TOOL_LIMIT,
-  LOCAL_GLOBAL_CAP,
-  LOCAL_PER_TOOL_LIMIT,
   PLAN_LIMITS,
   calculateToolCost,
   getCurrentMonthKey,
   getFeatureType,
+  getGlobalCap,
   type Plan,
 } from '../../services/usageConfig';
 
@@ -86,7 +83,10 @@ async function callRpc<T>(env: WorkerEnv, name: string, body: Record<string, unk
   if (!response.ok) {
     throw new Error(`${name} failed: ${response.status} ${await response.text()}`);
   }
-  return response.json() as Promise<T>;
+  // A void-returning function (settle_usage) answers 200 with an empty body; parsing that
+  // as JSON threw, so reservations were never actually closed.
+  const text = await response.text();
+  return (text ? JSON.parse(text) : []) as T;
 }
 
 function toLimitResult(row: Record<string, unknown>): LimitResult {
@@ -105,6 +105,12 @@ function toLimitResult(row: Record<string, unknown>): LimitResult {
 }
 
 /** Non-consuming UX preflight. The reserve RPC remains the final authority. */
+/**
+ * Non-consuming preflight. A browser-executed run (local or hybrid) books no cloud pages here —
+ * only a call that will actually reach a provider does, and that booking happens in the AI proxy.
+ * What this check does enforce server-side is the premium gate and the plan's practical local
+ * ceilings, neither of which the browser is trusted to apply.
+ */
 export async function checkServerLimit(
   env: WorkerEnv,
   userId: string | null,
@@ -112,7 +118,10 @@ export async function checkServerLimit(
   toolId: string,
   pagesToProcess: number,
 ): Promise<LimitResult> {
-  const cost = calculateToolCost(toolId, pagesToProcess);
+  const full = calculateToolCost(toolId, pagesToProcess);
+  const cost = getFeatureType(toolId) === 'ai'
+    ? full
+    : { aiPages: 0, operations: full.operations };
   const rows = await callRpc<Array<Record<string, unknown>>>(env, 'check_usage_limit', {
     p_user_id: userId,
     p_tracking_key: trackingKey(userId, clientIp),
@@ -163,6 +172,9 @@ export async function reportAndSummarize(
   const featureType = getFeatureType(input.toolId);
   if (featureType === 'ai') throw new Error('AI usage is recorded by the worker execution path');
   const cost = calculateToolCost(input.toolId, input.pagesProcessed);
+  // A completion report from the browser is local telemetry, never proof that a provider was
+  // paid; anything that would book cloud pages here is rejected rather than recorded.
+  if (cost.aiPages > 0) throw new Error('Cloud pages are booked by the AI execution path');
   const response = await fetch(`${env.SUPABASE_URL}/rest/v1/usage_logs`, {
     method: 'POST',
     headers: { ...authHeaders(env), Prefer: 'return=minimal' },
@@ -229,8 +241,8 @@ export async function getUsageSummary(env: WorkerEnv, userId: string | null, cli
   return {
     userId, plan, month, aiPagesUsed, aiPagesLimit: PLAN_LIMITS[plan].aiPages,
     operationsUsed, operationsLimit: PLAN_LIMITS[plan].operations, byTool,
-    lastSynced: new Date().toISOString(), localGlobalUsed, localGlobalCap: LOCAL_GLOBAL_CAP,
-    aiGlobalUsed, aiGlobalCap: AI_GLOBAL_CAP, toolBreakdown,
+    lastSynced: new Date().toISOString(), localGlobalUsed, localGlobalCap: getGlobalCap('local', plan),
+    aiGlobalUsed, aiGlobalCap: getGlobalCap('ai', plan), toolBreakdown,
     nextSastMidnight: getNextSastMidnightUTC(),
   };
 }

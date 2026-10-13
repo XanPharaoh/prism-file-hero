@@ -41,9 +41,26 @@ async function ins(table, rows) { return (await fetch(`${REST}/${table}`, { meth
   const r = await fetch(`${WORKER}/api/execute`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ toolId: 'merge', pageCount: 1 }) });
   const j = await r.json(); ok('execute: local tool allowed by server check', r.status === 200 && j.allowed === true, JSON.stringify(j)); }
 
-// 4. /api/ai reserve→settle(ERROR) with no provider configured = recovery, no paid spend
-{ const sub = '11111111-0000-4000-8000-0000a10001'; const t = await bearer(sub);
+// 4a. A free caller never reaches a provider at all: refused before any reservation is booked.
+{ const sub = '11111111-0000-4000-8000-0000a10000'; const t = await bearer(sub);
   await del('usage_logs', `user_id=eq.${sub}`);
+  const msg = [{ role: 'user', content: [{ type: 'text', text: 'extract' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }] }];
+  const r = await fetch(`${WORKER}/api/ai`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ toolId: 'ocr', messages: msg }) });
+  ok('ai: free caller is refused with 402 before any cloud spend', r.status === 402, `status=${r.status}`);
+  const rows = await q('usage_logs', `user_id=eq.${sub}&select=request_id`);
+  ok('ai: the refusal booked no reservation (nothing to leak)', Array.isArray(rows) && rows.length === 0, JSON.stringify(rows)); }
+
+// 4b. An entitled caller whose provider is unconfigured must still recover the meter.
+//     Coverage is seeded for a throwaway localtest subject with a synthetic captured payment —
+//     never the journey account, whose rows are real sandbox evidence.
+{ const sub = '11111111-0000-4000-8000-0000a10001'; const t = await bearer(sub);
+  await del('usage_logs', `user_id=eq.${sub}`); await del('user_plans', `user_id=eq.${sub}`);
+  await del('billing_payments', `payment_id=eq.PAY-LOCALTEST-AI`);
+  await del('billing_subscriptions', `subscription_id=eq.I-LOCALTEST-AI`);
+  await ins('billing_price_plans', [{ price_id: 'P-LOCALTEST-PRO', plan: 'pro', label: 'localtest pro' }]);
+  await ins('billing_subscriptions', [{ subscription_id: 'I-LOCALTEST-AI', user_id: sub, plan_id: 'P-LOCALTEST-PRO', provider: 'paypal', status: 'ACTIVE' }]);
+  await ins('billing_payments', [{ payment_id: 'PAY-LOCALTEST-AI', subscription_id: 'I-LOCALTEST-AI', user_id: sub, currency: 'USD', gross_amount: 19, status: 'captured', period_start: new Date(Date.now() - 3.6e6).toISOString(), period_end: new Date(Date.now() + 8.64e7).toISOString(), captured_at: new Date().toISOString() }]);
+  await fetch(`${REST}/rpc/refresh_user_coverage`, { method: 'POST', headers: { apikey: SR, Authorization: `Bearer ${SR}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_user_id: sub }) });
   const msg = [{ role: 'user', content: [{ type: 'text', text: 'extract' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } }] }];
   const r = await fetch(`${WORKER}/api/ai`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify({ toolId: 'ocr', messages: msg }) });
   ok('ai: no-provider path returns 502 (not a silent success)', r.status === 502, `status=${r.status}`);
