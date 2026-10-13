@@ -34,7 +34,7 @@ export async function startPayPalSubscribe(plan: Plan, cycle: Cycle): Promise<Su
   } catch { return { ok: false, status: 'error', error: 'network' }; }
 }
 
-export interface Entitlement { entitled: boolean; plan: string; subscription_status: string | null; activeSubscriptionId?: string | null; unauthenticated?: boolean; }
+export interface Entitlement { entitled: boolean; plan: string; subscription_status: string | null; activeSubscriptionId?: string | null; unauthenticated?: boolean; paidUntil?: string | null; }
 
 export async function fetchEntitlement(): Promise<Entitlement | null> {
   try {
@@ -44,7 +44,7 @@ export async function fetchEntitlement(): Promise<Entitlement | null> {
     if (r.status === 401) return { entitled: false, plan: 'free', subscription_status: null, unauthenticated: true };
     if (!r.ok) return null;
     const j: any = await r.json();
-    return { entitled: !!j.entitled, plan: j.plan ?? 'free', subscription_status: j.subscription_status ?? null, activeSubscriptionId: j.activeSubscriptionId ?? null };
+    return { entitled: !!j.entitled, plan: j.plan ?? 'free', subscription_status: j.subscription_status ?? null, activeSubscriptionId: j.activeSubscriptionId ?? null, paidUntil: j.paid_until ?? null };
   } catch { return null; }
 }
 
