@@ -960,3 +960,47 @@ pipeline's real output once a paid session exists.
 worker routes 13/13 (the two assertions that create a real sandbox subscription are now opt-in via
 `PRISM_ALLOW_SANDBOX_SUBSCRIBE=1` and print a NOTE when skipped), vitest 733 passed / 5 skipped,
 `tsc --noEmit` clean.
+
+## 32. Clerk instance pairing preflight — and two production findings (2026-10-13)
+
+`npm run check:clerk-pair` (`scripts/clerk-instance-check.mjs`) decodes the publishable key, resolves
+its satellite, compares it with the Worker's `CLERK_JWKS_URL`/`CLERK_JWT_ISSUER`, and fetches the JWKS.
+Read-only; no key material is printed. It exists because the mismatch below was invisible until
+something actually tried to verify a token.
+
+**Finding 1 — the LIVE Clerk satellite has no DNS record.** `.env.local` and the deployed static site
+use a `pk_live_…` key whose satellite is `clerk.prismfilehero.com`. That name returns an authoritative
+**NXDOMAIN** from three independent resolvers (system resolver, Cloudflare DoH `Status=3`, Google DoH
+`Status=3`), while `prismfilehero.com` and `www` resolve normally. `worker/wrangler.toml` sets the
+deployed Worker's `CLERK_JWKS_URL` to `https://clerk.prismfilehero.com/.well-known/jwks.json`, which
+therefore cannot be fetched — as configured in the repo, the deployed Worker cannot verify any Clerk
+JWT and every auth-gated route fails closed with 401. Caveat: a `wrangler secret` override would not be
+visible from here, so this must be confirmed against the deployed Worker before being called a defect.
+Not acted on: fixing DNS or instance configuration is a production change and needs authorization.
+
+**Finding 2 — the PayPal return target does not exist in production.** `deploy.yml` publishes `./site`
+(the static marketing/tools bundle) as the front door, and the React SPA is explicitly no longer
+deployed; `https://prismfilehero.com/app` returns 404. The subscribe route builds
+`<FRONTEND_URL>/app?checkout=…`, so a production `FRONTEND_URL` must either point at a deployed copy
+of the SPA or the return page must be added to the static site. Recorded, not changed.
+
+**Local journey configuration (item 1 of the authenticated journey).** A working **development**
+instance was found referenced (commented) in `worker/wrangler.toml`: `innocent-manatee-90.clerk.accounts.dev`,
+whose JWKS serves one RS256 key. The local stack is now paired to it and nothing else:
+* `worker/.dev.vars` → `CLERK_JWKS_URL` + `CLERK_JWT_ISSUER` = that instance; `FRONTEND_URL=http://127.0.0.1:5173`;
+  `ALLOWED_ORIGINS` = the local dev/preview origins.
+* `.env.journey` (gitignored) + `vite --mode journey` → `pk_test_…` for the same instance, with the
+  Worker pointed at `http://127.0.0.1:8787`. `.env.local` is left untouched so production config cannot
+  be confused with local.
+* `check:clerk-pair --env=.env.journey` → **6/6**, including "the Worker can actually fetch its JWKS".
+* Measured proof the Worker is really bound to Clerk and not to our test tooling: a token minted by the
+  local JWKS stand-in (`:8799`) is now **rejected** — `401 {"error":"Invalid token"}` — as are garbage
+  and absent tokens. Browser evidence: Clerk mounts, talks only to
+  `innocent-manatee-90.clerk.accounts.dev` + `img.clerk.com`, and shows its "Development mode" badge.
+
+**Where the journey stops.** `scripts/clerk-journey-check.mjs --phase=auth` opens the app, mounts the
+Clerk form and fills email + password, but that instance's **sign-up** form presents a Cloudflare
+"Verify you are human" widget. Circumventing a bot check is not something I will do, and the sign-in
+form has no such widget — so the plan (authorized) is to create exactly one test user through Clerk's
+Backend API with the development instance's secret key, then continue the journey by signing in from
+the browser with no injected headers, no minted tokens and no manual grants.
