@@ -1234,3 +1234,153 @@ upsell screen, and no artifact is produced. `setInputFiles('input[type=file]')` 
 selection wiring. The harness now fails immediately with that reason instead of a bare download
 timeout. Item 7's paid artifact therefore remains **outstanding**, and it also depends on the
 approval below.
+
+### Paid tool executes, and is finally metered (2026-10-13 late session)
+
+Four separate defects stood between "entitled Pro account" and "the paid tool actually runs". All
+four are now demonstrated fixed against the real stack; each statement below is a measured result,
+not an inference.
+
+1. **The browser gate contradicted the server.** `checkLimit` read the free tier's AI lockout
+   (`AI_PER_TOOL_LIMIT = 0`, `AI_GLOBAL_CAP = 0`) for *every* plan, so a Pro user was denied after
+   `/api/execute` had already answered `allowed:true, plan:pro, limit:500`. The ceilings now live in
+   one plan-aware table (`DAILY_CEILINGS`) that mirrors `check_usage_limit`, and the helpers default
+   to `'free'` so a caller that forgets to name a plan fails closed.
+2. **The deployed authority sold what it refused.** `check_usage_limit` applied 2 AI pages per tool
+   per day and 6 per day globally to every plan, while Professional sells 500 AI pages a month with
+   "Unlimited daily operations" (`site/pricing.html`). Measured on the entitled journey account:
+   `allowed=f | reason='Per-tool daily limit reached' | plan=pro | ai_pages_limit=500 | tool_limit=2`.
+   Migration `20261013000001_paid_daily_ceiling.sql` makes the daily ceilings plan-aware: free keeps
+   exactly what it has (2/6 AI, 5/15 local, 10 AI pages a month — re-measured after the change), paid
+   plans get `-1` (no daily ceiling) and stay bounded by the monthly budget the same function already
+   enforces. The IP-wide AI net is now scoped to traffic with no account, because every route that
+   reaches this function is authenticated, so as written it could only throttle paying customers who
+   happen to share an address.
+3. **The tool landing page bypassed the workspace intake.** `ToolLandingView.handleFiles` called the
+   store's raw `addFiles()`, skipping validation and page counting, so a 2-page scan entered the
+   workspace as "0 pages" — the header showed `0/0` and the run asked the server to bill 1 page.
+   Both entry points now share `services/fileIntake.ts` (`intakeFiles`), which validates against the
+   tool's own constraints and returns the page total the quota is billed against.
+4. **Locally-executed AI work was never metered.** `/api/execute` is a non-consuming preflight and
+   the only consuming meter lived inside the AI proxy, so a browser-side tool (OCR runs on in-browser
+   Tesseract) never deducted a page: two full OCR runs left `aiPagesUsed: 0`. Added
+   `POST /api/usage/reserve` and `POST /api/usage/settle` (JWT required, AI tools only, and settle
+   verifies the reservation belongs to the caller because `settle_usage()` takes a bare request id).
+   The app now reserves for the page count it will really process and settles with the true outcome.
+   Measured ledger movement: `aiPagesUsed 0 → 2 → 4 → … → 16`, `byTool.ocr.aiPages` tracking it, rows
+   ending `SUCCESS`.
+
+A fifth defect surfaced while proving the fourth: `callRpc` parsed every RPC reply as JSON, and
+`settle_usage()` returns void with an empty body, so settlement threw `SyntaxError: Unexpected end of
+JSON input` and answered 500 even though the row had settled. Fixed, and `settle` now returns
+`{"settled":true,"alreadySettled":false}`.
+
+**Display follow-through:** `UsageBadge` treated any cap as finite, so a paid plan would have rendered
+`0/-1`. Unlimited ceilings now read `∞` and the popover shows the monthly budget
+(`x of 500 AI pages this month`) instead of a fake daily bar.
+
+**Results:** `paid-tool-output-check --live` 9/9 (file picker *and* native drop → registered file →
+`Start Operation` → `scanned-statement_Searchable.pdf` / `dragged-statement_Searchable.pdf`: 2 pages,
+1682×2379 page images preserved, 58 positioned words, text matching the scan character-for-character
+including its own `R 1,21.40` typo); `checkout-return-check` 25/25, including a new phase G that runs
+the return page in the genuine Clerk session with no injected header and asserts the server-derived
+plan, the paid-through date, the stripped `?checkout=`, and the working route back to the workspace;
+`clerk-journey-check --phase=auth` 6/6; quota unit tests 16/16; `tsc --noEmit` clean for app and Worker.
+
+**Still outstanding:** the app's visual integration onto the `site/` design (item 1), and production
+deployment, which remains unauthorised.
+
+### The functional app now wears the site's design (item 1)
+
+The checkout return landed on the app's own purple/indigo interface (`We make document work
+simple.` on slate) while the intended look is prismfilehero.com's dark-neutral, red-accent,
+rounded-navigation treatment. They were two implementations of one brand: `site/assets/site.css`
+carries the identity (tokens + self-hosted Geist/Outfit/Geist Mono + a floating pill nav), and the
+React app had **no token layer at all** — Tailwind v4 with no config, no `@theme`, no custom
+properties, ~350 hard-coded `indigo-*` utilities and 150 literal `bg-white` / `dark:bg-[#0B0F19]`
+surfaces, plus Google Fonts (Manrope/JetBrains Mono) loaded twice.
+
+What changed, and why each piece is safe:
+
+- **`index.css` is now the token layer.** The site's twelve custom properties are copied verbatim
+  for `:root` and `.dark`, aliased into Tailwind via `@theme` (`bg-surface`, `text-ink`,
+  `border-hairline`, `bg-accent`, `text-credit`, `font-display`…), and the brand ramp lives under
+  `--color-brand-*` (600 = `#c8102e` light at 5.8:1 on white; 400 = `#ff5266` dark at 5.3:1 on the
+  surface). Tool colours that used to be per-category rainbow (amber/orange/`#E667E6`) are
+  neutralised to the brand treatment.
+- **Fonts are self-hosted and shared**: the six `site/assets/fonts/*.woff2` files were copied to
+  `src/assets/fonts/` and declared in `index.css`; the Google Fonts `<link>` and its duplicate
+  `@import` are gone. Vite fingerprints them, so they resolve under the `/app/` base.
+- **A real dark mode.** Tailwind v4 defaults `dark:` to `prefers-color-scheme`, so the app's theme
+  toggle (which adds `.dark` to `<html>`) changed nothing for utilities. `@custom-variant dark
+  (&:where(.dark, .dark *))` binds the variant to the class the app actually sets.
+- **The nav is the site's pill.** `App.tsx`'s full-width sticky bar became `.nav-pill` (rounded,
+  translucent, blurred, hairline border) with `.nav-link` items and the accent underline for the
+  current page, matching `site/assets/site.js`. `ToolLandingView`'s plain bar got the same pill.
+- **Shared component classes** (`.btn-run`, `.btn-quiet`, `.btn-run-ink`, `.card-slab`,
+  `.wash-accent`) are ported from `site.css` (`.tool-run`, `.auth-cta`, `.demo-window`, the red
+  radial wash), replacing ~20 hand-rolled primary-button strings.
+- **Account area**: the always-rendered account card used to overflow a fixed-height header; inside
+  a flex pill it stretched the nav. It is now a chip (`Account: PRO plan`) that opens the summary as
+  a popover, closing on Escape or an outside click. Plan, PayPal status, subscription id, cancel and
+  sign-out are unchanged and still server-derived.
+- On mobile the pill keeps menu/brand/theme/account; the quota chip and history move behind `sm`
+  because the bottom nav already carries them.
+
+Verified after the change, all against the running stack: `tsc --noEmit` clean for app and Worker,
+`vite build` clean, 743 unit tests pass (the AccountPanel test updated for the popover, the landing
+drop test updated for async intake), `paid-tool-output-check --live` 9/9, `checkout-return-check`
+25/25 including the genuine-session phase G, `clerk-journey-check --phase=verify` 13/13 (sign-out
+through the new chip, same canonical user on re-login), `release-artifact-check` 20/20 on the
+rebuilt bundle. Screenshots: `evidence/design/` (home/workbench/tool-landing × desktop/mobile ×
+light/dark, plus `04-pro-account-state.png`, `05-file-selected.png`, `06-searchable-output.pdf`,
+`07-completed.png`).
+
+The detector (`impeccable detect.mjs`) flags Geist as an over-used face; that is the brand's pinned
+type on both surfaces, so it stays. Production deployment remains unauthorised — `deploy/` is built
+and verified locally only.
+
+### Correction: the live site is the flat white "minimal theme", not the dark slab (§ above)
+
+The §-above integration used `site/assets/site.css`'s *base* tokens, which are superseded on the
+live site. Measured against https://prismfilehero.com with `getComputedStyle` (desktop, light):
+
+    ground #ffffff · surface #ffffff · ink #10151d · accent #c8102e · line rgba(16,21,29,.10)
+    slab #ffffff · slab-ink #10151d            <- "slab" sections are WHITE live, not #0b0f16
+    body font  ui-sans-serif, system-ui        <- not Outfit
+    h1 font    Geist, Outfit @ 73.6px
+    nav        rgba(255,255,255,.85), radius 9999px, color #10151d, position static
+    body::after film grain -> display: none
+
+`site.css:166-215` is a later "MINIMAL THEME" `:root` block that overrides the base palette, hides
+the grain and the hero photography, strips card shadows, and repaints the nav white; it wins on
+source order, so the dark-slab values I first copied are dead code on production. The app is now
+re-pointed at the measured live values:
+
+- `:root` carries the live values verbatim; the app's own dark toggle keeps a `.dark` block (live
+  has no dark surface, so nothing to match there).
+- `--font-sans` is the platform stack and Geist is reserved for `font-display`, exactly as live.
+- The hero's red radial wash and the GlitterWrap canvas are gone (live renders neither); the
+  headline is Geist at the live scale (73.6px at 1440, verified by comparing computed styles).
+- The nav pill is white-translucent with a hairline border and a text wordmark — `BrandHeader`
+  stopped rendering the `pfh-horizontal-*.svg` lockup, because live shows only "Prism File Hero"
+  in Geist semibold. The vector lockup remains available as `PrismLogo`.
+- New shared classes mirror the live surfaces: `.demo-window` + `.demo-bar` (traffic lights,
+  `prism · in your browser`, live file count) wrap the workspace, `.dropzone-dashed` is the 1px
+  dashed hairline drop target, `.eyebrow` is the mono uppercase label above tool titles, and
+  `.btn-run-block` is the full-width red run button from `site.css` `.tool-run`.
+- The tool landing page now follows the live tool page layout: eyebrow, oversized left-aligned
+  Geist title, muted subtitle, dashed drop card with mono microcopy, full-width red run button.
+
+Measured after the change: local computed tokens are byte-equal to live's for ground/ink/accent/
+body-font/h1-font/h1-size/nav-bg/nav-radius; `paid-tool-output-check --live` 9/9, `checkout-return-check`
+25/25, `clerk-journey-check --phase=verify` 13/13, 743 unit tests, `release-artifact-check` 20/20.
+Five landing tests asserted the old "Drag and drop" wording and now assert live's "Drop files here".
+
+**Remaining local-vs-live drift (not visual):** `site/index.html` and `site/pricing.html` are
+byte-identical to live, and `site/assets/site.css` matches live's hash exactly. The 41 generated
+`site/features/*.html` differ from live by asset cache-busters (`?v=20261009g` on live, absent
+locally because the generator no longer emits it) and by two meta tags the local copy adds
+(`<link rel="canonical">`, absolute `og:image`/`twitter:image`). Deploying the local copy would
+therefore change live's SEO metadata (arguably for the better) and drop the cache-buster query —
+flagging it rather than silently aligning in either direction.
