@@ -1,9 +1,10 @@
 // Generates site/features/<slug>.html for every tool + financial feature.
 // Reads the shared data module, writes static pages that reuse the runtime shell.
 import { createRequire } from "module";
-import { writeFileSync, mkdirSync } from "fs";
+import { writeFileSync, mkdirSync, readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { createHash } from "crypto";
 
 const require = createRequire(import.meta.url);
 require("../assets/features.data.js");
@@ -13,6 +14,19 @@ mkdirSync(OUT, { recursive: true });
 
 // Canonical absolute origin for SEO (Batch 10). Overridable via env for staging previews.
 const SITE_URL = (process.env.PRF_SITE_URL || "https://prismfilehero.com").replace(/\/+$/, "");
+
+// Asset cache invalidation: every local script/style reference carries a hash of the file it
+// points at, so editing an asset changes the URL and the browser cannot serve a stale copy.
+// A hand-maintained counter (the old ?v=20261009g) only works if someone remembers to bump it.
+const ASSET_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const versionCache = new Map();
+function v(rel) {
+  if (!versionCache.has(rel)) {
+    const hash = createHash("sha256").update(readFileSync(join(ASSET_ROOT, rel))).digest("hex").slice(0, 10);
+    versionCache.set(rel, `v=${hash}`);
+  }
+  return versionCache.get(rel);
+}
 
 const FAMILY_BLURB = {
   Organize: "Everyday work on the pages themselves",
@@ -62,10 +76,10 @@ function page(f) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${meta(f.name)} &middot; Prism File Hero</title>
 <meta name="description" content="${meta(f.lede)}">
-<link rel="stylesheet" href="../assets/fonts.css" integrity="sha384-YiRFjtFUpF14QV1s++pYX1JHYg0RF9mdJisd5Xb62y4JNjMvYQOWlMU0HtFH9E6Z" crossorigin="anonymous">
+<link rel="stylesheet" href="../assets/fonts.css?${v("assets/fonts.css")}" integrity="sha384-YiRFjtFUpF14QV1s++pYX1JHYg0RF9mdJisd5Xb62y4JNjMvYQOWlMU0HtFH9E6Z" crossorigin="anonymous">
 <script src="../assets/vendor/tailwind-jit.js" integrity="sha384-r6SdLxFNrT+/0GxNHTD+RxE7wK3cZsdzxOJp1T7+PN1TNyyrDk6jn1RDdlObV95f" crossorigin="anonymous"></script>
-<script src="../assets/tw.js"></script>
-<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/tw.js?${v("assets/tw.js")}"></script>
+<link rel="stylesheet" href="../assets/site.css?${v("assets/site.css")}">
 <link rel="icon" href="../assets/img/brand/favicon.svg" type="image/svg+xml">
 <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/brand/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="../assets/img/brand/favicon-16x16.png">
@@ -148,9 +162,9 @@ function page(f) {
 
 <script src="../assets/vendor/gsap.min.js" integrity="sha384-g4NTh/Iv5PPU4xPyhEWqPcwtNXOvdaDI8LLnyYfyNZOjKJeYQyjzQ9X5275eBjpt" crossorigin="anonymous"></script>
 <script src="../assets/vendor/scrolltrigger.min.js" integrity="sha384-Z3REaz79l2IaAZqJsSABtTbhjgOUYyV3p90XNnAPCSHg3EMTz1fouunq9WZRtj3d" crossorigin="anonymous"></script>
-<script src="../assets/features.data.js"></script>
-<script src="../assets/site.js"></script>
-<script src="../assets/tool.js"></script>
+<script src="../assets/features.data.js?${v("assets/features.data.js")}"></script>
+<script src="../assets/site.js?${v("assets/site.js")}"></script>
+<script src="../assets/tool.js?${v("assets/tool.js")}"></script>
 </body>
 </html>
 `;
