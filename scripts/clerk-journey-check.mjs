@@ -165,7 +165,14 @@ if (phase === 'auth') {
     });
     const server = await (await fetch(`${WORKER}/api/billing/entitlement`, { headers: { Authorization: `Bearer ${token}` } })).json().catch(() => null);
     ok('Worker verifies the real Clerk token and echoes the SAME canonical user id', server?.userId === sub, JSON.stringify({ server: server?.userId, sub }));
-    ok('that user is free until a payment exists', server?.entitled === false && server?.plan === 'free', JSON.stringify(server));
+    // On a fresh account this phase runs before any purchase, but the same journey user can
+    // already hold a paid subscription from an earlier run: assert whichever state is true.
+    if (server?.entitled === false) {
+      ok('an unpaid journey user is free until a payment exists', server?.plan === 'free', JSON.stringify(server));
+    } else {
+      ok('a journey user with a verified payment is entitled with server-derived coverage',
+        ['pro', 'business'].includes(server?.plan) && server?.source === 'server' && Boolean(server?.paid_until), JSON.stringify(server));
+    }
     console.log(`\nClerk user id: ${sub}`);
     console.log(`Server-derived plan: ${server?.plan} entitled=${server?.entitled} source=${server?.source}`);
   }
@@ -233,8 +240,8 @@ if (phase === 'auth') {
   ok('verified payment produced server-derived entitlement (pro)', ent?.entitled === true && ent?.plan === 'pro', JSON.stringify(ent));
   ok('the entitled subscription is the one this user created', ent?.activeSubscriptionId === pending.subscriptionId, JSON.stringify({ got: ent?.activeSubscriptionId, want: pending.subscriptionId }));
 
-  const payments = await db(`billing_payments?subscription_id=eq.${pending.subscription_id}&select=payment_id,currency,gross_amount,period_start,period_end,status,source_event_id`);
-  const events = await db(`billing_events?subscription_id=eq.${pending.subscription_id}&select=event_id,event_type&order=received_at.desc`);
+  const payments = await db(`billing_payments?subscription_id=eq.${pending.subscriptionId}&select=payment_id,currency,gross_amount,period_start,period_end,status,source_event_id`);
+  const events = await db(`billing_events?subscription_id=eq.${pending.subscriptionId}&select=event_id,event_type&order=received_at.desc`);
   console.log(`\nPayPal payment record(s): ${JSON.stringify(payments)}`);
   console.log(`Stored events: ${events.map((e) => e.event_type).join(', ')}`);
   ok('a captured payment row exists for the approved subscription', payments.some((p) => p.status === 'captured' && p.currency === 'USD' && new Date(p.period_end) > new Date()), JSON.stringify(payments).slice(0, 220));

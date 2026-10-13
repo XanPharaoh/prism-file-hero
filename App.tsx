@@ -38,39 +38,12 @@ import BugReportForm from './src/components/BugReportForm';
 import PublicAdNotice from './src/components/PublicAdNotice';
 import InternalActivationGate from './src/components/InternalActivationGate';
 import { initializeMobilePlatform, registerHardwareBackButton } from './services/nativeBridge';
+import { countPdfPages, intakeFiles } from './services/fileIntake';
 import { MobileBottomNav } from './src/components/mobile/MobileBottomNav';
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const fsProvider = isTauriEnvironment() ? new TauriFileSystemProvider() : new WebFileSystemProvider();
 const renderToolIcon = (name: string, className?: string) => {
   return <Icon name={name} className={className} size={24} />;
-};
-
-/**
- * Count the total pages in a PDF file using pdfjs-dist.
- * Returns 0 if the file is not a PDF or if counting fails.
- */
-async function countPdfPages(file: File): Promise<number> {
-  if (file.type !== 'application/pdf') return 0;
-  try {
-    const pdfjsLib = await import('pdfjs-dist');
-    const arrayBuf = await file.arrayBuffer();
-    const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
-    return pdfDoc.numPages;
-  } catch {
-    return 0;
-  }
-}
-
-/**
- * Count total pages across all files in a batch.
- */
-async function countTotalPages(files: File[]): Promise<number> {
-  let total = 0;
-  for (const file of files) {
-    total += await countPdfPages(file);
-  }
-  return total;
 }
 
 async function applyPageBudget(files: File[], pageBudget: number): Promise<{ files: File[]; processedPages: number }> {
@@ -201,31 +174,17 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
   const addFilesForSelectedTool = useCallback(async (files: File[]) => {
     if (!s.selectedTool) return;
     const tool = getToolById(s.selectedTool);
-    if (!tool) return;
-    if (!files.length) return;
+    if (!tool || !files.length) return;
 
-    const allowed = files.filter((file) => tool.allowedFileTypes.includes(file.type));
-    if (allowed.length !== files.length) {
-      s.addToast({ type: 'warning', message: `Some files are not supported by ${tool.name}.` });
-    }
-    const sized = allowed.filter((file) => file.size <= MAX_FILE_SIZE);
-    if (sized.length !== allowed.length) s.addToast({ type: 'warning', message: 'Some files exceed the 50MB limit.' });
+    const intake = await intakeFiles(tool, files, s.batch.length);
+    intake.warnings.forEach((message) => s.addToast({ type: 'warning', message }));
+    if (!intake.accepted.length) return;
 
-    const remainingSlots = tool.maxFiles > 0 ? Math.max(0, tool.maxFiles - s.batch.length) : Infinity;
-    const valid = sized.slice(0, remainingSlots);
-    if (valid.length !== sized.length) {
-      s.addToast({ type: 'warning', message: `${tool.name} accepts a maximum of ${tool.maxFiles} file${tool.maxFiles === 1 ? '' : 's'}.` });
-    }
-    if (!valid.length) return;
+    const totalSize = intake.accepted.reduce((sum, f) => sum + f.size, 0);
+    analytics.trackFilesAdded(s.selectedTool, intake.accepted.length, totalSize);
 
-    const totalSize = valid.reduce((sum, f) => sum + f.size, 0);
-    analytics.trackFilesAdded(s.selectedTool, valid.length, totalSize);
-
-    // Count total pages for quota enforcement
-    const totalPages = await countTotalPages(valid);
-    s.setTotalSelectedPages(s.totalSelectedPages + totalPages);
-
-    s.addFiles(valid);
+    s.setTotalSelectedPages(s.totalSelectedPages + intake.pages);
+    s.addFiles(intake.accepted);
   }, [s.selectedTool, s.batch.length, s.totalSelectedPages]);
 
   const handleSelectFiles = useCallback(async () => {
@@ -278,28 +237,10 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
       return;
     }
 
-    // ── PRE-FLIGHT: Server authorization, then client quota display ──
+    // ── PRE-FLIGHT: the client gate shapes the page budget; the server then authorises it ──
     try {
       const requestedPages = s.totalSelectedPages || 1;
-      if (!internalDesktop) {
-        const authorization = await checkExecutionAuthorization(s.selectedTool, requestedPages);
-        if (!authorization.allowed) {
-          const featureType = getFeatureType(s.selectedTool);
-          analytics.trackPaywallHit(s.selectedTool, authorization.reason || 'Usage limit reached.');
-          s.setQuotaModalInfo({
-            featureType,
-            requestedPages,
-            usedToday: authorization.pagesUsed,
-            dailyLimit: authorization.limit,
-            globalUsedToday: authorization.pagesUsed,
-            globalCap: authorization.limit,
-            limitReason: 'tool_limit',
-            nextReset: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          });
-          s.setShowQuotaModal(true);
-          return;
-        }
-      }
+      const featureType = getFeatureType(s.selectedTool);
 
       const limitCheck = internalDesktop
         ? { allowed: true } as LimitCheckResult
@@ -336,6 +277,30 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
           s.setShowQuotaModal(true);
         }
         return;
+      }
+
+      if (!internalDesktop) {
+        // The server decides entitlement, plan and classification; the browser never books
+        // cloud credits. Pages are consumed by the AI worker at the provider call, so a run that
+        // stays in the browser (local or hybrid, e.g. Tesseract OCR) cannot be double-charged.
+        const authorization = await checkExecutionAuthorization(s.selectedTool, pagesToProcess);
+        if (!authorization.allowed) {
+          analytics.trackPaywallHit(s.selectedTool, authorization.reason || 'Usage limit reached.');
+          s.setQuotaModalInfo({
+            featureType,
+            requestedPages: pagesToProcess,
+            usedToday: authorization.pagesUsed,
+            dailyLimit: authorization.limit,
+            globalUsedToday: authorization.pagesUsed,
+            globalCap: authorization.limit,
+            limitReason: 'tool_limit',
+            nextReset: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            // The server's own words beat any copy we could guess about why it said no.
+            serverReason: authorization.reason,
+          });
+          s.setShowQuotaModal(true);
+          return;
+        }
       }
 
       analytics.trackExecutionStarted(s.selectedTool, s.isPremium);
@@ -384,14 +349,18 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
             s.addToast({ type: 'warning', message: 'Extraction needs review before it can be exported.', duration: 7000 });
           }
 
-          // ── POST-FLIGHT: Report usage ──────────────────────────
-          void reportUsage({
-            toolId: s.selectedTool,
-            pagesProcessed: pagesToProcess,
-            fileSizeBytes: filesToProcess.reduce((sum, f) => sum + f.size, 0),
-            fileName: filesToProcess[0]?.name ?? 'unknown',
-            status: 'SUCCESS',
-          }, null);
+          // ── POST-FLIGHT: local telemetry ───────────────────────
+          // Only free local tools report: it is usage telemetry, never a claim about provider
+          // spend, and the report endpoint refuses anything else.
+          if (isFreeTool(s.selectedTool)) {
+            void reportUsage({
+              toolId: s.selectedTool,
+              pagesProcessed: pagesToProcess,
+              fileSizeBytes: filesToProcess.reduce((sum, f) => sum + f.size, 0),
+              fileName: filesToProcess[0]?.name ?? 'unknown',
+              status: 'SUCCESS',
+            }, null);
+          }
 
           if (extractionData && !internalDesktop) {
             void saveExtractionHistory({ filename: filesToProcess[0].name, toolId: 'pdf-to-excel', extractedData: { rows: extractionData.rows, metadata: extractionData.metadata ?? {} }, pageCount: pagesToProcess, confidence: Math.round(((extractionData.metadata?.confidence as number) ?? 0.9) * 100), bankCode: extractionData.metadata?.bankCode as string | undefined });
@@ -417,15 +386,17 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
         analytics.trackExecutionCompleted(s.selectedTool, false, err.message || 'Operation failed.');
         s.batch.forEach(i => s.updateItemStatus(i.id, ProcessStatus.ERROR, err.message));
 
-        // Report error usage
-        void reportUsage({
-          toolId: s.selectedTool,
-          pagesProcessed: s.totalSelectedPages || 1,
-          fileSizeBytes: s.batch.reduce((sum, i) => sum + i.fileSize, 0),
-          fileName: s.batch[0]?.fileName ?? 'unknown',
-          status: 'ERROR',
-          error: err.message,
-        }, null);
+        // Report failed local usage (telemetry only)
+        if (isFreeTool(s.selectedTool)) {
+          void reportUsage({
+            toolId: s.selectedTool,
+            pagesProcessed: s.totalSelectedPages || 1,
+            fileSizeBytes: s.batch.reduce((sum, i) => sum + i.fileSize, 0),
+            fileName: s.batch[0]?.fileName ?? 'unknown',
+            status: 'ERROR',
+            error: err.message,
+          }, null);
+        }
       } finally {
         // Keep files cached on failure so the user can re-run without re-uploading
         if (extractionSucceeded && !retainSourceForReview) {
@@ -478,17 +449,17 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
   // ── FOUC prevention: show loading until Clerk finishes initializing ──
   if (!isLoaded) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center bg-ground">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
-          <p className="text-sm font-semibold text-slate-400">Loading…</p>
+          <div className="w-10 h-10 border-4 border-hairline border-t-accent rounded-full animate-spin" />
+          <p className="text-sm font-semibold text-muted">Loading…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-50 dark:bg-[#0B0F19] text-slate-900 dark:text-slate-100 font-sans transition-colors duration-150">
+    <div className="min-h-screen flex bg-ground text-ink font-sans transition-colors duration-150">
       {!internalDesktop && <CheckoutStatus />}
       {!internalDesktop && s.showAuthModal && <AuthModal onClose={() => s.setShowAuthModal(false)} />}
       {!internalDesktop && s.showUpgradeCTA && <UpgradeModal onClose={() => s.setShowUpgradeCTA(false)} />}
@@ -502,47 +473,48 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
           globalCap={s.quotaModalInfo.globalCap}
           limitReason={s.quotaModalInfo.limitReason}
           nextReset={s.quotaModalInfo.nextReset}
+          serverReason={s.quotaModalInfo.serverReason}
           onClose={() => { s.setShowQuotaModal(false); s.setQuotaModalInfo(null); }}
         />
       )}
       {s.isMobileMenuOpen && (
         <div className="fixed inset-0 z-[100] lg:hidden">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => s.setIsMobileMenuOpen(false)} />
-          <div className="absolute left-0 top-0 bottom-0 w-80 bg-white dark:bg-[#0B0F19] p-6 shadow-2xl border-r border-slate-200 dark:border-slate-800 overflow-y-auto">
-            <button onClick={() => s.setIsMobileMenuOpen(false)} aria-label="Close navigation menu" className="absolute right-5 top-7 p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-slate-700"><X className="w-5 h-5" /></button>
+          <div className="absolute left-0 top-0 bottom-0 w-80 bg-surface p-6 shadow-2xl border-r border-hairline overflow-y-auto">
+            <button onClick={() => s.setIsMobileMenuOpen(false)} aria-label="Close navigation menu" className="absolute right-5 top-7 p-2 rounded-full bg-sunken text-muted border border-hairline"><X className="w-5 h-5" /></button>
             <SidebarContent />
           </div>
         </div>
       )}
 
       {/* ── STITCH FULL-WIDTH TOP-NAVBAR SAAS ARCHITECTURE ── */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen bg-slate-50/50 dark:bg-[#0B0F19]">
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen bg-ground">
         {/* Skip to main content accessibility link */}
-        <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[250] focus:px-4 focus:py-2 focus:bg-indigo-600 focus:text-white focus:rounded-lg focus:shadow-lg focus:text-xs focus:font-bold focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[250] focus:px-4 focus:py-2 focus:bg-brand-600 focus:text-white focus:rounded-lg focus:shadow-lg focus:text-xs focus:font-bold focus:ring-2 focus:ring-offset-2 focus:ring-brand-500">
           Skip to main content
         </a>
 
-        <header className="sticky top-0 z-40 w-full bg-white/80 dark:bg-[#0B0F19]/80 backdrop-blur-2xl border-b border-slate-200/60 dark:border-white/10 shadow-2xs">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            {/* Left: Brand Logo */}
-            <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-40 w-full px-4 pt-4">
+          <div className="nav-pill">
+            {/* Left: brand */}
+            <div className="flex items-center gap-2.5 min-w-0">
               <button
                 onClick={() => s.setIsMobileMenuOpen(true)}
                 aria-label="Open navigation menu"
-                className="p-2 lg:hidden bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                className="p-2 lg:hidden rounded-full border border-[var(--nav-line)] text-[var(--nav-muted)] hover:text-[var(--nav-ink)] transition-colors"
               >
-                <Menu className="w-5 h-5" />
+                <Menu className="w-4 h-4" />
               </button>
               <button
                 type="button"
                 onClick={() => { s.setSelectedTool(null); s.setShowHistory(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                className="flex items-center gap-2 text-left focus:outline-none"
+                className="flex items-center gap-2 text-left focus:outline-none shrink-0"
               >
                 <BrandHeader />
               </button>
             </div>
 
-            {/* Center: Top Navigation Mega Menu (hidden on mobile, visible md+) */}
+            {/* Center: navigation */}
             <div className="hidden md:flex items-center">
               <HeaderMegaMenu
                 onSelectTool={(toolId) => {
@@ -567,16 +539,15 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
               />
             </div>
 
-            {/* Right: Actions & User */}
-            <div className="flex items-center gap-3">
-              {/* Theme Toggle Button */}
+            {/* Right: state and account */}
+            <div className="flex items-center gap-2">
               <button
                 onClick={s.toggleDarkMode}
                 aria-label={s.isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
                 title={s.isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors"
+                className="p-2 rounded-full border border-[var(--nav-line)] text-[var(--nav-muted)] hover:text-[var(--nav-ink)] transition-colors"
               >
-                {s.isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
+                {s.isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
               </button>
 
               {!internalDesktop && s.user && (
@@ -584,10 +555,11 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
                   onClick={() => { s.setShowHistory(true); s.setSelectedTool(null); }}
                   aria-label="View processing history"
                   title="History"
-                  className={`p-2 rounded-xl border flex items-center justify-center transition-colors ${
+                  aria-current={s.showHistory ? 'page' : undefined}
+                  className={`hidden sm:inline-flex p-2 rounded-full border transition-colors ${
                     s.showHistory
-                      ? 'bg-indigo-600 border-indigo-600 text-white'
-                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                      ? 'bg-accent border-accent text-white'
+                      : 'border-[var(--nav-line)] text-[var(--nav-muted)] hover:text-[var(--nav-ink)]'
                   }`}
                 >
                   <History className="w-4 h-4" />
@@ -595,33 +567,33 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
               )}
 
               {internalDesktop ? (
-                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Pro</span>
+                <span className="text-xs font-bold text-[var(--nav-muted)]">Pro</span>
               ) : s.user ? (
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   {!s.isPremium && (
                     <button
                       onClick={() => s.setShowUpgradeCTA(true)}
-                      className="hidden sm:inline-block px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      className="hidden sm:inline-block px-3.5 py-1.5 text-xs font-semibold rounded-full border border-[var(--nav-line)] text-[var(--nav-ink)] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                     >
                       Upgrade
                     </button>
                   )}
-                  <UsageBadge user={s.user} compact={true} />
-                  <div className="w-40">
-                    <AccountPanel user={s.user} onSignOut={() => { s.setUser(null); setClerkUserId(null); }} />
-                  </div>
+                  <span className="hidden sm:inline-flex">
+                    <UsageBadge user={s.user} compact={true} />
+                  </span>
+                  <AccountPanel user={s.user} onSignOut={() => { s.setUser(null); setClerkUserId(null); }} />
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => { s.setAuthModal(true, 'sign-in'); analytics.trackUpgradeClicked('header'); }}
-                    className="px-3.5 py-1.5 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-xs font-semibold rounded-lg transition-colors"
+                    className="nav-link px-2 py-1.5 text-xs font-semibold"
                   >
                     Log In
                   </button>
                   <button
                     onClick={() => { s.setAuthModal(true, 'sign-up'); analytics.trackUpgradeClicked('header'); }}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs active:scale-[0.99] transition-all"
+                    className="px-4 py-1.5 rounded-full bg-accent text-white text-xs font-semibold transition-[filter,transform] duration-200 hover:brightness-110 active:translate-y-px"
                   >
                     Sign Up Free
                   </button>

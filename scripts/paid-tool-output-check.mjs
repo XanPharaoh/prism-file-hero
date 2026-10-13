@@ -79,21 +79,45 @@ const entBefore = await (await fetch(`${WORKER}/api/billing/entitlement`, { head
 console.log(`account ${entBefore?.userId ?? SUB}  server plan=${entBefore?.plan ?? '?'} entitled=${entBefore?.entitled ?? '?'} sub=${entBefore?.subscription_status ?? '?'}`);
 console.log(`before: ${JSON.stringify(before).slice(0, 220)}`);
 await page.setInputFiles('input[type=file]', FIXTURE);
-await page.waitForTimeout(3000);
-// Fail fast with the reason instead of a bare download timeout: the landing view keeps its own file
-// list, and an upload that never registers shows up as the "0/0" counter in the header.
-const registered = await page.evaluate(() => (document.body.innerText.match(/\d+\/\d+\|\d+\/(\d+)/) || [])[1] ?? null);
-if (registered === '0' || registered === null) {
-  console.log('FAIL the uploaded file did not register in the tool view (header still shows 0 pages) — the run cannot start. Wiring gap: this view needs its own file-selection path, not a direct input[type=file] set.');
+// The landing view hands the accepted files to the workspace store and navigates to '/',
+// so registration is proven by the queue listing the file, not by a counter on the landing page.
+await page.waitForURL(`${APP}/`, { timeout: 20000 }).catch(() => {});
+const fixtureName = FIXTURE.split('/').pop();
+const registered = await page
+  .waitForFunction((name) => document.body.innerText.includes(name), fixtureName, { timeout: 25000 })
+  .then(() => true)
+  .catch(() => false);
+if (!registered) {
+  console.log(`FAIL the uploaded file did not register in the workspace queue ("${fixtureName}" never appeared) — the run cannot start.`);
   await page.screenshot({ path: `${OUT}/fail-no-file.png` });
   await browser.close();
   process.exit(1);
 }
-const run = page.getByRole('button', { name: /process|run|start|ocr|convert/i }).first();
+console.log(`registered: ${fixtureName} is listed in the workspace queue`);
+const gate = [];
+page.on('response', async (r) => {
+  if (/\/api\/(execute|usage\/(summary|reserve|settle|report))$/.test(new URL(r.url()).pathname)) {
+    gate.push(`${r.status()} ${new URL(r.url()).pathname} ${(await r.text().catch(() => '')).slice(0, 160)}`);
+  }
+});
+const run = page.getByRole('button', { name: 'Start Operation', exact: true }).first();
 await run.waitFor({ state: 'visible', timeout: 20000 });
 const dl = page.waitForEvent('download', { timeout: 180000 });
 await run.click();
-const download = await dl;
+let download;
+try {
+  download = await dl;
+} catch {
+  const modal = await page.evaluate(() => {
+    const t = document.body.innerText;
+    return /Limit Reached|allowance is|Upgrade to Pro/i.test(t) ? t.split('\n').filter((l) => l.trim()).slice(-14).join(' | ') : null;
+  });
+  console.log(`FAIL no download. server gate: ${gate.join(' || ') || 'no /api call seen'}`);
+  if (modal) console.log(`visible screen text: ${modal.slice(0, 600)}`);
+  await page.screenshot({ path: `${OUT}/fail-no-download.png` });
+  await browser.close();
+  process.exit(1);
+}
 const buf = Buffer.concat(await (() => { const c = []; return download.createReadStream().then(async (s) => { for await (const x of s) c.push(x); return c; }); })());
 const outPath = `${OUT}/${(download.suggestedFilename() || 'ocr-out.pdf').replace(/[^\w.-]/g, '_')}`;
 writeFileSync(outPath, buf);
@@ -116,6 +140,60 @@ const after = await (await fetch(`${WORKER}/api/usage/summary`, { headers: { Aut
 console.log(`after:  ${JSON.stringify(after).slice(0, 220)}`);
 console.log(`artifact: ${outPath} (${buf.length} bytes, ${pages} pages, ${text.trim().length} extracted chars)`);
 console.log(`recognized sample: ${text.replace(/\s+/g, ' ').trim().slice(0, 180)}`);
+
+// ── drag-and-drop entry point ──────────────────────────────────────────
+// Same landing view, but the file arrives through the dropzone's onDrop handler instead of
+// the hidden <input>. The File is built inside the page so the DataTransfer carries a real
+// entry; nothing is injected into the app's state. A fresh page keeps this phase independent
+// of whatever the first run left open.
+const dropPage = await ctx.newPage();
+const dropTraffic = [];
+dropPage.on('response', async (r) => {
+  const p = new URL(r.url()).pathname;
+  if (/\/api\/usage\/(reserve|settle)$/.test(p)) dropTraffic.push(`${r.status()} ${p} ${(await r.text().catch(() => '')).slice(0, 120)}`);
+});
+const dropB64 = readFileSync(FIXTURE).toString('base64');
+await dropPage.goto(`${APP}/ocr-pdf`, { waitUntil: 'load', timeout: 40000 });
+await dropPage.waitForSelector('[aria-label^="Upload files"]', { timeout: 25000 });
+const dispatched = await dropPage.evaluate(async (data) => {
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  const file = new File([bytes], 'dragged-statement.pdf', { type: 'application/pdf' });
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  const zone = document.querySelector('[aria-label^="Upload files"]');
+  if (!zone) return 'no-dropzone';
+  zone.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  zone.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  return dt.files.length === 1 ? 'dispatched' : 'empty-transfer';
+}, dropB64);
+ok('the dropzone accepts a native drop event', dispatched === 'dispatched', dispatched);
+await dropPage.waitForURL(`${APP}/`, { timeout: 20000 }).catch(() => {});
+const droppedRegistered = await dropPage
+  .waitForFunction(() => document.body.innerText.includes('dragged-statement.pdf'), { timeout: 25000 })
+  .then(() => true)
+  .catch(() => false);
+ok('a dragged file registers in the workspace queue', droppedRegistered);
+await dropPage.screenshot({ path: `${OUT}/drag-and-drop.png` });
+
+if (droppedRegistered) {
+  const dl2 = dropPage.waitForEvent('download', { timeout: 240000 }).catch(() => null);
+  await dropPage.getByRole('button', { name: 'Start Operation', exact: true }).first().click();
+  const d2 = await dl2;
+  ok('the dragged file produces its own searchable PDF', Boolean(d2), d2 ? '' : dropTraffic.join(' || ') || 'no download');
+  if (d2) {
+    const b2 = Buffer.concat(await (() => { const c = []; return d2.createReadStream().then(async (s) => { for await (const x of s) c.push(x); return c; }); })());
+    const p2 = `${OUT}/dragged-statement_Searchable.pdf`;
+    writeFileSync(p2, b2);
+    const doc2 = await PDFDocument.load(b2);
+    const text2 = execFileSync('pdftotext', [p2, '-'], { encoding: 'utf8' }).toLowerCase();
+    ok('the drag-and-drop artifact is a 2-page searchable PDF', doc2.getPageCount() === 2 && text2.includes('acme payroll'), `pages=${doc2.getPageCount()}`);
+  }
+}
+console.log(`drop-phase server traffic: ${dropTraffic.join(' || ') || 'none'}`);
+
+const t2 = await sessionToken();
+const final = await (await fetch(`${WORKER}/api/usage/summary`, { headers: { Authorization: `Bearer ${t2}` } })).json().catch(() => null);
+console.log(`final ledger: ${JSON.stringify({ plan: final?.plan, aiPagesUsed: final?.aiPagesUsed, aiPagesLimit: final?.aiPagesLimit, ocr: final?.byTool?.ocr })}`);
 
 await browser.close();
 console.log(`\n=== paid-tool-output-check: ${pass} passed, ${fail} failed ===`);

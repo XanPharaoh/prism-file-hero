@@ -18,6 +18,7 @@ import {
   Check,
 } from 'lucide-react';
 import { getToolById } from '../../registry/toolRegistry';
+import { intakeFiles } from '../../../services/fileIntake';
 import type { ToolID } from '../../types';
 import { SEOHelmet } from '../seo/SEOHelmet';
 import { useAppStore } from '../../store/appStore';
@@ -53,21 +54,20 @@ interface RelatedToolItem {
   name: string;
   desc: string;
   icon: React.ComponentType<{ className?: string }>;
-  badgeColor: string;
   isPro?: boolean;
 }
 
 const ALL_TOP_TOOLS: RelatedToolItem[] = [
-  { slug: 'bank-statement-to-excel', id: 'pdf-to-excel', name: 'Bank Statement to Excel', desc: 'Reconciled SA & global statements', icon: FileSpreadsheet, badgeColor: 'bg-[#4F46E5] text-white', isPro: true },
-  { slug: 'merge-pdf', id: 'merge', name: 'Merge PDF', desc: 'Combine multiple PDFs into one unified file', icon: Layers, badgeColor: 'bg-[#7961F2] text-white' },
-  { slug: 'split-pdf', id: 'split', name: 'Split PDF', desc: 'Separate or extract PDF pages cleanly', icon: Scissors, badgeColor: 'bg-cyan-500 text-white' },
-  { slug: 'compress-pdf', id: 'compress', name: 'Compress PDF', desc: 'Reduce file size without quality loss', icon: Zap, badgeColor: 'bg-[#F23030] text-white' },
-  { slug: 'pdf-to-word', id: 'pdf-to-word', name: 'PDF to Word', desc: 'Convert PDFs to editable documents', icon: FileType2, badgeColor: 'bg-[#3D99F5] text-white' },
-  { slug: 'pdf-to-excel', id: 'pdf-to-excel', name: 'PDF to Excel', desc: 'Extract data tables into spreadsheets', icon: Table, badgeColor: 'bg-[#10B981] text-white' },
-  { slug: 'jpg-to-pdf', id: 'jpg-to-pdf', name: 'JPG to PDF', desc: 'Convert image files to PDF', icon: FileType2, badgeColor: 'bg-amber-500 text-white' },
-  { slug: 'pdf-to-jpg', id: 'pdf-to-jpg', name: 'PDF to JPG', desc: 'Extract PDF pages as high-res images', icon: FileType2, badgeColor: 'bg-orange-500 text-white' },
-  { slug: 'redact-pdf', id: 'redact', name: 'Redact PDF', desc: 'Permanently remove sensitive confidential data', icon: ShieldCheck, badgeColor: 'bg-[#E667E6] text-white', isPro: true },
-  { slug: 'ocr-pdf', id: 'ocr', name: 'OCR PDF', desc: 'Make scanned documents selectable and searchable', icon: FileText, badgeColor: 'bg-indigo-500 text-white', isPro: true },
+  { slug: 'bank-statement-to-excel', id: 'pdf-to-excel', name: 'Bank Statement to Excel', desc: 'Reconciled SA & global statements', icon: FileSpreadsheet, isPro: true },
+  { slug: 'merge-pdf', id: 'merge', name: 'Merge PDF', desc: 'Combine multiple PDFs into one unified file', icon: Layers },
+  { slug: 'split-pdf', id: 'split', name: 'Split PDF', desc: 'Separate or extract PDF pages cleanly', icon: Scissors },
+  { slug: 'compress-pdf', id: 'compress', name: 'Compress PDF', desc: 'Reduce file size without quality loss', icon: Zap },
+  { slug: 'pdf-to-word', id: 'pdf-to-word', name: 'PDF to Word', desc: 'Convert PDFs to editable documents', icon: FileType2 },
+  { slug: 'pdf-to-excel', id: 'pdf-to-excel', name: 'PDF to Excel', desc: 'Extract data tables into spreadsheets', icon: Table },
+  { slug: 'jpg-to-pdf', id: 'jpg-to-pdf', name: 'JPG to PDF', desc: 'Convert image files to PDF', icon: FileType2 },
+  { slug: 'pdf-to-jpg', id: 'pdf-to-jpg', name: 'PDF to JPG', desc: 'Extract PDF pages as high-res images', icon: FileType2 },
+  { slug: 'redact-pdf', id: 'redact', name: 'Redact PDF', desc: 'Permanently remove sensitive confidential data', icon: ShieldCheck, isPro: true },
+  { slug: 'ocr-pdf', id: 'ocr', name: 'OCR PDF', desc: 'Make scanned documents selectable and searchable', icon: FileText, isPro: true },
 ];
 
 export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
@@ -107,8 +107,8 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
 
   if (!tool) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0B0F19]">
-        <div className="text-center p-8 bg-white dark:bg-[#111622] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm max-w-md mx-auto">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 ">
+        <div className="text-center p-8 bg-surface rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm max-w-md mx-auto">
           <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white mb-3">Tool Not Found</h1>
           <p className="text-slate-600 dark:text-slate-400 text-sm mb-6">
             The requested document tool could not be found or has moved.
@@ -116,7 +116,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+            className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
           >
             Go to Dashboard
           </button>
@@ -150,10 +150,18 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
     ? 'Convert PDF documents to editable Microsoft Word and Markdown formats with layout preserved. Fast, secure, and 100% free right in your browser.'
     : `${tool.description} Fast, secure, and 100% free right in your browser.`;
 
-  const handleFiles = (files: File[]) => {
+  const handleFiles = async (files: File[]) => {
     if (!files.length) return;
     setSelectedTool(tool.id);
-    addFiles(files);
+    // The workspace bills AI work against totalSelectedPages, so an upload that enters from
+    // this page has to run the same intake as the workspace dropzone: a raw addFiles() left
+    // the batch showing 0 pages and under-reported the usage the server charges for.
+    const intake = await intakeFiles(tool, files, useAppStore.getState().batch.length);
+    const state = useAppStore.getState();
+    intake.warnings.forEach((message) => state.addToast({ type: 'warning', message }));
+    if (!intake.accepted.length) return;
+    state.setTotalSelectedPages(state.totalSelectedPages + intake.pages);
+    addFiles(intake.accepted);
     navigate('/');
   };
 
@@ -161,12 +169,12 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
     e.preventDefault();
     setIsDragOver(false);
     const dropped = Array.from(e.dataTransfer.files || []);
-    handleFiles(dropped);
+    void handleFiles(dropped);
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files || []);
-    handleFiles(selected);
+    void handleFiles(selected);
   };
 
   const relatedTools = ALL_TOP_TOOLS.filter((t) => {
@@ -254,24 +262,24 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
         }}
       />
 
-      <div className="min-h-screen bg-slate-50 dark:bg-[#0B0F19] text-slate-900 dark:text-slate-100 flex flex-col">
+      <div className="min-h-screen bg-ground text-ink flex flex-col">
         {/* Top Minimal Navigation Bar */}
-        <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#111622]/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+        <header className="sticky top-0 z-40 w-full px-4 pt-4">
+          <div className="nav-pill">
             <Link to="/" className="flex items-center gap-2 hover:opacity-90 transition-opacity">
               <BrandHeader />
             </Link>
             <div className="flex items-center gap-3 text-xs font-semibold">
               <Link
                 to="/"
-                className="text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 py-1 px-2.5 rounded-lg transition-colors"
+                className="nav-link py-1 px-2.5 transition-colors"
               >
                 All Tools
               </Link>
               <button
                 type="button"
                 onClick={() => navigate('/')}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-xs transition-colors"
+                className="px-4 py-1.5 rounded-full bg-accent text-white text-xs font-semibold transition-[filter,transform] duration-200 hover:brightness-110"
               >
                 Open Dashboard
               </button>
@@ -280,23 +288,22 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
         </header>
 
         {/* ── LIVE WORKING TOOL RUNNER AT TOP OF VIEWPORT ── */}
-        <section className="relative w-full bg-white dark:bg-[#111622] border-b border-slate-200/80 dark:border-slate-800 pt-8 sm:pt-12 pb-12">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center space-y-4">
-            <div className="inline-flex items-center gap-2 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-900 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full">
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>100% In-Browser • Private &amp; Instant</span>
-            </div>
+        <section className="relative w-full bg-surface border-b border-hairline pt-14 sm:pt-20 pb-14">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 space-y-5">
+            <p className="eyebrow">
+              {tool.category} · runs entirely in this tab
+            </p>
 
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-ink leading-[1.04] max-w-3xl">
               {displayH1}
             </h1>
 
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-base sm:text-lg text-muted max-w-2xl leading-relaxed">
               {displayDesc}
             </p>
 
             {/* ── Active Dropzone Box ── */}
-            <div className="pt-4 max-w-2xl mx-auto">
+            <div className="pt-6 max-w-2xl">
               <div
                 role="button"
                 tabIndex={0}
@@ -314,11 +321,8 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
                 onDragLeave={() => setIsDragOver(false)}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
-                className={`relative group rounded-2xl p-8 sm:p-12 flex flex-col items-center justify-center text-center cursor-pointer border-2 border-dashed transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
-                  isDragOver
-                    ? 'border-indigo-600 bg-indigo-50/60 dark:border-indigo-400 dark:bg-indigo-950/30'
-                    : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-[#0B0F19]/50 hover:bg-slate-100/60 dark:hover:bg-[#0B0F19] hover:border-indigo-400'
-                }`}
+                data-dragging={isDragOver ? 'true' : 'false'}
+                className="dropzone-dashed group rounded-2xl p-8 sm:p-10 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 <input
                   ref={fileInputRef}
@@ -329,32 +333,32 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
                   className="hidden"
                 />
 
-                <div className={`relative w-16 h-16 rounded-2xl ${tool.color || 'bg-indigo-600'} text-white shadow-md flex items-center justify-center mb-4 group-hover:scale-105 transition-transform`}>
-                  <Icon name={tool.icon} size={28} className="text-white" />
-                  <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-white dark:bg-[#111622] border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 shadow-xs">
-                    <Upload className="w-3.5 h-3.5" aria-hidden="true" />
-                  </div>
+                <div className="relative w-12 h-12 rounded-xl bg-sunken border border-hairline flex items-center justify-center mb-4 text-muted group-hover:text-accent group-hover:scale-105 transition-all">
+                  <Icon name={tool.icon} size={22} />
                 </div>
 
-                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                  Drag and drop your {fileTypeLabel} here
+                <h3 className="font-display text-base sm:text-lg font-semibold text-ink">
+                  Drop files here
                 </h3>
 
-                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1.5">
-                  or <span className="text-indigo-600 dark:text-indigo-400 font-semibold underline underline-offset-2">choose a file</span> from your computer
+                <p className="text-xs sm:text-sm text-muted mt-1.5">
+                  or <span className="text-accent font-semibold underline underline-offset-2">click to choose</span> · {fileTypeLabel}
                 </p>
 
-                <div className="mt-5 inline-flex items-center gap-2 bg-white dark:bg-[#111622] px-3.5 py-1 rounded-full border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                  <FileText className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
-                  <span>Up to 50&nbsp;MB • Client-side WebAssembly • Zero storage retention</span>
-                </div>
+                <p className="mt-4 font-mono text-[11px] tracking-wide text-muted">
+                  up to 50 MB · client-side · nothing uploaded
+                </p>
 
                 {isBankStatement && (
-                  <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold mt-3">
-                    Automatically reconciled debits, credits, and closing balance math ✓
+                  <p className="text-xs text-accent font-semibold mt-3">
+                    Automatically reconciled debits, credits, and closing balance math
                   </p>
                 )}
               </div>
+
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="btn-run-block mt-5">
+                Run {displayH1.replace(/^Free Online /, '').toLowerCase()}
+              </button>
             </div>
           </div>
         </section>
@@ -373,8 +377,8 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
-              <div className="bg-white dark:bg-[#111622] rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
-                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-xs">
+              <div className="bg-surface rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
+                <div className="w-8 h-8 rounded-lg bg-brand-50 dark:bg-brand-950/80 text-brand-600 dark:text-brand-400 font-extrabold flex items-center justify-center text-xs">
                   1
                 </div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">Step 1: Upload Your File</h3>
@@ -383,8 +387,8 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
                 </p>
               </div>
 
-              <div className="bg-white dark:bg-[#111622] rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
-                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-xs">
+              <div className="bg-surface rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
+                <div className="w-8 h-8 rounded-lg bg-brand-50 dark:bg-brand-950/80 text-brand-600 dark:text-brand-400 font-extrabold flex items-center justify-center text-xs">
                   2
                 </div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">Step 2: Configure &amp; Preview</h3>
@@ -393,8 +397,8 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
                 </p>
               </div>
 
-              <div className="bg-white dark:bg-[#111622] rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
-                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-xs">
+              <div className="bg-surface rounded-2xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
+                <div className="w-8 h-8 rounded-lg bg-brand-50 dark:bg-brand-950/80 text-brand-600 dark:text-brand-400 font-extrabold flex items-center justify-center text-xs">
                   3
                 </div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">Step 3: Process &amp; Save</h3>
@@ -406,7 +410,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
           </section>
 
           {/* 2. Technical Advantages & Trust Matrix */}
-          <section className="bg-white dark:bg-[#111622] rounded-2xl p-8 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-6">
+          <section className="bg-surface rounded-2xl p-8 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-6">
             <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
               Why Choose Prism File Hero for {tool.name}?
             </h2>
@@ -433,7 +437,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
 
               <div className="space-y-2">
                 <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-sm">
-                  <Lock className="w-4 h-4 text-indigo-600" />
+                  <Lock className="w-4 h-4 text-brand-600" />
                   <span>Zero Data Retention</span>
                 </div>
                 <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
@@ -451,7 +455,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
               </h2>
               <Link
                 to="/"
-                className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1"
               >
                 <span>View all 37 tools</span>
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -465,20 +469,20 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
                   <Link
                     key={rel.slug}
                     to={`/${rel.slug}`}
-                    className="group bg-white dark:bg-[#111622] rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-xs transition-all flex flex-col justify-between"
+                    className="group bg-surface rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 hover:border-brand-400 dark:hover:border-brand-500 hover:shadow-xs transition-all flex flex-col justify-between"
                   >
                     <div>
                       <div className="flex items-center justify-between mb-3">
-                        <div className={`w-9 h-9 rounded-xl ${rel.badgeColor} flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform`}>
+                        <div className="w-9 h-9 rounded-xl bg-sunken border border-hairline text-accent flex items-center justify-center group-hover:scale-105 transition-transform">
                           <IconComp className="w-4 h-4" />
                         </div>
                         {rel.isPro && (
-                          <span className="text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900 px-2 py-0.5 rounded-md">
+                          <span className="text-[10px] font-bold uppercase tracking-wider bg-brand-50 dark:bg-brand-950 text-brand-600 dark:text-brand-400 border border-brand-200 dark:border-brand-900 px-2 py-0.5 rounded-md">
                             Pro
                           </span>
                         )}
                       </div>
-                      <h3 className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
                         {rel.name}
                       </h3>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-snug">
@@ -486,7 +490,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
                       </p>
                     </div>
 
-                    <div className="mt-4 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 flex items-center justify-between">
+                    <div className="mt-4 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-[11px] font-medium text-brand-600 dark:text-brand-400 flex items-center justify-between">
                       <span>Open tool</span>
                       <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                     </div>
@@ -513,17 +517,17 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
                 return (
                   <div
                     key={faq.q}
-                    className="bg-white dark:bg-[#111622] rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden"
+                    className="bg-surface rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden"
                   >
                     <button
                       type="button"
                       onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
-                      className="w-full text-left p-5 flex items-center justify-between gap-4 font-semibold text-xs sm:text-sm text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                      className="w-full text-left p-5 flex items-center justify-between gap-4 font-semibold text-xs sm:text-sm text-slate-900 dark:text-white hover:text-brand-600 dark:hover:text-brand-400 transition-colors"
                     >
                       <span>{faq.q}</span>
                       <ChevronDown
                         className={`w-4 h-4 text-slate-400 transition-transform duration-200 flex-shrink-0 ${
-                          isOpen ? 'rotate-180 text-indigo-600' : ''
+                          isOpen ? 'rotate-180 text-brand-600' : ''
                         }`}
                       />
                     </button>
@@ -539,25 +543,25 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
           </section>
 
           {/* 5. Bottom Call to Action */}
-          <section className="rounded-3xl bg-indigo-600 p-8 sm:p-12 text-center text-white space-y-4 shadow-lg shadow-indigo-600/10">
+          <section className="rounded-3xl bg-brand-600 p-8 sm:p-12 text-center text-white space-y-4 shadow-lg shadow-brand-600/10">
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
               Ready to process your document?
             </h2>
-            <p className="text-xs sm:text-sm text-indigo-100 max-w-xl mx-auto leading-relaxed">
+            <p className="text-xs sm:text-sm text-brand-100 max-w-xl mx-auto leading-relaxed">
               Drop your file above to get started immediately, or jump straight into the full workbench dashboard.
             </p>
             <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="px-6 py-2.5 rounded-xl bg-white text-indigo-600 font-bold text-xs hover:bg-indigo-50 shadow-xs transition-colors"
+                className="px-6 py-2.5 rounded-xl bg-surface text-brand-600 font-bold text-xs hover:bg-brand-50 shadow-xs transition-colors"
               >
                 Choose File
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/')}
-                className="px-6 py-2.5 rounded-xl border border-indigo-400 hover:bg-indigo-700 text-white font-bold text-xs transition-colors"
+                className="px-6 py-2.5 rounded-xl border border-brand-400 hover:bg-brand-700 text-white font-bold text-xs transition-colors"
               >
                 Go to Dashboard
               </button>
@@ -566,7 +570,7 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
         </div>
 
         {/* Footer */}
-        <footer className="mt-auto border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111622] py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+        <footer className="mt-auto border-t border-slate-200 dark:border-slate-800 bg-surface py-8 text-center text-xs text-slate-500 dark:text-slate-400">
           <div className="max-w-6xl mx-auto px-4 space-y-2">
             <p>&copy; {new Date().getFullYear()} Prism File Hero. All rights reserved.</p>
             <p>100% In-Browser Document Processing • POPIA &amp; GDPR Compliant</p>

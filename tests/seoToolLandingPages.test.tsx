@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
@@ -28,7 +28,7 @@ describe('ToolLandingView SEO and Live Runner', () => {
     const h1 = screen.getByRole('heading', { level: 1 });
     expect(h1).toBeDefined();
     expect(h1.textContent).toMatch(/merge/i);
-    expect(screen.getByText(/Drag and drop/i)).toBeDefined();
+    expect(screen.getByText(/Drop files here/i)).toBeDefined(); // the live tool page's wording
   });
 
   it('renders bank statement customized SEO and live runner for /bank-statement-to-excel', () => {
@@ -44,7 +44,7 @@ describe('ToolLandingView SEO and Live Runner', () => {
 
     const h1 = screen.getByRole('heading', { level: 1 });
     expect(h1.textContent).toMatch(/bank statement/i);
-    expect(screen.getByText(/Drag and drop/i)).toBeDefined();
+    expect(screen.getByText(/Drop files here/i)).toBeDefined(); // the live tool page's wording
     expect(screen.getAllByText(/reconciled/i).length).toBeGreaterThan(0);
   });
 
@@ -64,7 +64,7 @@ describe('ToolLandingView SEO and Live Runner', () => {
 
     const h1 = screen.getByRole('heading', { level: 1 });
     expect(h1.textContent).toMatch(/bank statement/i);
-    expect(screen.getByText(/Drag and drop/i)).toBeDefined();
+    expect(screen.getByText(/Drop files here/i)).toBeDefined(); // the live tool page's wording
   });
 
   it('renders correctly for /tools/:toolId fallback route', () => {
@@ -80,7 +80,7 @@ describe('ToolLandingView SEO and Live Runner', () => {
 
     const h1 = screen.getByRole('heading', { level: 1 });
     expect(h1.textContent).toMatch(/compress/i);
-    expect(screen.getByText(/Drag and drop/i)).toBeDefined();
+    expect(screen.getByText(/Drop files here/i)).toBeDefined(); // the live tool page's wording
   });
 
   it('renders SEO sections: step-by-step guide, technical features, FAQs, and related tools', () => {
@@ -126,7 +126,9 @@ describe('ToolLandingView SEO and Live Runner', () => {
     });
 
     expect(useAppStore.getState().selectedTool).toBe('merge');
-    expect(useAppStore.getState().batch.length).toBe(1);
+    // Intake is async now: the drop runs the same validation and page counting the workspace
+    // uses, so the batch lands a microtask (and a pdfjs open) later than it used to.
+    await waitFor(() => expect(useAppStore.getState().batch.length).toBe(1));
     expect(useAppStore.getState().batch[0].fileName).toBe('test.pdf');
   });
 
@@ -174,7 +176,7 @@ describe('ToolLandingView SEO and Live Runner', () => {
 
       const h1 = screen.getByRole('heading', { level: 1 });
       expect(h1.textContent).toMatch(r.expectedH1);
-      expect(screen.getByText(/Drag and drop/i)).toBeDefined();
+      expect(screen.getByText(/Drop files here/i)).toBeDefined(); // the live tool page's wording
       unmount();
     }
   });
