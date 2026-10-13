@@ -50,8 +50,11 @@ jobs:
           test -f deploy/index.html                       # marketing root
           test -f deploy/app/index.html                   # app document
           grep -q '/app/assets/' deploy/app/index.html    # assets are mounted under /app
-          test -f deploy/functions/app/'[[path]].js'      # SPA fallback for /app deep links
+          test -f deploy/_worker.js                       # router that serves /app deep links
           ls deploy/app/assets/index-*.js >/dev/null
+          # The release must not be able to trust locally minted tokens: no stand-in issuer, no
+          # local Worker port, no localtest environment anywhere in what gets published.
+          ! grep -rIq -e '8799' -e 'localtest' -e '127\.0\.0\.1:878' -e 'localhost:878' deploy
           echo "artifact: $(find deploy -type f | wc -l) files, $(du -sh deploy | cut -f1)"
 
       - name: Deploy to Cloudflare Pages

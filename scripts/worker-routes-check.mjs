@@ -95,5 +95,21 @@ async function ins(table, rows) { return (await fetch(`${REST}/${table}`, { meth
   const ej = await (await fetch(`${WORKER}/api/billing/entitlement`, { headers: { Authorization: `Bearer ${t}` } })).json().catch(() => ({}));
   ok('paypal entitlement: server-derived plan for the caller', typeof ej.plan === 'string' && ej.source === 'server', JSON.stringify(ej)); }
 
+// 7. JWT claim isolation — every token here is CORRECTLY SIGNED by the stand-in key, so a rejection
+//    proves the specific claim check fired rather than "the signature was wrong". The control must
+//    pass, otherwise the other four results mean nothing.
+{
+  const sub = '11111111-0000-4000-8000-0000jwt0001';
+  const mint = async (q) => (await fetch(`${JWKS}/mint?sub=${encodeURIComponent(sub)}${q}`)).text();
+  const probe = async (tok) => (await fetch(`${WORKER}/api/billing/entitlement`, { headers: { Authorization: `Bearer ${tok}` } })).status;
+  const control = await mint('');
+  ok('jwt: correctly signed token with the expected issuer is accepted (control)', await probe(control) === 200, '');
+  ok('jwt: same signature but EXPIRED is rejected', await probe(await mint('&expOffset=-7200')) === 401, '');
+  ok('jwt: same signature but WRONG ISSUER is rejected', await probe(await mint(`&iss=${encodeURIComponent('https://someone-else.clerk.accounts.dev')}`)) === 401, '');
+  ok('jwt: correctly signed by our key but under an UNKNOWN kid is rejected', await probe(await mint('&kid=not-in-jwks')) === 401, '');
+  ok('jwt: a token for another subject cannot read this user (sub is taken from the token)',
+    (await (await fetch(`${WORKER}/api/billing/entitlement`, { headers: { Authorization: `Bearer ${await mint('')}` } })).json()).userId === sub, '');
+}
+
 console.log(`\n=== worker-routes-check: ${pass} passed, ${fail} failed ===`);
 process.exit(fail === 0 ? 0 : 1);

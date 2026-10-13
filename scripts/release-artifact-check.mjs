@@ -12,6 +12,8 @@
  * nothing is stubbed. That is the only substitution made here, and it is reported as such.
  */
 import { chromium } from 'playwright';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 const PAGES = process.env.PAGES_URL || 'http://127.0.0.1:8790';
 const LOCAL_WORKER = process.env.WORKER_URL || 'http://127.0.0.1:8787';
@@ -77,7 +79,41 @@ ok('the panel asks the Worker (re-pointed locally), not Pages', !/Page not found
 const apiOnPages = await fetch(`${PAGES}/api/health`).then((r) => r.status).catch(() => 0);
 ok('Pages does not serve /api/* (Worker origin stays separate)', apiOnPages === 404, `status=${apiOnPages}`);
 
-// 6. no broken static resources anywhere in the run
+// 6. A missing asset is an error, not the app document (the failure mode a naive SPA fallback creates)
+for (const missing of ['/app/assets/does-not-exist.js', '/app/assets/does-not-exist.css', '/definitely-not-here.html']) {
+  const r = await fetch(`${PAGES}${missing}`);
+  const body = await r.text();
+  const isAppDoc = /id="root"/.test(body) && /\/app\/assets\/index-/.test(body);
+  ok(`missing file ${missing} returns an error, not the app document`, r.status === 404 && !isAppDoc, `status=${r.status} appDoc=${isAppDoc}`);
+}
+
+// 7. The router travels inside the artifact (a deploy/functions directory is resolved relative to
+//    the CLI's working directory and silently disappears from a repo-root `pages deploy deploy`).
+const routerSrc = existsSync('deploy/_worker.js') ? readFileSync('deploy/_worker.js', 'utf8') : '';
+ok('artifact carries its own router at deploy/_worker.js', routerSrc.includes('/app/index.html') && routerSrc.includes('ASSETS'), '');
+ok('no stray functions/ directory that CI could fail to detect', !existsSync('deploy/functions'), '');
+
+// 8. Synthetic authentication cannot be present in what gets published
+const SYNTHETIC_MARKERS = ['127.0.0.1:8799', 'localhost:8799', '127.0.0.1:8787', '127.0.0.1:8788', 'localhost:8787', 'localhost:8788', '127.0.0.1:5173', '127.0.0.1:5174', 'localtest', '/mint?sub='];
+const offenders = [];
+const scan = (dir) => {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) { scan(p); continue; }
+    if (/\.(js|mjs|css|html|json|webmanifest|svg|png|jpg|txt|xml|pdf|wasm|map)$/i.test(entry.name)) {
+      const buf = readFileSync(p);
+      if (buf.length > 4_000_000) continue;
+      const s = buf.toString('latin1');
+      for (const marker of SYNTHETIC_MARKERS) {
+        if (s.includes(marker)) offenders.push(`${p} contains ${marker}`);
+      }
+    }
+  }
+};
+scan('deploy');
+ok('no stand-in JWKS, localtest env or local Worker origin anywhere in the artifact', offenders.length === 0, offenders.slice(0, 3).join(' | '));
+
+// 9. no broken static resources anywhere in the run
 ok('no 4xx/5xx asset or script responses during the whole run', netFail.length === 0, netFail.slice(0, 5).join(' | '));
 
 await browser.close();

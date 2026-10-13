@@ -1023,6 +1023,17 @@ OAuth token carries `zone (read)` only and `/zones/<id>/dns_records` answered
 | deployed Worker `/api/billing/*`, `/api/paypal/*` | **`404` — the deployed Worker predates this billing work** |
 | absent / garbage / forged-signature-with-real-kid / expired / wrong-instance / `alg=none` tokens against `/api/usage/summary` | **all `401`** (`Authentication required` vs `Invalid token`), no token material logged |
 
+**What that row does and does not prove:** every non-trivial token in it was *also* unsigned by a key
+the deployed instance publishes, so the signature check is what rejected them. It proves the deployed
+Worker refuses unverifiable tokens; it does **not** independently prove the issuer or expiry checks.
+Those are proven separately in `worker-routes-check` §7, where each token is **correctly signed** by a
+key the (localtest) Worker trusts and only one claim is varied — control accepted `200`, expired `exp`
+`401`, wrong `iss` `401`, unknown `kid` `401`, and `sub` taken from the token rather than the caller.
+A positive production test still needs a genuine live-session token: `scripts/prod-auth-check.mjs`
+performs it against `GET /api/usage` (read-only; verified to be a `usage_logs` select plus a plan read,
+no writes), reports authentication separately from any backend error, and exits 2 with instructions
+when `PROD_CLERK_TOKEN` is absent — it is not a pass and not a substitute.
+
 So the frontend-authorization settings are right and the rejection paths hold, but a *positive*
 production test is impossible until (a) the Worker is redeployed with the billing routes and (b) a
 genuine production session token is presented. No credit reservation, tool execution, plan change or
@@ -1060,3 +1071,71 @@ the default (`:8787`) verifies **real Clerk** signatures, and `[env.localtest]` 
 Measured: the same stand-in token is `200` on `:8788` and `401` on `:8787`. The route/checkout suites
 were repointed to `:8788` (and the test dev server to `:5174`); the journey uses `:8787` + `:5173`
 with genuine Clerk sessions and no injected headers.
+
+## 34. Corrected release plan, with the recovery claims fixed (2026-10-13)
+
+**Evidence, not assumption** — `npm run check:schema-release` (10/10) runs entirely in throwaway
+Postgres containers and shows: all 17 migrations apply to an empty database; the 8 pre-PayPal
+migrations apply and then the 9 PayPal-era ones apply **in place**; the upgraded schema is
+byte-identical (columns + function signatures) to the freshly installed one; the access-policy
+assertions (captured payment → pro; replay cannot extend the window; refund via `sale_id` revokes)
+pass on the upgraded database, and again on a second database restored from that database's
+`pg_dump`.
+
+**Remote state is still unverified, and the pending list must be derived from it.** `supabase projects
+list` / `migration list --linked` both fail here with "Access token not provided", so nothing in this
+session has read the remote's `supabase_migrations.schema_migrations`. The earlier claim that the nine
+PayPal-era migrations are "the" pending set was an assumption and is withdrawn: the complete pending
+list is *every* migration the remote lacks, which may include `20261010000000`–`20261010000005`.
+Before any release: `supabase login` then `supabase migration list --linked` (read-only) and take the
+diff. Until that is done, treat the migration set as unknown, not as nine files.
+
+**Backup / restore commands actually used (installed tooling):**
+```
+docker exec <db> pg_dump -U postgres --no-owner --no-privileges postgres > backup.sql
+docker exec -i <fresh-db> psql -U postgres -d postgres -v ON_ERROR_STOP=1 < backup.sql
+# project database, equivalent:
+supabase db dump --local --db-url postgres://postgres:postgres@127.0.0.1:54322/postgres -f backup.sql
+supabase db restore backup.sql --local        # or psql into a scratch database to rehearse first
+```
+Roles are cluster-level and are **not** in the dump: a restore into a fresh cluster needs
+`create role anon/authenticated/service_role` first (measured), while the `auth` schema **is** in the
+dump and must not be pre-created.
+
+**Deployment-order compatibility, measured both ways:** new Worker + old schema →
+`apply_paypal_event` does not exist, so webhook and subscribe calls error out and **nothing is
+granted**; old Worker + new schema → `apply_billing_event` was dropped, so its webhook path errors
+and again nothing is granted; `get_user_entitlement` exists on both, so plan reads survive either
+order. Correct order is therefore **migrations first, then the Worker**, then Pages.
+
+**Withdrawn claim, replaced.** Earlier: "rolling the Worker back cannot strand access because the
+billing tables remain". That is wrong, and the mechanism matters:
+- Rolling the Worker back to the pre-billing build removes `/api/billing/*` and `/api/paypal/webhook`
+  entirely. Buyers cannot upgrade, cancel or reconcile from the UI; PayPal deliveries fail and are
+  retried until the endpoint is marked failing, so events accumulate undelivered.
+- The pre-billing build answers entitlement from the `user_plans` projection, not from payment
+  coverage. After a rollback, a paid user reads whatever `user_plans` held at the moment of
+  rollback — which the new code may have set to `free` after a refund, or left stale. **Paid access
+  can therefore be lost or, worse, reported from a stale projection.** Roll back the Worker only
+  together with the schema state it understands.
+- Restoring an older database backup loses every `billing_events` / `billing_payments` row written
+  after that backup. Those events are not replayed automatically: PayPal redelivery is manual and
+  time-windowed (`POST /v1/notifications/webhooks-events/<id>/resend`), and `/api/billing/paypal/reconcile`
+  can restore subscription *status* but can only re-bind a paid-through window for the payment PayPal
+  still reports as its latest. So a restore inside a paid period can leave a genuine payment
+  unrepresented until it is resent by hand.
+- Consequence for recovery procedure: take a fresh `pg_dump` immediately before any migration or
+  Worker deploy; record the highest `billing_events.received_at` in it; after a restore, re-run
+  `/api/billing/paypal/reconcile` for affected subscriptions and resend any event whose id is missing,
+  then re-check `get_user_entitlement` per user rather than trusting the projection.
+
+**Synthetic authentication is isolated and the detector is proven.** `npm run check:auth-isolation`
+(13/13) asserts: the default `worker/wrangler.toml` section names no stand-in issuer; the localtest
+environment exists only as `[env.localtest.vars]`; no `.dev.vars*`, token or webhook capture is
+tracked and each is gitignored; the release artifact contains no stand-in issuer, `/mint` endpoint or
+local Worker origin; the deploy workflow cannot select `localtest`; the **deployed** Worker answers
+`401` to a locally minted token while the localtest Worker answers `200` to the same token; and no
+request-injection code exists in app or Worker sources. Two of those checks initially failed on
+*comments* mentioning the stand-in, so they were narrowed to assignment lines and real invocations,
+and a negative control (injecting `CLERK_JWKS_URL = "http://127.0.0.1:8799/..."` into the default
+section) makes the check fail as it must.

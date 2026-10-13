@@ -39,27 +39,38 @@ for (const entry of readdirSync(join(ROOT, 'dist'))) {
   cpSync(join(ROOT, 'dist', entry), join(DEPLOY, 'app', entry), { recursive: true });
 }
 
-// SPA fallback as a Pages Function, NOT _redirects. Measured with `wrangler pages dev`: a redirect
-// rule is applied BEFORE the static-asset lookup, so `/app/*  /app/  200` also captured
-// /app/assets/index-*.js and *.css and answered them with the HTML document (MIME errors, blank
-// page). A matching Function is consulted BEFORE the asset lookup in this runtime too, so the
-// function itself must hand file requests back to the static-asset store instead of 404ing them.
-const fnDir = join(DEPLOY, 'functions', 'app');
-mkdirSync(fnDir, { recursive: true });
-writeFileSync(join(fnDir, '[[path]].js'), [
-  '// Deep links and refreshes under /app render the React document; anything with a file extension',
-  '// is passed straight back to the static-asset store, because a matching Function is consulted',
-  '// before the asset lookup (measured with `wrangler pages dev` — a naive fallback 404s the app’s',
-  '// own JS/CSS).',
-  'export async function onRequest({ request, env }) {',
-  "  const url = new URL(request.url);",
-  "  if (/\\.[a-z0-9]{1,8}$/i.test(url.pathname)) return env.ASSETS.fetch(request);",
-  "  const doc = await env.ASSETS.fetch(new Request(new URL('/app/index.html', url.origin)));",
-  "  if (!doc.ok) return new Response('Not found', { status: 404 });",
-  "  return new Response(doc.body, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });",
-  '}',
+// The router must live INSIDE the artifact. `wrangler pages dev deploy` / `pages deploy deploy` run
+// from the repo root report "No Functions. Shimming..." for a deploy/functions directory (measured:
+// /app/merge-pdf then 404s), because Functions are looked up relative to the CLI's working directory.
+// `_worker.js` in the output directory is read from the artifact itself, so CI cannot lose it.
+//
+// Why not _redirects either: a redirect rule is consulted BEFORE the static-asset lookup, so
+// `/app/* → /app/ 200` answered the app's own JS/CSS with HTML (MIME errors, blank page). Hence this
+// router passes every file-like path straight back to the asset store.
+writeFileSync(join(DEPLOY, '_worker.js'), [
+  '// Prism File Hero release router: marketing at /, the React app at /app.',
+  'export default {',
+  '  async fetch(request, env) {',
+  '    const url = new URL(request.url);',
+  '    const underApp = url.pathname === "/app" || url.pathname.startsWith("/app/");',
+  '    const looksLikeFile = /\\.[a-z0-9]{1,8}$/i.test(url.pathname);',
+  '    const method = request.method.toUpperCase();',
+  '    if (underApp && !looksLikeFile && (method === "GET" || method === "HEAD")) {',
+  '      const doc = await env.ASSETS.fetch(new Request(new URL("/app/index.html", url.origin)));',
+  '      if (doc.ok) {',
+  '        return new Response(doc.body, { status: 200, headers: {',
+  "          'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',",
+  '        } });',
+  '      }',
+  '    }',
+  '    // Everything else — assets, marketing pages, genuinely missing files — is the asset store,',
+  '    // so a missing .js/.css answers 404 instead of receiving the app document.',
+  '    return env.ASSETS.fetch(request);',
+  '  },',
+  '};',
   '',
 ].join('\n'));
+writeFileSync(join(DEPLOY, '_redirects'), '# No catch-all rule: /app/* is resolved by _worker.js so static assets and real 404s win.\n');
 writeFileSync(join(DEPLOY, '_redirects'), '# No catch-all: /app/* is resolved by functions/app/[[path]].js so static assets win.\n');
 
 const app = count(join(DEPLOY, 'app'));
