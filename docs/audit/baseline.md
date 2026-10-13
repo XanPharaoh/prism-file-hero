@@ -1384,3 +1384,48 @@ locally because the generator no longer emits it) and by two meta tags the local
 (`<link rel="canonical">`, absolute `og:image`/`twitter:image`). Deploying the local copy would
 therefore change live's SEO metadata (arguably for the better) and drop the cache-buster query —
 flagging it rather than silently aligning in either direction.
+
+### Correction to the metering section above (same session, later)
+
+The section titled "Paid tool executes, and is finally metered" describes `POST /api/usage/reserve`
+and `POST /api/usage/settle` as the fix for unmetered paid work. That fix was reviewed and
+**removed** in `fix(quota): one plan definition…`, for two reasons measured after it landed:
+
+1. **Local processing is not cloud consumption.** Offline Tesseract OCR runs entirely in the
+   browser; booking cloud pages for it charged provider credits for work that never reached a
+   provider. OCR (and PDF to Excel, Redact) are classified `hybrid`: entitled, not metered. Cloud
+   pages are booked only where a provider call actually happens — inside `/api/ai` — so cloud work
+   is charged exactly once and a hybrid run that escalates mid-flight cannot be double-booked.
+2. **A browser-closeable reservation is a self-service refund.** Any client could settle `ERROR`
+   after the server finished the work, or simply never settle, and could under-report pages because
+   only the browser knew the page count.
+
+The ledger evidence quoted there (0 → 2 → … → 26 AI pages) is therefore superseded: those rows were
+produced by the removed path. The current measurement is the opposite and correct one — two full OCR
+runs through both upload paths left `aiPagesUsed` unchanged at 26 and created no `feature_type='ai'`
+row, while `paid-tool-output-check --live` still passes 9/9 and produces the same verified
+searchable PDFs. The free-tier numbers quoted there ("2/6 AI, 5/15 local, 10/month") are also
+superseded by `20261014000001`, which makes free cloud AI zero on every layer.
+
+What survives from that section unchanged: the plan-blind browser ceiling bug and its fix, the
+landing-page intake bypass and `services/fileIntake.ts`, the `callRpc` empty-body defect, and the
+artifact verification.
+
+### Quota resolution and staging preparation (final state of this session)
+
+Six reviewable commits: `fix(db)` ceilings + premium gate, `fix(quota)` one plan definition,
+`fix(ocr)` intake, `feat(ui)` live design system, `fix(site)` asset fingerprinting,
+`feat(billing)` paid-through coverage, plus `docs(audit)` and `chore(staging)`.
+
+Verified after all of them, against the committed tree: unit 743 pass; `check:quota` 22/22;
+`check:worker` 20/20; `check:backend` 32/32; `check:schema-release` 10/10; `check:auth-isolation`
+13/13; `check:release` 20/20; `checkout-return-check` 25/25; `clerk-journey-check --phase=verify`
+13/13; `paid-tool-output-check --live` 9/9. Before/after screenshots in both themes are in
+`evidence/before-after/` (the "before" set rendered from the pre-change commit in a detached
+worktree, then removed).
+
+**Pending, not performed:** any production deploy; the staging steps in
+`docs/staging-runbook.md` (they create cloud resources and need an explicit go-ahead); a positive
+production authentication test, which still needs a live Clerk session token (`PROD_CLERK_TOKEN`);
+the remote migration ledger via `SUPABASE_ACCESS_TOKEN`; and rotation of the sandbox PayPal secret
+that was exposed earlier in this engagement.
