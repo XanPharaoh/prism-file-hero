@@ -21,6 +21,7 @@
     "check:paid-output": "node scripts/paid-tool-output-check.mjs",
     "check:clerk-pair": "node scripts/clerk-instance-check.mjs",
     "release:build": "node scripts/build-release.mjs",
+    "release:build:staging": "vite build --mode staging && node scripts/build-release.mjs --no-build --noindex",
     "check:release": "node scripts/release-artifact-check.mjs",
     "check:schema-release": "node scripts/schema-release-check.mjs",
     "check:auth-isolation": "node scripts/auth-isolation-check.mjs",

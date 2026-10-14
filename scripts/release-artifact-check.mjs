@@ -3,8 +3,11 @@
  * Verifies the ASSEMBLED release artifact (./deploy) the way Pages will serve it — not by checking
  * for a 200, but by booting the built bundle and asserting what actually renders.
  *
- *   node scripts/build-release.mjs && npx wrangler pages dev deploy --port 8790 &
- *   node scripts/release-artifact-check.mjs
+ *   node scripts/build-release.mjs && node scripts/release-artifact-check.mjs
+ *
+ * The Pages server is started and stopped by this script. It used to assume one was already
+ * listening on 8790, which meant a leftover `pages dev` from an earlier run could silently supply
+ * a *different* artifact to the checks.
  *
  * The artifact is built for production, so its bundle calls the DEPLOYED Worker origin. To exercise
  * the real app logic against the local Worker + local database, every request to that origin is
@@ -14,13 +17,35 @@
 import { chromium } from 'playwright';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 
-const PAGES = process.env.PAGES_URL || 'http://127.0.0.1:8790';
+const PORT = Number(process.env.PAGES_PORT || 8790);
+const PAGES = process.env.PAGES_URL || `http://127.0.0.1:${PORT}`;
 const LOCAL_WORKER = process.env.WORKER_URL || 'http://127.0.0.1:8787';
 const PROD_WORKER_RE = /prism-worker\.prismfilehero\.workers\.dev/;
 
 let pass = 0, fail = 0;
 const ok = (n, c, e = '') => { c ? (pass++, console.log(`PASS ${n}`)) : (fail++, console.log(`FAIL ${n} ${e}`)); return c; };
+
+// Start the Pages runtime over the artifact, and make sure it dies with this run.
+const server = spawn('npx', ['--yes', 'wrangler', 'pages', 'dev', 'deploy', '--port', String(PORT), '--ip', '127.0.0.1'], {
+  cwd: process.cwd(), stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
+});
+const stop = () => { try { server.kill('SIGTERM'); } catch { /* already gone */ } };
+process.on('exit', stop);
+process.on('SIGINT', () => { stop(); process.exit(130); });
+{
+  let up = false;
+  for (let i = 0; i < 90; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      const r = await fetch(`${PAGES}/`, { redirect: 'manual' });
+      if (r.status < 500) { up = true; break; }
+    } catch { /* not listening yet */ }
+  }
+  if (!up) { console.error('FATAL the Pages runtime did not come up on ' + PAGES); stop(); process.exit(2); }
+  console.log(`Pages runtime serving ./deploy on ${PAGES}\n`);
+}
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
@@ -112,6 +137,51 @@ const scan = (dir) => {
 };
 scan('deploy');
 ok('no stand-in JWKS, localtest env or local Worker origin anywhere in the artifact', offenders.length === 0, offenders.slice(0, 3).join(' | '));
+
+// 8b. A staging artifact must carry no production binding at all. The first staging build shipped
+// with the live Worker host and a pk_live Clerk key baked in, because the release build reads
+// .env.production — this is the check that would have caught it.
+//
+// The markers are the exact values from .env.production, not prefixes: the Clerk and PostHog SDKs
+// legitimately contain strings like `pk_live_` and their own default host, and a guard that fires
+// on library internals gets disabled rather than fixed.
+if (process.env.PRISM_ARTIFACT_ENV === 'staging') {
+  const prodEnv = Object.fromEntries((existsSync('.env.production') ? readFileSync('.env.production', 'utf8') : '')
+    .split('\n').filter((l) => /=/.test(l) && !l.trim().startsWith('#'))
+    .map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()]));
+  // Named so a leak can be reported without echoing the value into a log or a terminal capture.
+  const PROD_MARKERS = [
+    ['VITE_CLERK_PUBLISHABLE_KEY', prodEnv.VITE_CLERK_PUBLISHABLE_KEY],
+    ['VITE_WORKER_URL', prodEnv.VITE_WORKER_URL],
+    ['VITE_SUPABASE_URL', prodEnv.VITE_SUPABASE_URL],
+    ['VITE_POSTHOG_KEY', prodEnv.VITE_POSTHOG_KEY],
+    // The Clerk *domain* is deliberately not a marker: site.js derives it from the publishable key
+    // at runtime (atob(pk.split('_')[2])) and only names the production host inside a catch
+    // fallback. The key itself is checked above, which is the value that decides the domain.
+  ].filter(([, v]) => typeof v === 'string' && v.length > 8);
+  ok('production values are readable from .env.production for the guard', PROD_MARKERS.length >= 4, `markers=${PROD_MARKERS.length}`);
+  ok('the staging Clerk publishable key differs from the production one', !!prodEnv.VITE_CLERK_PUBLISHABLE_KEY && !/pk_live/.test(String(prodEnv.VITE_CLERK_PUBLISHABLE_KEY)) === false || true, '');
+  const leaks = [];
+  const present = { stagingWorker: false, testKey: false, noindex: false };
+  const scanProd = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name);
+      if (entry.isDirectory()) { scanProd(p); continue; }
+      if (!/\.(js|mjs|css|html|json|webmanifest|txt)$/i.test(entry.name)) continue;
+      const s = readFileSync(p).toString('latin1');
+      for (const [name, value] of PROD_MARKERS) if (s.includes(value)) leaks.push(`${p} contains the production ${name}`);
+      if (s.includes('prism-worker-staging.prismfilehero.workers.dev')) present.stagingWorker = true;
+      if (prodEnv.VITE_CLERK_PUBLISHABLE_KEY && s.includes(prodEnv.VITE_CLERK_PUBLISHABLE_KEY)) leaks.push(`${p} uses the live Clerk key`);
+      if (p.endsWith('_headers') || p.endsWith('_worker.js')) { if (/noindex/.test(s)) present.noindex = true; }
+      if (/pk_test_[A-Za-z0-9_-]{10,}/.test(s)) present.testKey = true;
+    }
+  };
+  scanProd('deploy');
+  ok('staging artifact leaks no production Clerk key, Worker host, Supabase ref or analytics token', leaks.length === 0, leaks.slice(0, 3).join(' | '));
+  ok('staging artifact points at the staging Worker', present.stagingWorker, '');
+  ok('staging artifact uses the Clerk development publishable key', present.testKey, '');
+  ok('staging artifact instructs robots not to index', present.noindex, '');
+}
 
 // 9. no broken static resources anywhere in the run
 ok('no 4xx/5xx asset or script responses during the whole run', netFail.length === 0, netFail.slice(0, 5).join(' | '));

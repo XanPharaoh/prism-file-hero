@@ -16,12 +16,15 @@
  *    so the Pages project must not proxy or shadow it.
  */
 import { execFileSync } from 'node:child_process';
-import { cpSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { cpSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
 const DEPLOY = join(ROOT, 'deploy');
 const doBuild = !process.argv.includes('--no-build');
+// Staging must never be indexed; the router has to carry the header itself because responses it
+// produces (the /app document) bypass _headers.
+const NOINDEX = process.argv.includes('--noindex');
 
 const count = (dir) => { let n = 0, bytes = 0; const walk = (d) => { for (const f of readdirSync(d, { withFileTypes: true })) { const p = join(d, f.name); if (f.isDirectory()) walk(p); else { n++; bytes += statSync(p).size; } } }; walk(dir); return { n, bytes }; };
 
@@ -49,6 +52,7 @@ for (const entry of readdirSync(join(ROOT, 'dist'))) {
 // router passes every file-like path straight back to the asset store.
 writeFileSync(join(DEPLOY, '_worker.js'), [
   '// Prism File Hero release router: marketing at /, the React app at /app.',
+  'const ROBOTS = ' + String(NOINDEX) + '; // set at build time by --noindex (staging)',
   'export default {',
   '  async fetch(request, env) {',
   '    const url = new URL(request.url);',
@@ -58,20 +62,67 @@ writeFileSync(join(DEPLOY, '_worker.js'), [
   '    if (underApp && !looksLikeFile && (method === "GET" || method === "HEAD")) {',
   '      const doc = await env.ASSETS.fetch(new Request(new URL("/app/index.html", url.origin)));',
   '      if (doc.ok) {',
-  '        return new Response(doc.body, { status: 200, headers: {',
-  "          'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',",
-  '        } });',
+  "        const h = new Headers({ 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });",
+  "        if (ROBOTS) h.set('x-robots-tag', 'noindex, nofollow, noarchive');",
+  '        return new Response(doc.body, { status: 200, headers: h });',
   '      }',
   '    }',
   '    // Everything else — assets, marketing pages, genuinely missing files — is the asset store,',
   '    // so a missing .js/.css answers 404 instead of receiving the app document.',
-  '    return env.ASSETS.fetch(request);',
+  '    const res = await env.ASSETS.fetch(request);',
+  "    if (ROBOTS && !res.headers.has('x-robots-tag')) {",
+  '      const h = new Headers(res.headers);',
+  "      h.set('x-robots-tag', 'noindex, nofollow, noarchive');",
+  '      return new Response(res.body, { status: res.status, headers: h });',
+  '    }',
+  '    return res;',
   '  },',
   '};',
   '',
 ].join('\n'));
 writeFileSync(join(DEPLOY, '_redirects'), '# No catch-all rule: /app/* is resolved by _worker.js so static assets and real 404s win.\n');
 writeFileSync(join(DEPLOY, '_redirects'), '# No catch-all: /app/* is resolved by functions/app/[[path]].js so static assets win.\n');
+
+// Staging must never carry a production binding, and the marketing bundle embeds two: the live
+// Worker origin and the live Clerk publishable key (site/assets/features.data.js). Rewrite them in
+// the copied artifact from .env.staging — the source file, and therefore production, is untouched.
+if (NOINDEX) {
+  const envFile = '.env.staging';
+  if (!existsSync(envFile)) {
+    console.error('--noindex requires .env.staging (VITE_WORKER_URL + VITE_CLERK_PUBLISHABLE_KEY) so staging cannot inherit production bindings');
+    process.exit(2);
+  }
+  const read = (key) => (readFileSync(envFile, 'utf8').match(new RegExp(`^${key}=(.*)$`, 'm')) || [])[1]?.trim() || '';
+  const worker = read('VITE_WORKER_URL');
+  const clerkKey = read('VITE_CLERK_PUBLISHABLE_KEY');
+  const dataFile = join(DEPLOY, 'assets', 'features.data.js');
+  if (!worker || !clerkKey) { console.error('.env.staging is missing VITE_WORKER_URL or VITE_CLERK_PUBLISHABLE_KEY'); process.exit(2); }
+  let src = readFileSync(dataFile, 'utf8');
+  const before = src;
+  // No comments are injected: the publishable key sits inside an object literal, and a trailing
+  // `//` there swallows the closing brace (measured, not hypothetical).
+  src = src.replace(/var WORKER = "[^"]*";/, `var WORKER = "${worker}";`);
+  src = src.replace(/clerkPublishableKey: "[^"]*"/, `clerkPublishableKey: "${clerkKey}"`);
+  if (src === before) { console.error('staging rewrite found no production bindings to replace — the artifact layout changed'); process.exit(2); }
+  writeFileSync(dataFile, src);
+  console.log('staging: marketing bundle re-pointed at the staging Worker and the Clerk development instance');
+}
+
+// Staging must never be indexed: the marketing copy and the app would compete with the real
+// domain in search results. `--noindex` writes a Pages _headers rule for every path.
+if (process.argv.includes('--noindex')) {
+  writeFileSync(join(DEPLOY, '_headers'), [
+    '/*',
+    '  X-Robots-Tag: noindex, nofollow, noarchive',
+    '  X-Content-Type-Options: nosniff',
+    '',
+    '/app/*',
+    '  X-Robots-Tag: noindex, nofollow, noarchive',
+    '',
+  ].join('\n'));
+  writeFileSync(join(DEPLOY, 'robots.txt'), 'User-agent: *\nDisallow: /\n');
+  console.log('noindex: deploy/_headers + disallow-all robots.txt written');
+}
 
 const app = count(join(DEPLOY, 'app'));
 const all = count(DEPLOY);

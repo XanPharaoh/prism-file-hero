@@ -76,6 +76,9 @@ FRONTEND_URL = "https://prism-file-hero-staging.pages.dev"
 PAYPAL_ENV = "sandbox"
 ENVIRONMENT = "staging"
 
+# Created 2026-10-14 with `wrangler kv namespace create STAGING_KV` (title STAGING_KV,
+# id 638dafd65847402c8271625f9182d582). Bound as `KV` so the code is unchanged, but the
+# namespace itself is separate: production device tokens are unreachable from staging.
 [[env.staging.kv_namespaces]]
 binding = "KV"
-id = "<staging-kv-id>"      # runbook step 2; a placeholder cannot read production device records
+id = "638dafd65847402c8271625f9182d582"

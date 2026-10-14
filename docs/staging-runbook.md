@@ -148,3 +148,65 @@ paid projection is derived from payment rows, and that derivation is what change
 
 `wrangler deploy` for the default environment, `pages deploy --project-name=prism-file-hero`,
 production PayPal credentials, and any paid AI provider key.
+
+---
+
+## Staging status — executed 2026-10-14
+
+Deployed (all isolated; production untouched):
+
+| Resource | Value |
+|---|---|
+| Staging Pages project | `prism-file-hero-staging` → https://prism-file-hero-staging.pages.dev |
+| Latest Pages deployment | `c8427123` (also `3b44259f`, superseded — see the binding fix below) |
+| Staging Worker | https://prism-worker-staging.prismfilehero.workers.dev — version `0ffcefde-7bb5-41ae-a8d6-896c36df42fc` |
+| Staging KV namespace | `638dafd65847402c8271625f9182d582` (title `STAGING_KV`, bound as `KV`) |
+| Staging database | fresh local Supabase stack `prismstg` (API 127.0.0.1:44421, DB 127.0.0.1:44422), **not** exposed publicly — see below |
+| Deployed commit | `0097ff3` plus the staging build-path fixes committed with this section |
+
+Verified, with results:
+
+- `scripts/staging-probe.mjs` — **26/26**: every data route 401s anonymously; malformed and
+  shape-correct forged tokens are refused; a genuine Clerk **development** session token
+  (`iss …clerk.accounts.dev`) passes staging authentication; `subscribe` answers
+  `503 configured:false` rather than granting; cloud AI never returns 200 with no provider
+  credentials and claims no completion; CORS accepts the staging Pages origin, does not vouch for
+  `prismfilehero.com`, and does not echo an arbitrary origin; `/`, `/app/`, a deep link, a missing
+  asset (real 404), `robots.txt` and `X-Robots-Tag: noindex` all behave.
+- Staging artifact check (`PRISM_ARTIFACT_ENV=staging npm run check:release`) — **26/26**; the
+  production path still passes its own 20 unchanged.
+- Staging database: fresh install applied all 19 migrations; `check:backend` against it **32/32**
+  (RLS boundaries, privilege grants, billing ownership, ledger reserve→settle, dedupe surviving a
+  PostgREST restart); `pg_dump` (372,911 bytes, `evidence/staging/staging-backup.sql`) restored
+  into a separate database in the same image with 10 tables, 4 RLS policies and all 6 ledger
+  functions, and the restored copy answers the quota policy identically.
+- Deployed UI screenshots in both themes and both viewports: `evidence/staging/staging-{home,app}-{desktop,mobile}-{light,dark}.png`.
+
+Two defects the staging work exposed, both fixed:
+
+1. **The first staging Pages deployment carried production bindings.** The release build reads
+   `.env.production`, so the deployed bundle called the live Worker and embedded the `pk_live`
+   Clerk key, and `site/assets/features.data.js` carried both as well. A `--mode staging` build
+   path (`.env.staging`, gitignored), a mode-aware Worker fallback in `services/apiConfig.ts`, a
+   staging rewrite of the marketing bundle's Worker/Clerk values in `build-release.mjs`, and a
+   guard in `release-artifact-check.mjs` that fails on the exact production values now prevent it.
+   `vite.config.ts` keys `base` off the build command, so a staging build still mounts at `/app`.
+2. **`release-artifact-check` silently depended on a `pages dev` already running on 8790**, which
+   meant a leftover server could have supplied a different artifact than the one under test. It now
+   starts and stops its own runtime.
+
+Not exposed publicly, on purpose: the staging Supabase stack authenticates with Supabase's
+well-known local JWT secret. Tunneling it would let anyone who knows that default mint a valid
+`service_role` token for the tunneled PostgREST, so the deployed staging Worker is deliberately
+left without `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` — every data route fails closed, which the
+probe asserts rather than assumes.
+
+Blocked, in order:
+
+1. **Hosted staging database** — needs `supabase login` (interactive) or `SUPABASE_ACCESS_TOKEN`.
+   Then: create the project, `supabase db push`, create the staging secrets
+   (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`), and re-run the probe + journey against it.
+2. **PayPal sandbox secret rotation** — no API exists for rotating REST app credentials; it is a
+   dashboard action. Until it is rotated, the disclosed secret is not reused, so no sandbox
+   subscription and no staging webhook can be created.
+3. **Sandbox buyer approval** for the subscription, once (2) is done.
