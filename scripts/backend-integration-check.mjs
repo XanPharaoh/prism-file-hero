@@ -13,7 +13,6 @@ import { execFileSync } from 'node:child_process';
 const BASE = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
 const REST = `${BASE}/rest/v1`;
 const TOK = JSON.parse(readFileSync('.localdev/tokens.json', 'utf8'));
-const MONTH = new Date().toISOString().slice(0, 7); // matches check_usage_limit / plan_grants month key
 const N = Date.now().toString(36); // unique per run: the durable inbox dedupes by event_id
 
 let pass = 0, fail = 0;
@@ -46,45 +45,68 @@ async function ins(token, table, rows) {
 const SR = TOK.service_role;
 const uid = (n) => `11111111-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
-// ── 1. Credit ledger: reserve/settle/refund/idempotency ─────────────────────
+// ── 1. Usage ledger: hold / over-limit / release / finality ─────────────────
+// This section used to prove a second, parallel metering system (Paddle-era reserve_credit /
+// settle_credit over plan_grants + credit_reservations). 20261015000001 retired it, so the same
+// four invariants are now asserted against the single ledger the Worker actually books.
 {
   const u = uid(9001);
-  await del(SR, 'credit_reservations', `user_id=eq.${u}`);
-  await del(SR, 'plan_grants', `user_id=eq.${u}`);
-  await ins(SR, 'plan_grants', [{ month_key: MONTH, user_id: u, ai_credit_limit: 5, ai_credit_used: 0 }]);
-  const r1 = await rpc(SR, 'reserve_credit', { p_request_id: 'aaaaaaaa-0000-4000-8000-000000000001', p_user_id: u, p_cost: 3, p_month: MONTH });
-  const g1 = r1.json[0];
-  ok('credit: reserve grants within limit', g1 && g1.granted === true && g1.remaining === 2, JSON.stringify(r1.json));
-  const rep = await rpc(SR, 'reserve_credit', { p_request_id: 'aaaaaaaa-0000-4000-8000-000000000001', p_user_id: u, p_cost: 3, p_month: MONTH });
-  ok('credit: same request_id replays (idempotent, no double-hold)', rep.json[0] && rep.json[0].reason === 'replay-granted', JSON.stringify(rep.json));
-  const r2 = await rpc(SR, 'reserve_credit', { p_request_id: 'aaaaaaaa-0000-4000-8000-000000000002', p_user_id: u, p_cost: 3, p_month: MONTH });
-  ok('credit: rejects over-limit (3+3>5)', r2.json[0] && r2.json[0].granted === false && r2.json[0].reason === 'insufficient credits', JSON.stringify(r2.json));
-  await rpc(SR, 'settle_credit', { p_request_id: 'aaaaaaaa-0000-4000-8000-000000000001', p_status: 'ERROR', p_month: MONTH }); // refund
-  const r3 = await rpc(SR, 'reserve_credit', { p_request_id: 'aaaaaaaa-0000-4000-8000-000000000003', p_user_id: u, p_cost: 3, p_month: MONTH });
-  ok('credit: ERROR settle refunds the hold (now affordable)', r3.json[0] && r3.json[0].granted === true, JSON.stringify(r3.json));
-  await rpc(SR, 'settle_credit', { p_request_id: 'aaaaaaaa-0000-4000-8000-000000000003', p_status: 'SUCCESS', p_month: MONTH });
-  const pg = await select(SR, 'plan_grants', `user_id=eq.${u}&select=ai_credit_used`);
-  ok('credit: SUCCESS settle converts hold into used (3)', pg.json[0] && Number(pg.json[0].ai_credit_used) === 3, JSON.stringify(pg.json));
-  // duplicate settle must not double-count
-  await rpc(SR, 'settle_credit', { p_request_id: 'aaaaaaaa-0000-4000-8000-000000000003', p_status: 'SUCCESS', p_month: MONTH });
-  const pg2 = await select(SR, 'plan_grants', `user_id=eq.${u}&select=ai_credit_used`);
-  ok('credit: duplicate settle does not double-count', Number(pg2.json[0].ai_credit_used) === 3, JSON.stringify(pg2.json));
+  await del(SR, 'usage_logs', `tracking_key=eq.${u}`);
+  await del(SR, 'user_plans', `user_id=eq.${u}`);
+  await ins(SR, 'user_plans', [{ user_id: u, plan: 'pro', subscription_status: 'active' }]); // 500 AI pages/month
+  const reserve = (n, pages) => rpc(SR, 'reserve_usage', {
+    p_request_id: `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, '0')}`, p_user_id: u, p_tracking_key: u,
+    p_ip_address: '10.0.0.1', p_tool_id: 'ocr', p_ai_pages: pages, p_operations: 0, p_page_count: pages,
+  });
+  const settle = (n, status) => rpc(SR, 'settle_usage', {
+    p_request_id: `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, '0')}`, p_status: status, p_tracking_key: u,
+  });
+
+  const hold = await reserve(1, 499);
+  ok('usage: 499 pages are held against a 500-page monthly budget', hold.json[0] && hold.json[0].allowed === true, JSON.stringify(hold.json).slice(0, 200));
+  const over = await reserve(2, 499);
+  ok('usage: the next 499 is refused (monthly budget, never oversold)',
+    over.json[0] && over.json[0].allowed === false && over.json[0].reason === 'Monthly plan limit reached', JSON.stringify(over.json).slice(0, 200));
+  const heldRow = await select(SR, 'usage_logs', `tracking_key=eq.${u}&status=eq.PENDING&select=request_id`);
+  ok('usage: a refusal books nothing — exactly one open hold', Array.isArray(heldRow.json) && heldRow.json.length === 1, JSON.stringify(heldRow.json));
+  await settle(1, 'ERROR');
+  const afterFail = await reserve(3, 300);
+  ok('usage: settling ERROR releases the hold, so a failed job is not billed', afterFail.json[0] && afterFail.json[0].allowed === true, JSON.stringify(afterFail.json).slice(0, 200));
+  await settle(3, 'SUCCESS');
+  const billed = await select(SR, 'usage_logs', `tracking_key=eq.${u}&status=eq.SUCCESS&select=ai_pages`);
+  ok('usage: only the settled SUCCESS row carries billable pages',
+    Array.isArray(billed.json) && billed.json.length === 1 && Number(billed.json[0].ai_pages) === 300, JSON.stringify(billed.json));
+  await settle(3, 'ERROR'); // a client trying to "refund" work the server already completed
+  const stillBilled = await select(SR, 'usage_logs', `tracking_key=eq.${u}&request_id=in.(aaaaaaaa-0000-4000-8000-000000000003)&select=status,ai_pages`);
+  ok('usage: a second settlement cannot rewrite SUCCESS into a refund',
+    stillBilled.json[0] && stillBilled.json[0].status === 'SUCCESS' && Number(stillBilled.json[0].ai_pages) === 300, JSON.stringify(stillBilled.json));
+  const open5 = await reserve(5, 30);
+  ok('usage: a further 30 pages fit the remaining budget', open5.json[0] && open5.json[0].allowed === true, JSON.stringify(open5.json).slice(0, 200));
+  const foreign = await rpc(SR, 'settle_usage', { p_request_id: 'aaaaaaaa-0000-4000-8000-000000000005', p_status: 'SUCCESS', p_tracking_key: uid(9002) });
+  ok('usage: settling under someone else\'s tracking key is refused', foreign.status >= 400, `status=${foreign.status} ${JSON.stringify(foreign.json).slice(0, 160)}`);
+  const stillOpen = await select(SR, 'usage_logs', `request_id=eq.aaaaaaaa-0000-4000-8000-000000000005&select=status`);
+  ok('usage: the refused settlement left the row PENDING', stillOpen.json[0] && stillOpen.json[0].status === 'PENDING', JSON.stringify(stillOpen.json));
+  await settle(5, 'SUCCESS');
 }
 
-// ── 2. Credit concurrency: 20 parallel single-credit reserves vs limit 5 ─────
+// ── 2. Concurrency: 20 parallel reserves against a finite monthly budget ──────
 {
   const u = uid(9002);
-  await del(SR, 'credit_reservations', `user_id=eq.${u}`);
-  await del(SR, 'plan_grants', `user_id=eq.${u}`);
-  await ins(SR, 'plan_grants', [{ month_key: MONTH, user_id: u, ai_credit_limit: 5, ai_credit_used: 0 }]);
-  const reqs = Array.from({ length: 20 }, (_, i) => rpc(SR, 'reserve_credit', {
-    p_request_id: `bbbbbbbb-0000-4000-8000-${String(i).padStart(12, '0')}`, p_user_id: u, p_cost: 1, p_month: MONTH,
+  await del(SR, 'usage_logs', `tracking_key=eq.${u}`);
+  await del(SR, 'user_plans', `user_id=eq.${u}`);
+  await ins(SR, 'user_plans', [{ user_id: u, plan: 'pro', subscription_status: 'active' }]); // 500 AI pages/month
+  const reqs = Array.from({ length: 20 }, (_, i) => rpc(SR, 'reserve_usage', {
+    p_request_id: `bbbbbbbb-0000-4000-8000-${String(i).padStart(12, '0')}`, p_user_id: u, p_tracking_key: u,
+    p_ip_address: '10.0.0.2', p_tool_id: 'ocr', p_ai_pages: 30, p_operations: 0, p_page_count: 30,
   }));
   const res = await Promise.all(reqs);
-  const granted = res.filter((r) => r.json && r.json[0] && r.json[0].granted === true).length;
-  const held = await select(SR, 'credit_reservations', `user_id=eq.${u}&status=eq.PENDING&select=request_id`);
-  ok('credit: concurrent 20→ exactly 5 granted, never oversold', granted === 5, `granted=${granted}`);
-  ok('credit: exactly 5 PENDING holds persisted', Array.isArray(held.json) && held.json.length === 5, `held=${Array.isArray(held.json) ? held.json.length : 'n/a'}`);
+  const granted = res.filter((r) => r.json && r.json[0] && r.json[0].allowed === true).length;
+  const held = await select(SR, 'usage_logs', `tracking_key=eq.${u}&status=eq.PENDING&select=ai_pages`);
+  const booked = Array.isArray(held.json) ? held.json.reduce((s, r) => s + Number(r.ai_pages), 0) : -1;
+  ok('concurrency: 20 parallel 30-page reserves vs a 500-page budget → exactly 16 allowed', granted === 16, `granted=${granted}`);
+  ok('concurrency: the persisted holds never exceed the budget', booked === 480, `booked=${booked}`);
+  await del(SR, 'usage_logs', `tracking_key=in.(${u},${uid(9001)})`);
+  await del(SR, 'user_plans', `user_id=in.(${u},${uid(9001)})`);
 }
 
 // ── 3. Live usage ledger (the path /api/ai actually calls): reserve→settle ───
@@ -175,11 +197,15 @@ const uid = (n) => `11111111-0000-4000-8000-${String(n).padStart(12, '0')}`;
   const cross = await select(userB, 'user_plans', `user_id=eq.${aSub}&select=*`);
   ok('rls: user B cannot read user A row (empty, not 403-leak)', Array.isArray(cross.json) && cross.json.length === 0, JSON.stringify(cross.json));
   const anonRead = await select(TOK.anon, 'user_plans', `select=*`);
-  ok('rls: anon cannot read user_plans', Array.isArray(anonRead.json) && anonRead.json.length === 0, JSON.stringify(anonRead.json));
+  // 20261015000001 revoked table access from anon outright, so the answer is now a hard 401/403
+  // rather than an RLS-filtered empty set. Either way: nothing readable.
+  ok('rls: anon cannot read user_plans (denied at the privilege layer, or empty)',
+    anonRead.status === 401 || anonRead.status === 403 || (Array.isArray(anonRead.json) && anonRead.json.length === 0),
+    `status=${anonRead.status} ${JSON.stringify(anonRead.json).slice(0, 120)}`);
   const insAttempt = await fetch(`${REST}/user_plans`, { method: 'POST', headers: { apikey: userA, Authorization: `Bearer ${userA}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: bSub, plan: 'business', subscription_status: 'active' }) });
   ok('rls: authenticated cannot INSERT another user plan', insAttempt.status === 401 || insAttempt.status === 403, `status=${insAttempt.status}`);
-  const credRead = await select(userA, 'credit_reservations', `select=*`);
-  ok('rls: authenticated has no credit_reservations policy (blocked)', credRead.status === 401 || credRead.status === 403 || (Array.isArray(credRead.json) && credRead.json.length === 0), `status=${credRead.status}`);
+  const credRead = await select(userA, 'billing_subscriptions', `select=*`);
+  ok('rls: authenticated has no billing_subscriptions policy (blocked)', credRead.status === 401 || credRead.status === 403 || (Array.isArray(credRead.json) && credRead.json.length === 0), `status=${credRead.status}`);
   const billRead = await select(userA, 'billing_events', `select=*`);
   ok('rls: authenticated cannot read the billing inbox', billRead.status === 401 || billRead.status === 403 || (Array.isArray(billRead.json) && billRead.json.length === 0), `status=${billRead.status}`);
 }
