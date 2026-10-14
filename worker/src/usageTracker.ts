@@ -60,7 +60,7 @@ function authHeaders(env: WorkerEnv): Record<string, string> {
   };
 }
 
-function trackingKey(userId: string | null, clientIp: string): string {
+function trackingKeyOf(userId: string | null, clientIp: string): string {
   return userId ?? `ip:${clientIp}`;
 }
 
@@ -124,7 +124,7 @@ export async function checkServerLimit(
     : { aiPages: 0, operations: full.operations };
   const rows = await callRpc<Array<Record<string, unknown>>>(env, 'check_usage_limit', {
     p_user_id: userId,
-    p_tracking_key: trackingKey(userId, clientIp),
+    p_tracking_key: trackingKeyOf(userId, clientIp),
     p_ip_address: clientIp,
     p_tool_id: toolId,
     p_ai_pages: cost.aiPages,
@@ -141,13 +141,14 @@ export async function reserveUsage(
   clientIp: string,
   toolId: string,
   pagesToProcess: number,
-): Promise<{ requestId: string; limit: LimitResult }> {
+): Promise<{ requestId: string; trackingKey: string; limit: LimitResult }> {
   const cost = calculateToolCost(toolId, pagesToProcess);
   const requestId = crypto.randomUUID();
+  const trackingKey = trackingKeyOf(userId, clientIp);
   const rows = await callRpc<Array<Record<string, unknown>>>(env, 'reserve_usage', {
     p_request_id: requestId,
     p_user_id: userId,
-    p_tracking_key: trackingKey(userId, clientIp),
+    p_tracking_key: trackingKey,
     p_ip_address: clientIp,
     p_tool_id: toolId,
     p_ai_pages: cost.aiPages,
@@ -155,11 +156,20 @@ export async function reserveUsage(
     p_page_count: getFeatureType(toolId) === 'ai' ? cost.aiPages : pagesToProcess,
   });
   if (!rows[0]) throw new Error('reserve_usage returned no result');
-  return { requestId, limit: toLimitResult(rows[0]) };
+  // The key is handed back rather than re-derived at settlement: the row was booked under this
+  // exact value, and settle_usage now refuses a settlement that names any other.
+  return { requestId, trackingKey, limit: toLimitResult(rows[0]) };
 }
 
-export async function settleUsage(env: WorkerEnv, requestId: string, status: Extract<UsageStatus, 'SUCCESS' | 'ERROR'>): Promise<void> {
-  await callRpc(env, 'settle_usage', { p_request_id: requestId, p_status: status });
+export async function settleUsage(
+  env: WorkerEnv,
+  requestId: string,
+  status: Extract<UsageStatus, 'SUCCESS' | 'ERROR'>,
+  trackingKey?: string,
+): Promise<void> {
+  const body: Record<string, unknown> = { p_request_id: requestId, p_status: status };
+  if (trackingKey) body.p_tracking_key = trackingKey;
+  await callRpc(env, 'settle_usage', body);
 }
 
 /** Records non-billable local-tool telemetry. AI usage is recorded only by reserveUsage. */
@@ -180,7 +190,7 @@ export async function reportAndSummarize(
     headers: { ...authHeaders(env), Prefer: 'return=minimal' },
     body: JSON.stringify({
       request_id: crypto.randomUUID(),
-      tracking_key: trackingKey(userId, clientIp),
+      tracking_key: trackingKeyOf(userId, clientIp),
       user_id: userId,
       ip_address: clientIp,
       month: getCurrentMonthKey(),
@@ -201,7 +211,7 @@ export async function reportAndSummarize(
 
 export async function getUsageSummary(env: WorkerEnv, userId: string | null, clientIp: string): Promise<UsageSummaryRow> {
   const month = getCurrentMonthKey();
-  const key = trackingKey(userId, clientIp);
+  const key = trackingKeyOf(userId, clientIp);
   const params = new URLSearchParams({
     tracking_key: `eq.${key}`,
     month: `eq.${month}`,

@@ -78,9 +78,9 @@ export function cancelSubscription(env: PayPalEnv, subscriptionId: string, reaso
  * Paid-through window for a subscription, read from PayPal's authoritative subscription object.
  * `next_billing_time` is when PayPal will charge again — the end of the period already paid for — and
  * `last_payment.time` identifies WHICH sale that period belongs to. Both are needed: a redelivered
- * older sale must not adopt the newest window, so a caller may apply `end` only to the payment whose
- * own capture time equals `lastPaymentTime`. Nulls when PayPal answers nothing; no date is invented
- * and the payment stays pending reconciliation.
+ * older sale must not adopt the newest window, so a caller may apply `end` only to the payment
+ * PayPal's own snapshot names (see canBindWindow for the clock-drift tolerance). Nulls when PayPal
+ * answers nothing; no date is invented and the payment stays pending reconciliation.
  *
  * Measured: the real first-payment sale carried no billing_period_* dates. Whether renewals include
  * them is NOT established here (that needs a real renewal), so this path must serve any payment
@@ -95,16 +95,36 @@ export async function coverageWindow(env: PayPalEnv, subscriptionId: string): Pr
 }
 
 /**
- * May the subscription's current window be bound to this payment? Only when BOTH sides name a time and
- * they are the same instant — i.e. PayPal confirms this sale IS the payment covering that window. An
- * older sale redelivered after a renewal, a missing timestamp, or a mismatch all stay pending instead
- * of borrowing a period that belongs to another payment.
+ * May the subscription's current window be bound to this payment?
+ *
+ * Two conditions, in order:
+ *   1. PayPal must actually be naming a window that opens after this sale (`next_billing_time` in
+ *      the future relative to the sale). Without that there is nothing correct to bind, so the
+ *      payment stays pending reconciliation.
+ *   2. The sale must be the payment PayPal itself counts. `last_payment.time` and the sale stamp are
+ *      written by different PayPal services, so a genuine renewal can arrive seconds apart from the
+ *      snapshot it belongs to; exact equality silently dropped that coverage and left paid customers
+ *      on free ceilings. A ±15 minute tolerance absorbs the drift while a sale from a previous cycle
+ *      (minutes-to-days away in the wrong direction) stays outside it.
+ *
+ * When PayPal reports no `last_payment` at all there is nothing to compare against; the window
+ * length is then the guard, since no subscription period is longer than a year plus slack.
  */
-export function canBindWindow(saleTime: string | null | undefined, lastPaymentTime: string | null | undefined): boolean {
-  if (!saleTime || !lastPaymentTime) return false;
-  const a = Date.parse(saleTime);
-  const b = Date.parse(lastPaymentTime);
-  return Number.isFinite(a) && Number.isFinite(b) && a === b;
+export const MAX_PAYMENT_CLOCK_DRIFT_MS = 15 * 60 * 1000;
+
+export function canBindWindow(
+  saleTime: string | null | undefined,
+  lastPaymentTime: string | null | undefined,
+  nextBillingTime: string | null | undefined,
+): boolean {
+  if (!saleTime || !nextBillingTime) return false;
+  const saleMs = Date.parse(saleTime);
+  const nextMs = Date.parse(nextBillingTime);
+  if (!Number.isFinite(saleMs) || !Number.isFinite(nextMs) || nextMs <= saleMs) return false;
+  if (!lastPaymentTime) return nextMs - saleMs <= 370 * 24 * 60 * 60 * 1000;
+  const lastMs = Date.parse(lastPaymentTime);
+  if (!Number.isFinite(lastMs)) return false;
+  return Math.abs(saleMs - lastMs) <= MAX_PAYMENT_CLOCK_DRIFT_MS;
 }
 
 /**

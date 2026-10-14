@@ -69,22 +69,28 @@ describe('paid-through window from PayPal', () => {
 });
 
 describe('which payment may hold the current window', () => {
-  it('binds only the payment PayPal names as its latest', () => {
-    expect(canBindWindow('2026-10-12T13:23:06Z', '2026-10-12T13:23:06Z')).toBe(true);
+  const NEXT = '2026-11-12T10:00:00Z';   // PayPal's own next_billing_time: the period being bound
+
+  it('binds the payment PayPal names as its latest', () => {
+    expect(canBindWindow('2026-10-12T13:23:06Z', '2026-10-12T13:23:06Z', NEXT)).toBe(true);
   });
 
   it('refuses an older sale replayed after a renewal', () => {
-    expect(canBindWindow('2026-09-12T13:23:06Z', '2026-10-12T13:23:06Z')).toBe(false);
+    expect(canBindWindow('2026-09-12T13:23:06Z', '2026-10-12T13:23:06Z', NEXT)).toBe(false);
   });
 
-  it('refuses ambiguous or missing timestamps', () => {
-    expect(canBindWindow(null, '2026-10-12T13:23:06Z')).toBe(false);
-    expect(canBindWindow('2026-10-12T13:23:06Z', null)).toBe(false);
-    expect(canBindWindow('', '')).toBe(false);
-    expect(canBindWindow('not a date', '2026-10-12T13:23:06Z')).toBe(false);
+  it('refuses to bind without a window, and refuses ambiguous or missing timestamps', () => {
+    expect(canBindWindow('2026-10-12T13:23:06Z', '2026-10-12T13:23:06Z', null)).toBe(false);
+    expect(canBindWindow(null, '2026-10-12T13:23:06Z', NEXT)).toBe(false);
+    expect(canBindWindow('', '', NEXT)).toBe(false);
+    expect(canBindWindow('not a date', '2026-10-12T13:23:06Z', NEXT)).toBe(false);
+  });
+
+  it('refuses a window that does not open after the sale', () => {
+    expect(canBindWindow('2026-10-12T13:23:06Z', '2026-10-12T13:23:06Z', '2026-10-12T13:23:06Z')).toBe(false);
   });
 
   it('treats the same instant written differently as one payment', () => {
-    expect(canBindWindow('2026-10-12T13:23:06.000Z', '2026-10-12T13:23:06Z')).toBe(true);
+    expect(canBindWindow('2026-10-12T13:23:06.000Z', '2026-10-12T13:23:06Z', NEXT)).toBe(true);
   });
 });

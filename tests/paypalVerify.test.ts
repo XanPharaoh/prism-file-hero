@@ -11,7 +11,7 @@ import REFUND from './fixtures/paypal-payment-sale-refunded.json';
 import CANCEL from './fixtures/paypal-subscription-cancelled.json';
 
 const FIXTURES = { created: FIXTURE, completed: CAPTURE, refunded: REFUND, cancelled: CANCEL };
-import { verifyWebhook, accessToken, resolveSubscriptionId, BillingNotConfigured } from '../worker/src/billing/paypalApi';
+import { verifyWebhook, accessToken, resolveSubscriptionId, coverageWindow, canBindWindow, BillingNotConfigured } from '../worker/src/billing/paypalApi';
 
 const ENV = { PAYPAL_CLIENT_ID: 'cid', PAYPAL_SECRET: 'sec', PAYPAL_ENV: 'sandbox', PAYPAL_WEBHOOK_ID: 'WH-1' };
 const head = (certUrl: string) => new Headers({
@@ -147,5 +147,51 @@ describe('real delivered payloads (sanitized fixtures)', () => {
     const r = resolveSubscriptionId('BILLING.SUBSCRIPTION.CANCELLED', cancel as Record<string, unknown>);
     expect(r.id).toBe('I-TESTSUB000000000');
     expect('subscription_id' in r).toBe(false);
+  });
+});
+
+/**
+ * Renewal coverage. A PAYMENT.SALE.COMPLETED carries no paid-through dates (measured above), so the
+ * window has to come from the subscription object — and the sale stamp and billing_info.last_payment
+ * are written by different PayPal services, so a genuine renewal arrives seconds out of step with the
+ * snapshot that names it. Exact equality used to drop those renewals, leaving a paying customer on
+ * free ceilings until a reconcile pass happened to run.
+ */
+describe('renewal coverage tolerates PayPal clock drift', () => {
+  const SALE_TIME = String(FIXTURES.completed.resource.create_time); // 2026-10-12T13:23:06Z
+  const NEXT = '2026-11-11T13:23:06Z';
+  const offset = (seconds: number) => new Date(Date.parse(SALE_TIME) + seconds * 1000).toISOString();
+
+  function stubBillingInfo(billingInfo: unknown) {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/v1/oauth2/token')) return new Response(JSON.stringify({ access_token: 'tk' }), { status: 200 });
+      return new Response(JSON.stringify({ id: 'I-TESTSUB000000000', start_time: '2026-09-12T13:23:06Z', billing_info: billingInfo }), { status: 200 });
+    }) as any);
+  }
+
+  it('binds a renewal 45 seconds out of step with PayPal\'s own snapshot', async () => {
+    stubBillingInfo({ next_billing_time: NEXT, last_payment: { time: offset(45) } });
+    const win = await coverageWindow(ENV, 'I-TESTSUB000000000');
+    expect(canBindWindow(SALE_TIME, win.lastPaymentTime, win.end)).toBe(true);
+    expect([SALE_TIME, win.end]).toEqual(['2026-10-12T13:23:06Z', NEXT]);
+  });
+
+  it('binds at the tolerance edge and refuses one second past it', () => {
+    expect(canBindWindow(SALE_TIME, offset(15 * 60), NEXT)).toBe(true);
+    expect(canBindWindow(SALE_TIME, offset(15 * 60 + 1), NEXT)).toBe(false);
+    expect(canBindWindow(SALE_TIME, offset(-15 * 60), NEXT)).toBe(true);
+    expect(canBindWindow(SALE_TIME, offset(-(15 * 60 + 1)), NEXT)).toBe(false);
+  });
+
+  it('refuses a sale from the previous billing cycle', async () => {
+    stubBillingInfo({ next_billing_time: NEXT, last_payment: { time: '2026-11-11T13:22:00Z' } });
+    const win = await coverageWindow(ENV, 'I-TESTSUB000000000');
+    expect(canBindWindow(SALE_TIME, win.lastPaymentTime, win.end)).toBe(false);
+  });
+
+  it('binds on the window alone when PayPal names no latest payment', () => {
+    expect(canBindWindow(SALE_TIME, null, NEXT)).toBe(true);
+    // ...but a window no subscription sells is not coverage, it is a stale or forged snapshot.
+    expect(canBindWindow(SALE_TIME, null, '2028-01-01T00:00:00Z')).toBe(false);
   });
 });

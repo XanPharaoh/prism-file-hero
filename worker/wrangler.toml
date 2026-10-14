@@ -4,16 +4,23 @@ compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
+# Which binding set this is. 'localtest' is the only environment allowed to trust a non-https
+# Clerk issuer; anything deployed reads this before it will accept a token at all.
+ENVIRONMENT = "production"
 # Comma-separated exact browser origins. Add staging origins explicitly; do not use private-network ranges.
-# Trusted Cloudflare Pages preview host suffixes; only one HTTPS subdomain label is accepted.
-ALLOWED_ORIGIN_SUFFIXES = "prism-file-hero.pages.dev"
+# No suffix rules on production: a wildcard preview subdomain of any project is not a trusted origin.
+ALLOWED_ORIGIN_SUFFIXES = ""
 ALLOWED_ORIGINS = "https://prismfilehero.com,https://www.prismfilehero.com,https://prismfilehero.free.nf,https://app.prismfilehero.free.nf,https://prism-file-hero.pages.dev,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://localhost:4173,https://localhost,http://tauri.localhost,tauri://localhost"
 SUPABASE_URL = "https://vejdrvnymmowvjxleefm.supabase.co"
 CLERK_JWKS_URL = "https://clerk.prismfilehero.com/.well-known/jwks.json"
-# Issuer defaults to the JWKS URL origin. Set audience only for Clerk JWT templates that emit aud.
-# CLERK_JWT_ISSUER = "https://innocent-manatee-90.clerk.accounts.dev"
+# Pinned, not inferred. The issuer used to default to whatever origin CLERK_JWKS_URL pointed at, so
+# a single mis-set or replaced variable chose the trust anchor for every authenticated route.
+CLERK_JWT_ISSUER = "https://clerk.prismfilehero.com"
 # CLERK_JWT_AUDIENCE = "<your Clerk JWT template audience>"
 # INTERNAL_MAX_ACTIVE_DEVICES = "10"
+# Cloud AI kill switch. Set the secret AI_PROXY_ENABLED to "false" to stop every provider call and
+# every reservation without a redeploy; unset means enabled.
+# AI_PROXY_ENABLED = "true"
 
 # SECURITY: Secrets must NOT be in this file — use: cd worker && npx wrangler secret put <KEY_NAME>
 # Required secrets:
@@ -25,10 +32,15 @@ CLERK_JWKS_URL = "https://clerk.prismfilehero.com/.well-known/jwks.json"
 #   wrangler secret put MISTRAL_API_KEY_3
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 #   wrangler secret put INTERNAL_ACTIVATION_CODE
-#   wrangler secret put PADDLE_WEBHOOK_SECRET      # Paddle webhook signature secret (sandbox or prod)
-# Billing (Batch 05): the Worker POST /api/paddle/webhook verifies the raw-body signature with
-# PADDLE_WEBHOOK_SECRET and persists via the apply_billing_event RPC (event_id PK = dedupe that
-# survives restarts). Point Paddle's webhook URL at https://<worker>/api/paddle/webhook.
+# Billing (PayPal — the Paddle path is retired, PADDLE_WEBHOOK_SECRET is no longer read):
+#   wrangler secret put PAYPAL_ENV                  # 'sandbox' | 'live'
+#   wrangler secret put PAYPAL_CLIENT_ID
+#   wrangler secret put PAYPAL_SECRET               # the code reads PAYPAL_SECRET, not _CLIENT_SECRET
+#   wrangler secret put PAYPAL_WEBHOOK_ID           # for /api/paypal/webhook signature verification
+#   wrangler secret put PAYPAL_PLAN_PRO_MONTHLY / PAYPAL_PLAN_PRO_ANNUAL
+#   wrangler secret put PAYPAL_PLAN_BUSINESS_MONTHLY / PAYPAL_PLAN_BUSINESS_ANNUAL
+# Point PayPal's webhook at https://<worker>/api/paypal/webhook.
+# Optional: wrangler secret put AI_PROXY_ENABLED   # "false" halts all paid provider spend instantly
 # Optional non-secret vars: INTERNAL_DEVICE_TOKEN_TTL_DAYS = "90", INTERNAL_MAX_ACTIVE_DEVICES = "10"
 # KV must be bound as KV; see docs-internal-desktop.md before deployment.
 
@@ -45,6 +57,7 @@ crons = ["0 */6 * * *"]
 # Clerk and must never be what a real deployment trusts. The default environment verifies genuine
 # Clerk signatures instead.
 [env.localtest.vars]
+ENVIRONMENT = "localtest"
 CLERK_JWKS_URL = "http://127.0.0.1:8799/.well-known/jwks.json"
 CLERK_JWT_ISSUER = "http://127.0.0.1:8799"
 

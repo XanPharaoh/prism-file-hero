@@ -41,10 +41,24 @@ interface Env {
   PAYPAL_PLAN_BUSINESS_MONTHLY?: string;
   PAYPAL_PLAN_BUSINESS_ANNUAL?: string;
   CLERK_JWKS_URL: string;
-  /** Optional explicit claim configuration; issuer defaults to the JWKS origin. */
+  /**
+   * The ONLY trusted token issuer on a deployed Worker. Deriving it from CLERK_JWKS_URL would make
+   * one variable the whole trust anchor: whoever can point the JWKS URL at their own host also
+   * decides what issuer a token must carry, and their tokens then verify. Required unless
+   * ENVIRONMENT is 'localtest', where scripts/local-jwks.mjs is a deliberate stand-in for Clerk.
+   */
   CLERK_JWT_ISSUER?: string;
   /** Configure only when the Clerk session token/template includes aud. */
   CLERK_JWT_AUDIENCE?: string;
+  /** Which binding set this is. 'localtest' is the only one allowed to trust a non-https issuer. */
+  ENVIRONMENT?: string;
+  /**
+   * Circuit breaker for the paid AI proxy. Anything other than 'false' leaves it open, so a missing
+   * variable fails OPEN for traffic but cannot spend anything on its own (provider keys are secrets).
+   * `wrangler secret put AI_PROXY_ENABLED` with the value false stops every provider call instantly,
+   * without a redeploy.
+   */
+  AI_PROXY_ENABLED?: string;
   /** Secret set with `wrangler secret put INTERNAL_ACTIVATION_CODE`. */
   INTERNAL_ACTIVATION_CODE?: string;
   /** Optional non-secret configuration; defaults to 90 days. */
@@ -138,12 +152,30 @@ async function fetchJwks(jwksUrl: string): Promise<JsonWebKey[]> {
   return jwks.keys;
 }
 
-function clerkIssuerFromJwksUrl(jwksUrl: string): string | null {
-  try { return new URL(jwksUrl).origin; } catch { return null; }
+/**
+ * The trust anchor for every authenticated route. On a deployed Worker the issuer must be stated
+ * explicitly over https; only the localtest environment may infer it from the JWKS URL, because
+ * there the JWKS host is a local stand-in the tests control end to end.
+ */
+export function resolveTrustedIssuer(env: Env): string | null {
+  const explicit = (env.CLERK_JWT_ISSUER ?? '').trim();
+  if (explicit) {
+    try {
+      const url = new URL(explicit);
+      if (env.ENVIRONMENT !== 'localtest' && url.protocol !== 'https:') return null;
+      return url.origin;
+    } catch {
+      return null;
+    }
+  }
+  if (env.ENVIRONMENT === 'localtest') {
+    try { return new URL(env.CLERK_JWKS_URL).origin; } catch { return null; }
+  }
+  return null;
 }
 
 async function verifyClerkJWT(token: string, env: Env): Promise<{ sub: string } | null> {
-  const issuer = env.CLERK_JWT_ISSUER ?? clerkIssuerFromJwksUrl(env.CLERK_JWKS_URL);
+  const issuer = resolveTrustedIssuer(env);
   if (!issuer) return null;
   try {
     const parts = token.split('.');
@@ -579,10 +611,11 @@ export default {
           const saleTime = String(resource.update_time ?? resource.create_time ?? resource.time_updated ?? '');
           if (et === 'PAYMENT.SALE.COMPLETED' && resource.subscription_id && !resource.billing_period_end_date) {
             const win = await coverageWindow(env, String(resource.subscription_id));
-            if (win.end && canBindWindow(saleTime, win.lastPaymentTime)) {
-              coverage = { start: String(win.start ?? saleTime), end: win.end };
+            const nextBilling = win.end;
+            if (nextBilling && canBindWindow(saleTime, win.lastPaymentTime, nextBilling)) {
+              coverage = { start: String(win.start ?? saleTime), end: nextBilling };
             } else {
-              console.warn('[paypal-webhook] coverage left pending: sale time not PayPal\'s latest payment', { saleTime, lastPaymentTime: win.lastPaymentTime, sub: String(resource.subscription_id) });
+              console.warn('[paypal-webhook] coverage left pending: not the payment behind PayPal\'s current window', { saleTime, lastPaymentTime: win.lastPaymentTime, nextBillingTime: win.end, sub: String(resource.subscription_id) });
             }
           }
           const result = await pgRpc(env, 'apply_paypal_event', { p_event_id: eventId, p_event_type: evt.event_type, p_resource: resource, p_coverage: coverage });
@@ -712,7 +745,7 @@ export default {
             let repaired = 0;
             let pending = 0;
             for (const p of open ?? []) {
-              const bound = !!win.end && canBindWindow(p.captured_at, win.lastPaymentTime);
+              const bound = canBindWindow(p.captured_at, win.lastPaymentTime, win.end);
               if (!bound) { pending++; continue; }
               const res = await pgRpc(env, 'set_payment_coverage', { p_payment_id: p.payment_id, p_period_start: win.start, p_period_end: win.end });
               if (res === 'applied') repaired++;
@@ -814,6 +847,14 @@ export default {
 
       // --- POST /api/ai ---
       if (url.pathname === '/api/ai' && request.method === 'POST') {
+        // Kill switch, checked before authentication, before any reservation, before any provider
+        // call: one secret put stops paid spend without a redeploy.
+        if ((env.AI_PROXY_ENABLED ?? 'true').trim().toLowerCase() === 'false') {
+          return Response.json(
+            { error: 'Cloud AI processing is temporarily disabled for maintenance.', configured: false },
+            { status: 503, headers: cors },
+          );
+        }
         const authHeader = request.headers.get('Authorization') ?? '';
         const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
         if (!token) return Response.json({ error: 'Authentication required' }, { status: 401, headers: cors });
@@ -872,13 +913,13 @@ export default {
           }
 
           if (!providerData) {
-            await settleUsage(env, reservation.requestId, 'ERROR');
+            await settleUsage(env, reservation.requestId, 'ERROR', reservation.trackingKey);
             settled = true;
             return Response.json({ error: finalError.error }, { status: finalError.status, headers: cors });
           }
 
           // Do not disclose a paid response until authoritative settlement succeeds.
-          await settleUsage(env, reservation.requestId, 'SUCCESS');
+          await settleUsage(env, reservation.requestId, 'SUCCESS', reservation.trackingKey);
           settled = true;
           return new Response(JSON.stringify(providerData), {
             status: 200,
@@ -887,7 +928,7 @@ export default {
         } catch (error) {
           if (!settled) {
             try {
-              await settleUsage(env, reservation.requestId, 'ERROR');
+              await settleUsage(env, reservation.requestId, 'ERROR', reservation.trackingKey);
               settled = true;
             } catch (settlementError) {
               console.error('[Billing] Unable to release reservation:', settlementError);

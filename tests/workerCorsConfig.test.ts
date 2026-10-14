@@ -11,12 +11,16 @@ const configuredValue = (name: string): string => {
 };
 
 describe('Worker CORS origin configuration', () => {
-  it('honors deployed Pages apex and preview configuration', () => {
+  it('production honors the deployed Pages apex and no preview suffix at all', () => {
     const origins = parseAllowedOrigins(configuredValue('ALLOWED_ORIGINS'));
     const suffixes = parseAllowedOriginSuffixes(configuredValue('ALLOWED_ORIGIN_SUFFIXES'));
 
     expect(isOriginAllowed('https://prism-file-hero.pages.dev', origins, suffixes)).toBe(true);
-    expect(isOriginAllowed('https://preview.prism-file-hero.pages.dev', origins, suffixes)).toBe(true);
+    // A branch preview is unreviewed code, and on production that code would be talking to live
+    // PayPal endpoints with live credentials. Preview traffic belongs on the staging Worker, which
+    // declares its own suffix. (20261015 cutover, Phase 2.)
+    expect(isOriginAllowed('https://preview.prism-file-hero.pages.dev', origins, suffixes)).toBe(false);
+    expect(suffixes.size).toBe(0);
   });
 
   it('allows the Capacitor Android WebView origin configured for production', () => {
