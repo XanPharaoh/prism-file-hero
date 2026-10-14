@@ -32,7 +32,6 @@
     "dist",
     "dist-desktop",
     "**/target/**",
-    "**/*.js",
-    "Prism File Hero Desktop"
+    "**/*.js"
   ]
 }

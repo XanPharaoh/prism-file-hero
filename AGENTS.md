@@ -1,56 +1,77 @@
-<br />
+# AGENTS.md — Repository Engineering Protocol
 
-***
+## 1. Authoritative sources of truth
 
-# CRITICAL PROTOCOL: State Synchronization & Anti-Hallucination Rules
+| Concern | The one place it lives | What enforces it |
+| :--- | :--- | :--- |
+| Database schema, RLS, ledger RPCs | `supabase/migrations/` | `npm run check:schema-release` (fresh install, upgrade path, backup/restore) |
+| Tool catalogue, processing class, plan ceilings | `src/registry/toolRegistry.ts` + `services/usageConfig.ts` | `npm run check:quota` proves both lists equal the SQL allowlist in `check_usage_limit` |
+| Billing state | `billing_events` (raw inbox) → `apply_paypal_event` → `billing_payments` → `refresh_user_coverage` → `user_plans` | `npm run check:backend`, `npm run check:privilege` |
+| Release packaging | `npm run release:build` (production) / `release:build:staging` assemble `./deploy` | `npm run check:release` boots the artifact in a Pages runtime against a real Worker + real Postgres |
+| Environment bindings | `worker/wrangler.toml` — every environment restates its own `vars`, because wrangler does **not** inherit `[vars]` into `[env.*]` | `npm run check:clerk-pair`, `scripts/staging-probe.mjs` |
 
-## 1. THE GOLDEN RULE
+There is exactly **one** metering system: `usage_logs` + `reserve_usage` / `settle_usage` / `check_usage_limit`.
+A parallel credit ledger is how the Paddle-era tables ended up unread and unreconciled against PayPal.
+`supabase/migrations/20261015000001_production_schema_hardening.sql` retired it; nothing may bring a
+second one back.
 
-**You are strictly forbidden from updating the** **`complete source code with updates.md`** **file (or any changelog) until you have physically verified the code changes exist on the disk.**
-Claiming a task is complete in the changelog without the corresponding code being written to the file system is a critical failure ("Ghost Commit").
+`supabase/legacy/` is not a migration directory and `supabase db push` never applies it. Files there
+are dead features' specifications kept on purpose — read the header before using one.
 
-## 2. MANDATORY EXECUTION WORKFLOW
+## 2. Mandatory verification gates
 
-For every task involving code modification, you MUST follow this exact sequence:
+Run, in this order, before committing anything that touches schema, billing, quota, auth or UI:
 
-1. **READ**: Read the current content of the target file from the file system.
-2. **EDIT**: Apply the necessary code changes to the file.
-3. **VERIFY**: Re-read the file from the disk (using a tool like `cat`, `grep`, or file read) to confirm the specific changes (e.g., specific function names, variable values, imports) are actually present.
-4. **DOCUMENT**: Only after verification passes, update the `complete source code with updates.md` file.
+1. `npx tsc --noEmit` and `npm run typecheck --prefix worker`
+2. `npm test` (vitest)
+3. `npm run check:schema-release` — when `supabase/migrations/` changed
+4. `npm run check:backend`, `npm run check:privilege`, `npm run check:quota`, `npm run check:auth-isolation`,
+   `npm run check:worker` — these need the local stack: `supabase start`, `node scripts/local-jwks.mjs`
+   (:8799), `npm run tokens:local`, and `wrangler dev --env localtest` on :8788
+5. `npm run release:build && npm run check:release` — needs the default-env Worker on :8787
+6. Staging work: `npm run release:build:staging && PRISM_ARTIFACT_ENV=staging npm run check:release`,
+   then `node scripts/staging-probe.mjs` against the deployed staging URLs
 
-## 3. SOURCE CODE BLOCK SYNCHRONIZATION
+Start `wrangler dev` for `--env localtest` **before** the default environment: both bind the miniflare
+inspector at `127.0.0.1:9229`, and the second one dies with `Address already in use` plus an esbuild
+deadlock dump that looks like a code error.
 
-If the project uses a master tracking file (like `complete source code with updates.md`) that contains verbatim source code blocks:
+## 3. THE GOLDEN RULE: no ghost claims
 
-- **Verbatim Updates**: You must replace the *entire* old code block with the *new, fully updated* code block. Do not use placeholders like `// ... rest of code unchanged`.
-- **No Orphans**: Every file listed in the "Files Modified" section of the changelog MUST have a corresponding, up-to-date code block in the Source Code section of the tracking file.
-- **Timestamp Sync**: The "Last modified" timestamp in the code block header must match the timestamp in the changelog entry.
+Nothing may be recorded as done — in a commit message, a changelog, `docs/audit/`, or a report to the
+user — that has not been verified to exist on disk and to pass the gate that proves it works.
 
-## 4. ANTI-HALLUCINATION CHECKS
+1. **READ** the file from disk. 2. **EDIT**. 3. **VERIFY** by re-reading or running the check.
+4. **DOCUMENT** only after step 3 passes.
 
-Before marking any task as "Complete", you must internally answer these questions:
+## 4. Anti-hallucination checks before claiming completion
 
-- *Did I actually write the code to the file, or did I just plan to?*
-- *If I grep for the new function/variable right now, will it return a result?*
-- *Does the code block in the markdown file match the code block on the disk exactly?*
+- Did I actually write this, or did I plan to?
+- If I grep for the new symbol right now, does it return a result?
+- Did the gate that would catch this class of bug actually run, and what was its pass count?
+- Is every claim about an environment backed by a probe of that environment (never by reading config
+  and assuming)?
 
-If the answer to any of these is "No" or "Unsure", you must stop and execute the missing steps.
+If any answer is "no" or "unsure", stop and do the missing work. A check that was never run is not a
+pass.
 
-## 5. ERROR RECOVERY
+## 5. Error recovery
 
-If you realize you have created a "Ghost Commit" (changelog says X, disk says Y):
+If a claim turns out to be wrong (documented but not on disk, "fixed" but the gate still fails):
 
-1. Immediately halt all new feature work.
-2. Read the actual file from disk.
-3. Apply the missing changes to the disk file.
-4. Verify the disk file.
-5. Update the tracking file to reflect reality.
-6. Add a "SYNC CORRECTION" entry to the changelog explaining the fix.
+1. Halt new feature work. 2. Read the real state from disk. 3. Fix the real state. 4. Verify.
+5. Correct the record in `docs/audit/baseline.md` with a dated entry saying what was wrong, what was
+measured, and what the corrected result is.
 
-## 6. STRICT PROHIBITIONS
+## 6. Strict prohibitions
 
-- ❌ Do not say "I have updated the file" if you haven't run a write command.
-- ❌ Do not summarize code changes in the changelog without providing the full code block in the tracking file (if required by project rules).
-- ❌ Do not assume the file state from previous context windows. Always read the file fresh.
-- ❌ Do not use `// ... existing code ...` in the master tracking file's source code section. It must be complete and compilable.
-
+- Do not summarize a change where the reader needs the code, and do not present a plan as a result.
+- Do not assume file state from an earlier context window; read it fresh.
+- Do not add a second copy of a schema, a plan table, a tool list, or a quota rule "for convenience"
+  — the parity checks exist so the lists can be kept equal.
+- Do not put secrets in tracked files: `worker/.dev.vars*`, `.env.*`, `evidence/**/*token*` are
+  ignored for that reason; neither are credentials to be pasted into chat, commits, or logs.
+- Do not mutate production resources, push code, or deploy without an explicit, scoped instruction.
+  The production deploy is `.github/workflows/deploy.yml` running on push to `main`.
+- Do not delete an untracked directory to free disk space without asking: 6 GB of ignored build
+  output is not recoverable from git.

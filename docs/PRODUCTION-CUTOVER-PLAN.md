@@ -31,7 +31,9 @@ Every item was verified by querying the running local stack or reading the file,
 | R17 | "`[env.staging]` restates everything because env vars are not inherited" | Measured, wrangler 3.114 prints exactly this warning for `env.localtest`: *"vars configuration is not inherited by environments"* — so **no** env inherits `[vars]`, `[vars]` is the production default set only | `ENVIRONMENT` and `CLERK_JWT_ISSUER` are set explicitly in every environment, and `env.localtest` gained `ENVIRONMENT = "localtest"` — without it `resolveTrustedIssuer` refuses the local http stand-in issuer and every route test 401s. Localtest's `SUPABASE_URL`/key come from `.dev.vars.localtest`, not from `[vars]`. |
 | R18 | (discovered while restarting) Two `wrangler dev` instances on one host | Both bind the miniflare inspector at `127.0.0.1:9229`; whichever starts second dies with `Address already in use` and an esbuild deadlock dump | Start `--env localtest` (:8788) first, then the default env (:8787). Recorded in the runbook because the failure looks like a code error. |
 | R19 | "production must not set `ALLOWED_ORIGIN_SUFFIXES`" | `tests/workerCorsConfig.test.ts` asserted the opposite, and the suffix matcher is already strict (https, no port, exactly one label) — so the allowance only ever accepted previews **of this same Pages project** | Followed the plan and updated the test, because the risk is not the preview origin but what it can reach: an unreviewed branch preview talking to live PayPal subscribe endpoints with live credentials. Preview traffic now belongs on the staging Worker. One line in `worker/wrangler.toml` restores the old posture if the team prefers it. |
-| R20 | Phase 6.4 seeds live plans with `insert into public.billing_price_plans (provider, price_id, plan, billing_interval, currency, unit_amount_cents, active)` | `information_schema.columns` reports exactly three columns on that table: `price_id`, `plan`, `label` | Phase 6.4 step 2 has to become `insert into public.billing_price_plans (price_id, plan, label) values ('<LIVE_PRO_MONTHLY>','pro','Pro monthly'), ('<LIVE_PRO_ANNUAL>','pro','Pro annual') on conflict (price_id) do update set plan = excluded.plan, label = excluded.label`. As written it fails on the first unknown column. Money is not stored here at all — PayPal is the price authority, so a `unit_amount_cents` in this table would have been the database lying about a live product. **Not executed; recorded for Phase 6.** |
+| R20 | Delete `docsuitekit/` with the other "duplicate directories" | `docsuitekit` is a Python package with 45 tracked files, its own tests (`tests/unit/`), `requirements.txt`, `packaging/` (PyInstaller + WiX MSI), and it is the *only* job in `.github/workflows/build.yml` — the one CI that runs on pull requests | **Kept, with its CI untouched.** Deleting it means deleting a working Windows installer pipeline and the repo's only PR gate, which is a product decision, not hygiene. Say the word and it goes in one commit including `packaging/`, `requirements.txt`, `tests/unit/` and `build.yml`. Everything else on the Phase 4 list was verified unreferenced and is gone. |
+| R21 | `worker/src/migrations/002_document_history.sql` is a duplicate schema copy to delete | It is the **only** definition of `document_history`, which `services/historyService.ts` writes to and `App.tsx:610` mounts `HistoryDashboard` for — and the table exists in no environment (not production, not local dev, not local staging). Its `user_id uuid references auth.users` and four `auth.uid()` policies are also pre-Clerk: the ledger moved to text Clerk subjects in `20260806140000`, and a Clerk session gives `auth.uid()` nothing | Moved to `supabase/legacy/document_history.pre-clerk.sql` (never applied by `db push`) with the gap documented, instead of being deleted or silently promoted into the ledger. Making history work is a decision between Worker-backed history routes and a Clerk→Supabase JWT exchange; it is reported as a finding, not fixed by copying SQL. The three genuinely-superseded root `migrations/*.sql` and `worker/src/schema.sql` are deleted. |
+| R22 | Phase 6.4 seeds live plans with `insert into public.billing_price_plans (provider, price_id, plan, billing_interval, currency, unit_amount_cents, active)` | `information_schema.columns` reports exactly three columns on that table: `price_id`, `plan`, `label` | Phase 6.4 step 2 has to become `insert into public.billing_price_plans (price_id, plan, label) values ('<LIVE_PRO_MONTHLY>','pro','Pro monthly'), ('<LIVE_PRO_ANNUAL>','pro','Pro annual') on conflict (price_id) do update set plan = excluded.plan, label = excluded.label`. As written it fails on the first unknown column. Money is not stored here at all — PayPal is the price authority, so a `unit_amount_cents` in this table would have been the database lying about a live product. **Not executed; recorded for Phase 6.** |
 
 ## 1. Baseline vs. target
 
@@ -82,11 +84,21 @@ Playwright with `npm run check:release`, typechecks app + worker, runs the test 
 
 ## 5. Phase 4 — Repository hygiene
 
-`git rm` the duplicate schema copies (`migrations/`, `worker/src/schema.sql`, `worker/src/migrations/`),
-the Paddle-era modules (`worker/src/planCatalog.ts`, `worker/src/creditLedger.ts`) and their tests,
-`src/components/originkit/`, the legacy experiment directories (`site-v2/`,
-`Prism File Hero Desktop/`, `pdf_toolkit/`, `docsuitekit/`, `docling-hf-space/`), and the 150,419-line
-`complete source code with updates.md`. Rewrite `AGENTS.md` around executable gates.
+`git rm` the duplicate schema copies (`migrations/` × 4, `worker/src/schema.sql`), the Paddle-era
+modules (`worker/src/planCatalog.ts`, `worker/src/creditLedger.ts`) and their test,
+`src/components/originkit/` and its test, the legacy experiment directories (`site-v2/`,
+`pdf_toolkit/`, `docling-hf-space/`, and the 36 tracked files of `Prism File Hero Desktop/`), and the
+150,419-line `complete source code with updates.md`, plus the empty `USAGE_SYSTEM_DIAGNOSIS.md` and
+the stale `SOURCE-MANIFEST.txt`. `tsconfig.json` loses the exclude entry for a directory that no
+longer exists. `AGENTS.md` is rewritten around executable gates.
+
+Two deviations, both recorded above: `docsuitekit/` + `packaging/` + `build.yml` stay (R20 — it is a
+separate Python product with the only PR-running CI), and `document_history` is preserved in
+`supabase/legacy/` with its gap documented rather than deleted or promoted (R21).
+
+`git rm` never touches ignored files, so the 6.1 GB of ignored build output under
+`Prism File Hero Desktop/` is still on disk. Deleting it is not recoverable from git, so it is left
+for the owner to remove deliberately.
 
 ## 6. Phase 5 — Gate battery
 
