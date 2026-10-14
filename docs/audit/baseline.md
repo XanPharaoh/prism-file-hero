@@ -1429,3 +1429,143 @@ worktree, then removed).
 production authentication test, which still needs a live Clerk session token (`PROD_CLERK_TOKEN`);
 the remote migration ledger via `SUPABASE_ACCESS_TOKEN`; and rotation of the sandbox PayPal secret
 that was exposed earlier in this engagement.
+
+## Production cutover, Phases 1-5 (2026-10-14, `docs/PRODUCTION-CUTOVER-PLAN.md`)
+
+Executed sequentially from `bcb8607`, paused before Phase 6.2 as instructed. Four commits:
+`docs(cutover)` the reconciled plan, `fix(ledger)` the schema hardening, `fix(worker)` the security
+and billing changes, `ci(deploy)` the pipeline, `chore(repo)` the hygiene — each landed only after the
+gates covering it passed.
+
+### Phase 1 — schema consolidation (migration `20261015000001`, applied to local dev + local staging)
+
+The parallel Paddle ledger is gone (`user_plan`, `plan_grants`, `credit_reservations`,
+`reserve_credit(uuid,text,integer,text)`, `settle_credit(uuid,text,text)` — signatures read from
+`pg_proc`, because a `DROP FUNCTION IF EXISTS` with the wrong argument list is silently skipped).
+`RLS` is enabled **and forced** on the seven live tables with `anon`/`authenticated` reduced to SELECT
+on their own `user_plans`/`usage_logs` rows; it is safe to force here because `pg_roles` shows
+`postgres` and `service_role` carry `BYPASSRLS`, which is what the security-definer functions run as.
+
+Measured on the container after apply:
+
+```
+ free+pdf-qa       | f | This tool needs a paid plan     free+delete-pages | t |
+ free+pdf-summary  | f | This tool needs a paid plan     free+merge        | t |
+ free+n-up         | t |                                 ghost+fnb         | f | Unknown tool
+ leftover legacy functions: 0     surviving Paddle tables: 0
+ user_plans / usage_logs / billing_payments / billing_events: relrowsecurity=t, relforcerowsecurity=t
+```
+
+`check_usage_limit` now allowlists all 38 registered tools (was 18 — `pdf-qa`, `pdf-summary` and 20
+local tools were being refused as `Unknown tool` by the ledger that was supposed to book them) and
+gates the 9 tools `services/usageConfig.ts` marks `category: 'ai'`. Parity is proven three ways
+(`toolRegistry.ts` ≡ `usageConfig.ts` ≡ the SQL clause) rather than trusted.
+
+`settle_usage` exists in exactly one arity — `(uuid, text, text default null)`, the 2-arg overload
+dropped, because PostgREST answers `300 AmbiguousFunction` when a named-argument call matches two
+signatures — and it now distinguishes three outcomes: no such row → raise; row belongs to another
+`tracking_key` → raise; row already settled → return quietly. That last one is deliberate: the
+Worker settles after the provider has already answered, and a duplicate close that throws would be
+swallowed mid-request while still leaving the billable outcome intact.
+
+`refresh_user_coverage` is re-derived **only when the stored answer is `free`**. The plan called for
+an unconditional `perform`; measured, that turns every quota check for an entitled customer into a
+write plus a row lock, and lets the payment table silently overwrite a plan row the billing pipeline
+granted — which would also have broken `backend-integration-check`'s seeded-plan ledger tests. The
+case the plan cared about is now pinned by a live assertion instead of by a hope: payment evidence
+covering "now" + a stale `free` row ⇒ the check re-derives and answers `pro`.
+
+### Phase 2 — Worker
+
+`resolveTrustedIssuer` requires an explicit https issuer everywhere except `localtest`; the
+JWKS-derived fallback is gone, so one replaced variable can no longer choose the trust anchor for
+every authenticated route. `AI_PROXY_ENABLED` answers 503 before authentication, before any
+reservation and before any provider call. `settleUsage` sends the key `reserveUsage` booked under.
+`canBindWindow` takes `next_billing_time` and tolerates ±15 minutes of drift between
+`sale.create_time` and `billing_info.last_payment.time` (they are written by different PayPal
+services; exact equality silently dropped renewals) while a previous-cycle sale is still refused.
+`wrangler.toml` states `ENVIRONMENT` and the pinned issuer per environment — wrangler 3.114 warns
+that `[vars]` is **not** inherited by `[env.*]`, which is also why `env.localtest` had to gain
+`ENVIRONMENT = "localtest"` or every local route test would 401.
+
+Kill switch measured in both directions on the localtest runtime: with `AI_PROXY_ENABLED=false`,
+`POST /api/ai` → `503 {"configured":false}` and no ledger row; after removing it, the same request
+→ `401` unauthenticated / `402 This tool needs a paid plan` for a free subject.
+
+### Phase 3 — pipeline
+
+`.github/workflows/deploy.yml` becomes `verify` → `deploy`: both typechecks, the suite, the
+assembled `./deploy`, then `scripts/release-artifact-check.mjs` booting the built bundle in a real
+Pages runtime against a real Worker and a real Postgres (CI starts Supabase, mints `.dev.vars` from
+`supabase status`, and runs `wrangler dev` on :8787). Build secrets arrive through `env:` so a secret
+containing a quote cannot become shell syntax, and a preflight names any missing one. The Worker
+deploys from main in the same run — production has been unreachable from this pipeline entirely,
+which is how the live Worker stayed on an August build.
+
+**Not pushed.** A push to `main` now ships production, so this file is inert until the owner's
+Phase 6.4 decision.
+
+### Phase 4 — hygiene
+
+145 tracked files removed: four SQL copies outside the ledger plus `worker/src/schema.sql` and
+`worker/src/migrations/`, the dead Paddle reducer modules and their test, `src/components/originkit/`
+(GlitterWrap) and its test, `site-v2/` (80 files), `pdf_toolkit/`, `docling-hf-space/`, the 36 tracked
+files of `Prism File Hero Desktop/`, the 150,419-line `complete source code with updates.md`, an empty
+`USAGE_SYSTEM_DIAGNOSIS.md` and a stale `SOURCE-MANIFEST.txt`. `AGENTS.md` now points at the gates
+that actually run and keeps the no-ghost-claims rule; `tsconfig.json` lost an exclude for a directory
+that no longer exists.
+
+Two requested deletions were measured first and **not** performed: `docsuitekit/` is a separate
+Python product with `packaging/`, `requirements.txt`, `tests/unit/` and the only CI that runs on pull
+requests (removing it is a product decision, so `build.yml` is untouched);
+`worker/src/migrations/002_document_history.sql` is the only specification of `document_history`,
+which `services/historyService.ts` writes and `App.tsx:610` mounts, and which exists in **no**
+environment — production, local dev and local staging all lack the table, so saving history logs
+"[History] Failed to save extraction" and the dashboard reads as empty rather than broken. Its
+`user_id uuid references auth.users` and four `auth.uid()` policies also predate the Clerk text
+subjects. It is preserved at `supabase/legacy/document_history.pre-clerk.sql`, which `db push` never
+applies, because promoting it would half-create an unusable table and deleting it would erase the
+only record of what the feature expects. Fixing history for real needs a decision: Worker-backed
+history routes, or teaching Supabase to accept the Clerk JWT.
+
+Untracked/ignored content was left on disk deliberately: 6.1 GB under `Prism File Hero Desktop/` and
+a nested `docling-hf-space/.git` clone. `git rm` cannot restore those, so removal is the owner's call.
+
+### Gate battery at the end of Phase 5 (all against the committed tree)
+
+| Gate | Result |
+| :--- | :--- |
+| `npx tsc --noEmit` (app) | pass |
+| `npm run typecheck --prefix worker` | pass |
+| `npx vitest run` | **736 passed**, 0 failed, 5 skipped (741) |
+| `check:schema-release` | **10/0** — fresh install of all 20 migrations, upgrade path, upgraded ≡ fresh, backup restore, policies on the restored DB |
+| `check:backend` | **35/0** — §1/§2 rewritten onto the live ledger: hold, over-limit refusal, nothing booked on refusal, release-on-ERROR, finality-on-SUCCESS, foreign tracking key refused, 20×30 pages vs a 500-page budget → exactly 16 allowed / 480 booked |
+| `check:privilege` | **29/0** — the two dead-table minting attacks replaced by forging `billing_payments`, allowlisting a `billing_price_plans` row, declaring a `billing_subscriptions` row; `settle_usage` added to the privileged-function denial list |
+| `check:quota` | **37/0** (was 22) — three-way tool parity, premium parity, cross-session settlement, no-arity-ambiguity settlement, coverage catch-up |
+| `check:worker` | **20/0** |
+| `check:auth-isolation` | **13/0** |
+| `check:clerk-pair --live` | **6/0**; `--env=.env.journey` **6/0** |
+| `release:build:staging` + `PRISM_ARTIFACT_ENV=staging check:release` | **26/0** |
+| `release:build` + `check:release` | **20/0** |
+
+210 scripted assertions plus 736 unit/integration tests, zero failures.
+
+### One pre-existing defect surfaced, not caused here
+
+`npm run check:clerk-pair` in its **default** mode fails: `.env.local` carries the live publishable
+key (`clerk.prismfilehero.com`) while `worker/.dev.vars` is configured for the development instance
+(`innocent-manatee-90.clerk.accounts.dev`). Anyone running `vite dev` off `.env.local` therefore
+signs into the production Clerk instance against a Worker that verifies dev-instance tokens — exactly
+the drift this check exists to catch. `--live` and `--env=.env.journey` both pass. Not edited: which
+instance `.env.local` should name is the owner's decision, and it is an ignored file.
+
+### Rollback for anything in Phases 1-5
+
+Per commit, forward-only: `git revert a3e9bb8` (hygiene), `954d6ea` (pipeline), `fdd260d` (worker),
+`6b04e7a` (ledger), `7bba632` (plan). For the local databases, re-applying
+`20261014000001_quota_policy_one_truth.sql` restores the previous `check_usage_limit`/`settle_usage`
+definitions, and `supabase db reset` replays the whole ledger from scratch — which recreates
+`user_plan`, `credit_reservations` and `plan_grants` from `20261010000000_authoritative_plan_credits.sql`
+and then drops them again in `20261015000001`. To bring the Paddle objects back for real, revert the
+ledger commit as well as resetting, otherwise a fresh install ends where the cutover intended.
+Nothing in Phases 1-5 touched production.

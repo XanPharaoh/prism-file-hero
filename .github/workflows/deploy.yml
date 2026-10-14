@@ -16,9 +16,9 @@ name: Deploy Production (Worker + Pages)
 #
 # NOTE FOR THE FIRST RUN: this file turns "git push origin main" into a production deployment of
 # both the Worker and Pages. Deploying it is the product owner's call (docs/PRODUCTION-CUTOVER-PLAN.md
-# Phase 6.4) — and the Worker deploy newly makes ENVIRONMENT=production plus the pinned
-# CLERK_JWT_ISSUER live, so the AI_PROXY_ENABLED kill switch and the Clerk trust anchor in this file
-# become the operational controls from that moment.
+# Phase 6.4) — and the Worker deploy newly makes ENVIRONMENT=production and the pinned Clerk issuer
+# from wrangler.toml live, so the AI_PROXY_ENABLED kill switch and that issuer become the operational
+# controls from that moment. This workflow must never override either.
 on:
   push:
     branches: [main]
@@ -135,7 +135,7 @@ jobs:
           status=$(supabase status -o json)
           url=$(node -e "console.log(JSON.parse(process.argv[1]).api_url)" "$status")
           key=$(node -e "console.log(JSON.parse(process.argv[1]).service_role_key)" "$status")
-          printf 'SUPABASE_URL=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\nCLERK_JWKS_URL=https://clerk.prismfilehero.com/.well-known/jwks.json\nCLERK_JWT_ISSUER=https://clerk.prismfilehero.com\n' "$url" "$key" > worker/.dev.vars
+          printf 'SUPABASE_URL=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\n' "$url" "$key" > worker/.dev.vars
           (cd worker && nohup npx wrangler dev --port 8787 --ip 127.0.0.1 > /tmp/wrangler.log 2>&1 &)
           for i in $(seq 1 60); do
             curl -sf http://127.0.0.1:8787/api/health >/dev/null 2>&1 && break
