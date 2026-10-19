@@ -508,16 +508,17 @@ describe('split — "Extract pages into separate files."', () => {
     expect(chars.every(c => c > 40)).toBe(true);
   }, 300_000);
 
-  it('a junk token inside the range string silently emits a full copy of the document', async () => {
-    const parts = await splitPdf(await labeledDoc('J', 4), '2,oops');
-    const paths: string[] = [];
-    for (const p of parts) paths.push(await emit('split', `junk-${p.label.replace(/\.pdf$/, '')}`, p.blob));
-    const per = paths.map((p, i) => ({ label: parts[i].label, pages: pdfInfo(p).pages }));
-    record('split', 'junkToken', per);
-    expect(per.length).toBe(2);
-    expect(per[1].pages).toBe(4);
-    defect('split', 'Extract pages into separate files.',
-      'split "2,oops" returned two entries, the second labelled Page_1.pdf containing ALL 4 pages: parseSelection falls back to "all" when a token selects nothing (shared/pdf/pageSelection.ts:121-123, used by services/pdfService.ts:112)', 'medium');
+  it('a junk token in the range string is refused, not widened to the whole document', async () => {
+    // A3: split used the lenient set parser, so "2,oops" returned a second entry containing ALL
+    // pages. Strict parsing turns that into an error the user can act on.
+    await expect(splitPdf(await labeledDoc('J', 4), '2,oops')).rejects.toThrow(/"oops" is not a valid page or range/i);
+    record('split', 'junkToken', 'refused (A3 fixed): parsePageSelectionExact is strict — no fallback to "all"');
+
+    const parts = await splitPdf(await labeledDoc('J', 4), '2, 4');
+    const per = [];
+    for (const p of parts) per.push({ label: p.label, pages: pdfInfo(await emit('split', `valid-${p.label.replace(/\.pdf$/, '')}`, p.blob)).pages });
+    record('split', 'validGroups', per);
+    expect(per.map(x => x.pages)).toEqual([1, 1]);
   }, 240_000);
 });
 
@@ -758,15 +759,17 @@ describe('reorder-pages — "Rearrange and reorganize page sequence across your 
     await expect(reorderPages(await labeledDoc('Q', 3), '1,1,1')).rejects.toThrow(/more than once|Invalid page order/i);
   }, 60_000);
 
-  it('a partial order silently drops every page that is not listed', async () => {
-    const out = await emit('reorder-pages', 'subset', await reorderPages(await labeledDoc('T', 4), '3,1'));
-    const info = pdfInfo(out);
-    const heads = [1, 2].map(n => flat(pageText(out, n)).split(' ')[0]);
-    record('reorder-pages', 'subset', { pages: info.pages, heads });
-    expect(info.pages).toBe(2);
-    expect(heads).toEqual([TOK('T', 3), TOK('T', 1)]);
-    defect('reorder-pages', 'Rearrange and reorganize page sequence across your PDF document.',
-      'reorderPages("3,1") on a 4-page document returns a 2-page file — pages 2 and 4 are deleted with no error, because assertUnique accepts subsets (services/pdfService.ts:1163-1176, shared/pdf/pageSelection.ts:184-198)', 'high');
+  it('a partial order is refused and names the missing pages', async () => {
+    // A2: reorder used a set parser, so "3,1" quietly deleted pages 2 and 4. Reorder is a
+    // permutation now; subsets are what Extract pages exists for.
+    await expect(reorderPages(await labeledDoc('T', 4), '3,1')).rejects.toThrow(/pages 2, 4 are missing/i);
+    record('reorder-pages', 'subset-refused', 'refused (A2 fixed): reorder requires every page exactly once');
+
+    const out = await emit('reorder-pages', 'reverse-range', await reorderPages(await labeledDoc('T', 4), '4-1'));
+    const heads = [1, 2, 3, 4].map(n => flat(pageText(out, n)).split(' ')[0]);
+    record('reorder-pages', 'reverseRange', { pages: pdfInfo(out).pages, heads });
+    expect(pdfInfo(out).pages).toBe(4);
+    expect(heads).toEqual([TOK('T', 4), TOK('T', 3), TOK('T', 2), TOK('T', 1)]);
   }, 180_000);
 });
 

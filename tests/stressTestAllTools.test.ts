@@ -235,20 +235,25 @@ describe('PDF Tool Stress-Tester & Quality Auditor - All 37 Registered Tools', (
     it('7. reorder-pages: rearranges page order with string ranges and number arrays', async () => {
       const handler = getHandler('reorder-pages');
 
-      // Reorder with string "3, 2, 1" on ABSA multi-page statement
-      const resultStr = await handler(payload([junJulFile], { reorderPages: '3, 2, 1' }));
+      // Reorder is a permutation: give every page of the 16-page statement, reversed.
+      const reverse = Array.from({ length: 16 }, (_, i) => 16 - i);
+      const resultStr = await handler(payload([junJulFile], { reorderPages: reverse.join(', ') }));
       const docStr = await parsePdf(resultStr.blob!);
-      expect(docStr.getPageCount()).toBe(3);
+      expect(docStr.getPageCount()).toBe(16);
 
-      // Reorder with array [2, 1, 0] (0-indexed)
-      const resultArr0 = await handler(payload([junJulFile], { reorderPages: [2, 1, 0] }));
+      // Reorder with a 0-indexed array (the arrow-button shape)
+      const resultArr0 = await handler(payload([junJulFile], { reorderPages: reverse.map(n => n - 1) }));
       const docArr0 = await parsePdf(resultArr0.blob!);
-      expect(docArr0.getPageCount()).toBe(3);
+      expect(docArr0.getPageCount()).toBe(16);
 
-      // Reorder with array [3, 2, 1] (1-indexed)
-      const resultArr1 = await handler(payload([junJulFile], { reorderPages: [3, 2, 1] }));
+      // Reorder with a 1-indexed array
+      const resultArr1 = await handler(payload([junJulFile], { reorderPages: reverse }));
       const docArr1 = await parsePdf(resultArr1.blob!);
-      expect(docArr1.getPageCount()).toBe(3);
+      expect(docArr1.getPageCount()).toBe(16);
+
+      // A2: a partial order used to silently delete the unlisted pages. It is refused now.
+      await expect(handler(payload([junJulFile], { reorderPages: '3, 2, 1' })))
+        .rejects.toThrow(/every page exactly once/i);
 
       // Edge case: invalid page order throws error
       await expect(

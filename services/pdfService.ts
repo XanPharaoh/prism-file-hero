@@ -7,7 +7,9 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import JSZip from 'jszip';
 import {
   parseSelection,
+  parseSequence,
   assertUnique,
+  assertPermutation,
   keepIndicesForDeletion,
   nUpGrid,
   cellFor,
@@ -50,6 +52,15 @@ function parsePageSelection(pagesStr: string, totalPages: number): number[] {
  */
 function parsePageRange(pagesStr: string, totalPages: number): number[] {
   return parseSelection(pagesStr, totalPages, { strict: false, fallback: 'none' });
+}
+
+/**
+ * Strict selection for operations where "all pages" is never what a rejected input meant. Split used
+ * the lenient parser, so an unparseable group fell back to every page and quietly wrote one file
+ * containing the whole document -- a typo must be refused, not widened.
+ */
+function parsePageSelectionExact(pagesStr: string, totalPages: number): number[] {
+  return parseSelection(pagesStr, totalPages, { strict: true, fallback: 'none' });
 }
 
 /**
@@ -109,7 +120,7 @@ export async function splitPdf(file: File, rangesStr?: string): Promise<SplitRes
     if (hasRanges || parts.length > 1) {
       for (let idx = 0; idx < parts.length; idx++) {
         const part = parts[idx];
-        const pageIndices = parsePageSelection(part, totalPages);
+        const pageIndices = parsePageSelectionExact(part, totalPages);
         if (pageIndices.length === 0) continue;
 
         const newDoc = await PDFDocument.create();
@@ -130,7 +141,7 @@ export async function splitPdf(file: File, rangesStr?: string): Promise<SplitRes
       if (results.length > 0) return results;
     } else if (parts.length === 1 && !hasRanges) {
       // Single specific page selection, e.g. "3"
-      const pageIndices = parsePageSelection(parts[0], totalPages);
+      const pageIndices = parsePageSelectionExact(parts[0], totalPages);
       for (const i of pageIndices) {
         const newDoc = await PDFDocument.create();
         const [page] = await newDoc.copyPages(pdf, [i]);
@@ -1174,35 +1185,23 @@ export async function reorderPages(file: File, newOrder: number[] | string): Pro
   const pdfDoc = await loadPdfResilient(file);
   const totalPages = pdfDoc.getPageCount();
 
-  let orderArray: number[];
-  if (typeof newOrder === 'string') {
-    orderArray = newOrder
-      .split(/[\s,]+/)
-      .map(s => parseInt(s.trim(), 10) - 1)
-      .filter(n => !isNaN(n));
-  } else if (Array.isArray(newOrder)) {
-    const hasZero = newOrder.some(n => n === 0);
-    const allWithinOneBased = newOrder.length > 0 && newOrder.every(n => typeof n === 'number' && n >= 1 && n <= totalPages);
-    if (!hasZero && allWithinOneBased) {
-      orderArray = newOrder.map(n => n - 1);
-    } else {
-      orderArray = newOrder;
-    }
-  } else {
-    orderArray = [];
-  }
-
-  const validOrder = orderArray.filter(idx => typeof idx === 'number' && idx >= 0 && idx < totalPages);
-  if (validOrder.length === 0) {
-    throw new Error('Invalid page order provided.');
-  }
-
-  // Reorder may select a SUBSET (e.g. "3,2,1" on a 16-page doc keeps those three
-  // in the given order), but it must never repeat a page. BUG-11 fix: the old code
-  // only de-duplicated when the length differed from the page count, so "1,1,1"
-  // (length === n) silently replaced a 3-page doc with three copies of page 1.
+  // One parser for every page operation. The hand-rolled version this replaces did
+  // `parseInt("1-3")` per token, so "1-3" on a 3-page document silently became page 1 alone, and
+  // unlisted indices were filtered out -- "3,1" quietly turned a 4-page file into a 2-page one.
+  // Reorder is a permutation of the existing pages; keeping only a subset is what Extract pages
+  // is for, and the refusal message says so. BUG-11 stays fixed: "1,1,1" is never accepted.
+  let validOrder: number[] = [];
   try {
-    assertUnique(validOrder, totalPages);
+    const orderArray = typeof newOrder === 'string'
+      ? parseSequence(newOrder, totalPages)
+      : Array.isArray(newOrder)
+        ? (newOrder.length > 0
+            && !newOrder.some(n => n === 0)
+            && newOrder.every(n => typeof n === 'number' && n >= 1 && n <= totalPages)
+            ? newOrder.map(n => n - 1)
+            : newOrder)
+        : [];
+    validOrder = assertPermutation(orderArray, totalPages);
   } catch (e) {
     if (e instanceof SelectionError) {
       throw new Error(`Invalid page order provided. ${e.message}`);

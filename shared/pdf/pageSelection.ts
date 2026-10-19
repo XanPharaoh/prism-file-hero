@@ -137,13 +137,63 @@ function tokenize(input: string | number | number[] | null | undefined): string[
 }
 
 /**
+ * Ordered page SEQUENCE, for reorder only. Expands ranges left to right, keeps the caller's
+ * direction ("4-1" means 4,3,2,1), and neither sorts nor de-duplicates -- assertPermutation decides
+ * whether the result is a valid rearrangement.
+ *
+ * parseSelection answers a different question (WHICH pages to keep) and therefore sorts and
+ * de-duplicates. Reorder used a set parser, so "3,1,4,2" came back as 1,2,3,4 and the document was
+ * quietly returned to its original order.
+ */
+export function parseSequence(input: string, totalPages: number): number[] {
+  if (totalPages <= 0) throw new SelectionError('The document has no pages.', 'EMPTY');
+
+  const out: number[] = [];
+  for (const token of tokenize(input)) {
+    const range = token.match(RANGE_RE);
+    if (range) {
+      const start = parseInt(range[1], 10);
+      const end = parseInt(range[2], 10);
+      if (start < 1 || end > totalPages) {
+        throw new SelectionError(
+          `Range "${range[1]}-${range[2]}" is outside the document (1-${totalPages}).`,
+          'OUT_OF_RANGE'
+        );
+      }
+      const step = start <= end ? 1 : -1;
+      for (let p = start; step > 0 ? p <= end : p >= end; p += step) out.push(p - 1);
+      continue;
+    }
+
+    if (/^\d+$/.test(token)) {
+      const page = parseInt(token, 10);
+      if (page < 1 || page > totalPages) {
+        throw new SelectionError(`Page ${page} is outside the document (1-${totalPages}).`, 'OUT_OF_RANGE');
+      }
+      out.push(page - 1);
+      continue;
+    }
+
+    throw new SelectionError(`"${token}" is not a valid page or range.`, 'MALFORMED');
+  }
+
+  if (out.length === 0) throw new SelectionError('No pages were listed for the new order.', 'EMPTY');
+  return out;
+}
+
+/**
  * Reorder must be a permutation of the current pages: every original page
  * appears exactly once. Returns ZERO-indexed order, or throws.
  */
 export function assertPermutation(order: number[], totalPages: number): number[] {
   if (order.length !== totalPages) {
+    const present = new Set(order);
+    const missing: number[] = [];
+    for (let p = 0; p < totalPages; p++) if (!present.has(p)) missing.push(p + 1);
     throw new SelectionError(
-      `Expected ${totalPages} distinct pages but got ${order.length}.`,
+      missing.length
+        ? `Reorder must list every page exactly once — pages ${missing.join(', ')} are missing from a ${totalPages}-page document. Use Extract pages to keep only a subset.`
+        : `Reorder must list every page exactly once — ${totalPages} expected, ${order.length} given.`,
       'NOT_A_PERMUTATION'
     );
   }

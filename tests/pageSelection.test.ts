@@ -59,8 +59,9 @@ describe('permutation validation (BUG-11)', () => {
       expect((e as SelectionError).code).toBe('NOT_A_PERMUTATION');
     }
   });
-  it('rejects wrong length', () => {
-    expect(() => assertPermutation([0, 1], 3)).toThrowError(/Expected 3 distinct pages/i);
+  it('rejects wrong length, naming the pages that are missing', () => {
+    expect(() => assertPermutation([0, 1], 3)).toThrowError(/pages 3 are missing/i);
+    expect(() => assertPermutation([0, 1], 3)).toThrowError(/every page exactly once/i);
   });
 });
 

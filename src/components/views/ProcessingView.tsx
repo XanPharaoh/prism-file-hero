@@ -321,6 +321,10 @@ export default function ProcessingView({
               onChange={(e) => s.setToolOptions({ reorderPages: e.target.value })}
               className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
             />
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              List every page exactly once, in the order you want them. To keep only some pages, use
+              Extract pages instead.
+            </p>
           </div>
           {isPdf && firstBatchFile && (
             <PDFPageGrid
