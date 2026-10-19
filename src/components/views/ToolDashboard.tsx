@@ -137,6 +137,9 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
     const files = Array.from(e.target.files || []).filter(
       (f) => f.type === 'application/pdf' || f.name.endsWith('.pdf')
     );
+    // Allow the same file to be chosen again after the queue is cleared: without this, re-picking an
+    // identical path fires no change event and the uploader silently does nothing a second time.
+    e.target.value = '';
     if (!files.length) return;
 
     const toolMap: Record<string, ToolID> = {
@@ -326,6 +329,7 @@ export default function ToolDashboard({ onSelectTool, onSelectFilesAndTool }: To
                   ref={fileInputRef}
                   type="file"
                   accept=".pdf"
+                  multiple
                   onChange={handleFileInput}
                   className="hidden"
                 />

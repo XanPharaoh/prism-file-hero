@@ -171,9 +171,15 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
 
   const [progress, setProgress] = useState(0);
 
-  const addFilesForSelectedTool = useCallback(async (files: File[]) => {
-    if (!s.selectedTool) return;
-    const tool = getToolById(s.selectedTool);
+  /**
+   * Takes the tool id as an argument instead of reading `s.selectedTool`. State setters are async, so
+   * the dashboard path that selects a tool and adds its files in the same tick would otherwise read
+   * the PREVIOUS render's value (`undefined` on first use) and silently discard every file -- no
+   * error, no toast, no queue, no Start Operation. Callers that already hold a selected tool go
+   * through addFilesForSelectedTool below.
+   */
+  const addFilesForTool = useCallback(async (toolId: ToolID, files: File[]) => {
+    const tool = getToolById(toolId);
     if (!tool || !files.length) return;
 
     const intake = await intakeFiles(tool, files, s.batch.length);
@@ -181,11 +187,16 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
     if (!intake.accepted.length) return;
 
     const totalSize = intake.accepted.reduce((sum, f) => sum + f.size, 0);
-    analytics.trackFilesAdded(s.selectedTool, intake.accepted.length, totalSize);
+    analytics.trackFilesAdded(toolId, intake.accepted.length, totalSize);
 
     s.setTotalSelectedPages(s.totalSelectedPages + intake.pages);
     s.addFiles(intake.accepted);
-  }, [s.selectedTool, s.batch.length, s.totalSelectedPages]);
+  }, [s.batch.length, s.totalSelectedPages]);
+
+  const addFilesForSelectedTool = useCallback(async (files: File[]) => {
+    if (!s.selectedTool) return;
+    await addFilesForTool(s.selectedTool, files);
+  }, [s.selectedTool, addFilesForTool]);
 
   const handleSelectFiles = useCallback(async () => {
     if (!s.selectedTool) return;
@@ -631,7 +642,8 @@ const AppShell: React.FC<{ auth: PublicAuth | null; internalDesktop: boolean }> 
                   s.setShowHistory(false);
                   s.setShowAuthModal(false);
                   s.setIsMobileMenuOpen(false);
-                  await addFilesForSelectedTool(files);
+                  // The id is passed explicitly on purpose: the setter above has not landed yet.
+                  await addFilesForTool(toolId as ToolID, files);
                 }}
               />
               {internalDesktop ? <BugReportForm /> : null}

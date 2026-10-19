@@ -1569,3 +1569,60 @@ definitions, and `supabase db reset` replays the whole ledger from scratch — w
 and then drops them again in `20261015000001`. To bring the Paddle objects back for real, revert the
 ledger commit as well as resetting, otherwise a fresh install ends where the cutover intended.
 Nothing in Phases 1-5 touched production.
+
+## Feature audit fixes (2026-10-19)
+
+Six parallel auditors tested the actual features against real outputs rather than the code's own
+return values (`tests/features/{page-ops,conversion,security,ocr-extraction}.test.ts`,
+`scripts/feature-audit/*`, ~61 MB of measured artifacts in `evidence/features/`). Three fixes landed
+on instruction; the rest are recorded, not silently "verified working".
+
+**1. Redaction box fallback** (`services/pdfService.ts`). The region loop was
+`if (region.text) { text paths } else if (box) { paint box }`, and the UI always supplies text, so on
+an image-only scan the box fallback was unreachable: 4,588 of 14,172 ink pixels stayed visible while
+the tool reported success. The box is now a fallback rather than an exclusive branch, and a region
+with neither a text match nor an area aborts the export instead of shipping under-redacted content.
+Measured: the scanned-statement proof passes; new `4g` pins the refusal. Rotation geometry is still
+broken and is pinned with `it.fails` rather than hidden.
+
+**2. Encrypted rebuilds refuse** (`shared/pdf/loadGuard.ts` + 13 call sites across
+`services/pdfService.ts`, `services/pdfNormalizer.ts` and `site/assets/tool.js`). pdf-lib reads an
+encrypted document's structure but cannot decrypt its content, so every rebuild behind
+`ignoreEncryption` returned the right page count with nothing inside: `protect` 14,476 chars → 8,
+`extract-pages` 1,799 → 0, `deletePages` 4,518 → 0, each "successful". Four of seven statement
+fixtures are permission-encrypted, so that was the normal input. Read paths (pdf.js: OCR, text,
+redaction, dims) still work by design. A test caught my first version mislabelling the refusal as
+"Invalid PDF". Also recorded, not fixed: pdf-lib's `save({encryption})` with an empty user password
+writes no `/Encrypt` at all, so "owner-only protected" output is silently unprotected.
+
+**3. Hero/dashboard uploader** (`App.tsx`, `src/components/views/ToolDashboard.tsx`). The dashboard
+passed the chosen tool id, and App set state then called a callback reading `s.selectedTool` from the
+previous render — `undefined` on first use — so `if (!s.selectedTool) return;` discarded every file
+with no error, toast, queue or Start button. `/app/<tool>` deep links worked, which is why this
+survived unit tests. `addFilesForTool(toolId, files)` now takes the tool explicitly. Two adjacent
+defects in the same handler are fixed because they make the same path unusable: the file input lacked
+`multiple` (merge could never pick two files) and its value was never reset (re-picking the same file
+after clearing the queue fired nothing).
+
+Browser proof (`npm run check:uploader`, Chromium, 7/7): picker → `Queue (2)` → Start → a real
+6-page merge from 3+3 pages; drag-and-drop → identical result; no uncaught page errors. Component
+proof (`tests/components/DashboardUpload.test.tsx`, 4/4): the tab-selected tool and both files reach
+the app, `multiple` is set, the input self-clears, non-PDF drops are ignored. Note this suite needed
+explicit `afterEach(cleanup)` — the repo configures no global RTL cleanup, so repeated `render()` in
+one file accumulates DOM and every query after the first becomes ambiguous.
+
+Gates after all three: tsc app + worker clean; vitest **870 passed / 0 failed** (6 skipped, each with
+a written reason); `check:release` 20/0; `check:conversions` 11/0; `check:offline-ocr` offline with
+text recovered; new `check:site-guard` 4/0 and `check:uploader` 7/0. Sixteen previously-green tests
+that had been passing on silent corruption were rewritten to assert the refusal, and their operation
+coverage moved to plaintext fixtures so the tools are still proven against real content.
+
+**Still open, measured and unfixed:** redaction on `/Rotate 90` pages; `page-numbers` painting the
+literal strings `page_n_of_m` in all four UI formats; `extract-images` rendering page composites under
+an "original resolution" promise; `compress` discarding the text layer to hit a size; `reorder-pages
+'3,1'` silently deleting pages 2 and 4; `pdf-to-jpg` truncating at 50 pages without warning; `jpg-to-pdf`
+ignoring EXIF orientation; `pdf-to-excel` escalating a scan to a paid AI call at one page each; the
+reconciliation gate warning instead of refusing (`ledgerGuard.ts:51` dead ternary) against
+`site/financial.html:44`; "offline" OCR pulling 21 CDN requests while the vendored assets go unused;
+all six cloud AI tools unproven end-to-end (no provider key has ever produced an observable output
+here) with `pdf-to-word` delivering markdown; Capitec extraction unverified (no fixture exists).
