@@ -197,24 +197,22 @@ a table committed with the sweep script.
 **E5 Capitec is unproven** — no fixture exists anywhere. Blocked on a redacted real fixture from the
 owner; until then it is reported as unproven, never as supported.
 
-**E6 Intermittent worker-start failure reported as a passing suite with exit 1.** Caught running
-`--reporter=verbose tests/features/`: the summary said `Test Files 9 passed (9) / Tests 177 passed |
-1 skipped`, yet the process exited 1, because the real signal is an `Unhandled Error` below the
-summary — `[vitest-pool]: Failed to start threads worker for test files
-/mnt/hdd/Prism/prism-file-hero/tests/features/pdf-to-jpg.test.ts`, caused by
-`[vitest-pool-runner]: Timeout waiting for worker to respond`. **No assertion failed**; a file was
-never run, and a reader watching only the `Tests` line would conclude the suite is green.
-Confirmed not a product or test defect: that file passes 4/4 in isolation and passed inside complete
-`tests/features/` runs repeatedly. The failing run took 183 s against ~66 s for the green ones, with
-`import 220.07s` — a slow run, so the trigger is environmental; two `rustc` processes and a linker
-were active on the box, but load average was 3.66 on 18 cores, so contention is the likely mechanism
-and is **not proven**.
-Fix belongs in the harness, not the test: fail loudly rather than silently. Options — treat an
-unhandled pool error as a named failure in the summary, or bound concurrency in
-`vitest.config.ts`. Note that the uncommitted `maxWorkers: 4` in that file is already acting as the
-mitigation; whichever direction is chosen, decide it deliberately instead of inheriting an
-undeclared cap. Related: E2, and the load-induced pool starvation seen while the owner's model
-download was running.
+**E6 The audit tests are not safe to run concurrently — and the failure looks like a product defect.**
+Chased from an intermittent "1 failed" with no nameable test. Worker count and CPU contention are
+both **ruled out**: at `--maxWorkers=4` the suite is green alone, green with 18 CPU spinners pushing
+load average to 16.58 mid-run, and green at 8 and 18 workers. The real trigger is two vitest
+processes running at the same time: the files write to fixed paths under `evidence/` (e.g.
+`tests/features/security.test.ts:700-706` writes `m.pA`/`m.pB`, then re-reads them with an image
+decoder), so one run reads a file the other is overwriting. Reproduced deliberately at
+`--maxWorkers=2`: the same command twice in parallel, one exits 0, the other fails with
+`Error: Unsupported image type`. Every intermittent failure seen in this repository's test output
+should be checked for a concurrent run before it is believed. Fix: give each run a unique evidence
+directory (`evidence/run-<pid>/`, or `os.tmpdir()`), and make a file that never ran be reported as
+such — the earlier `Failed to start threads worker` variant exited 1 while the summary still read
+`Test Files 9 passed`, silently shrinking 10 files to 9 and 182 tests to 178. Counts are the
+detector: **181 passed = everything ran; 177 = a file vanished.**
+Related: E2, and the self-inflicted lesson that a background job from the same session is part of the
+test environment.
 
 ## Sequencing
 
