@@ -141,6 +141,8 @@ export async function checkOllamaReady(model = VISION_MODEL) {
     }
     return { ready: true, models };
   } catch (err) {
+    return { ready: false, reason: err.message };
+  }
 }
 
 function sleep(ms) {
