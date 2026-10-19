@@ -523,16 +523,19 @@ describe('split — "Extract pages into separate files."', () => {
 });
 
 describe('compress — "Reduce file size by optimizing embedded images while preserving page dimensions."', () => {
-  it('image-only scan: smaller output, same page count, same page dimensions, ink preserved', async () => {
+  it('opt-in rasterize: image-only scan gets smaller with pages, dimensions and ink intact', async () => {
     const before = pdfInfo(FIXTURES.scanned);
     const beforeSize = readFileSync(FIXTURES.scanned).byteLength;
-    const out = await emit('compress', 'scanned', await compressPdf(await fileFrom(FIXTURES.scanned), 0.60, () => {}));
+    // The scan stores raw Flate samples, not JPEGs, so the default path has nothing to re-encode.
+    // Rebuilding the page as one picture is the only lever here — and it costs nothing, because the
+    // page has no text layer to lose. That is why it is offered, and why it is not the default.
+    const out = await emit('compress', 'scanned', await compressPdf(await fileFrom(FIXTURES.scanned), 0.60, () => {}, undefined, 'rasterize'));
     const after = pdfInfo(out);
     const afterSize = readFileSync(out).byteLength;
     const shot = await renderShot(out, 1, 'compress-scanned-out');
     record('compress', 'scanned', {
       beforeSize, afterSize, reductionPct: Math.round((1 - afterSize / beforeSize) * 1000) / 10,
-      pagesBefore: before.pages, pagesAfter: after.pages,
+      mode: 'rasterize', pagesBefore: before.pages, pagesAfter: after.pages,
       dimsBefore: before.perPage.map(p => `${p.w}x${p.h}`), dimsAfter: after.perPage.map(p => `${p.w}x${p.h}`),
       inkPixelsPage1: inkPixels(shot),
     });
@@ -542,16 +545,26 @@ describe('compress — "Reduce file size by optimizing embedded images while pre
     expect(inkPixels(shot)).toBeGreaterThan(1000);
   }, 600_000);
 
+  it('the default path never enlarges a file and never touches a scan that has no JPEG in it', async () => {
+    const beforeSize = readFileSync(FIXTURES.scanned).byteLength;
+    const out = await emit('compress', 'scanned-default', await compressPdf(await fileFrom(FIXTURES.scanned), 0.60, () => {}));
+    const afterSize = readFileSync(out).byteLength;
+    const info = pdfInfo(out);
+    record('compress', 'scannedDefault', { beforeSize, afterSize, pages: info.pages, mode: 'images' });
+    expect(afterSize).toBeLessThanOrEqual(beforeSize);
+    expect(info.pages).toBe(2);
+  }, 600_000);
+
   it('extreme preset also preserves page count and dimensions', async () => {
     const before = pdfInfo(FIXTURES.scanned);
-    const out = await emit('compress', 'extreme', await compressPdf(await fileFrom(FIXTURES.scanned), 0.40, () => {}));
+    const out = await emit('compress', 'extreme', await compressPdf(await fileFrom(FIXTURES.scanned), 0.40, () => {}, undefined, 'rasterize'));
     const after = pdfInfo(out);
     record('compress', 'extreme', { afterSize: readFileSync(out).byteLength, beforeSize: readFileSync(FIXTURES.scanned).byteLength, pages: after.pages, dims: after.perPage.map(p => `${p.w}x${p.h}`) });
     expect(after.pages).toBe(before.pages);
     expect(after.perPage.every(p => p.w === before.perPage[0].w && p.h === before.perPage[0].h)).toBe(true);
   }, 600_000);
 
-  it('digital text statement: size drops and pages, dimensions and text all survive', async () => {
+  it('digital text statement: every page keeps its text, its count and its dimensions', async () => {
     const before = pdfInfo(FIXTURES.digital16);
     const beforeSize = readFileSync(FIXTURES.digital16).byteLength;
     const out = await emit('compress', 'digital16', await compressPdf(await fileFrom(FIXTURES.digital16), 0.60, () => {}));
@@ -562,18 +575,17 @@ describe('compress — "Reduce file size by optimizing embedded images while pre
     const afterText = textPages(out, after.pages);
     record('compress', 'digital16', {
       beforeSize, afterSize, reductionPct: Math.round((1 - afterSize / beforeSize) * 1000) / 10,
-      pagesBefore: before.pages, pagesAfter: after.pages,
+      mode: 'images', pagesBefore: before.pages, pagesAfter: after.pages,
       dimsPreserved: JSON.stringify(after.perPage.map(p => `${p.w}x${p.h}`)) === JSON.stringify(before.perPage.map(p => `${p.w}x${p.h}`)),
       pagesWithTextBefore: beforeText, pagesWithTextAfter: afterText,
-      viaLosslessFallback: countOccurrences(readFileSync(out).toString('latin1'), '/Image') === 0,
     });
     expect(after.pages).toBe(before.pages);
     expect(after.perPage.map(p => `${p.w}x${p.h}`)).toEqual(before.perPage.map(p => `${p.w}x${p.h}`));
-    expect(afterSize).toBeLessThan(beforeSize);
     expect(afterText).toBe(beforeText);
+    expect(afterSize).toBeLessThanOrEqual(beforeSize);
   }, 900_000);
 
-  it('a text page that carries a real photograph: the raster path trades the whole text layer for size', async () => {
+  it('a page mixing a photograph with selectable text keeps its text layer at the default', async () => {
     const mixed = await photoTextDoc('P', 4);
     const srcPath = await emitFile('compress', 'src-photo', mixed);
     const before = pdfInfo(srcPath);
@@ -581,21 +593,33 @@ describe('compress — "Reduce file size by optimizing embedded images while pre
     const out = await emit('compress', 'photo-text', await compressPdf(mixed, 0.60, () => {}));
     const after = pdfInfo(out);
     const afterSize = readFileSync(out).byteLength;
-    const beforeText = flat(docText(srcPath)).length;
-    const afterText = flat(docText(out)).length;
+    const beforeText = flat(docText(srcPath));
+    const afterText = flat(docText(out));
     record('compress', 'photoText', {
       beforeSize, afterSize, reductionPct: Math.round((1 - afterSize / beforeSize) * 1000) / 10,
-      pagesBefore: before.pages, pagesAfter: after.pages,
-      dimsBefore: before.perPage.map(p => `${p.w}x${p.h}`), dimsAfter: after.perPage.map(p => `${p.w}x${p.h}`),
-      textCharsBefore: beforeText, textCharsAfter: afterText,
+      mode: 'images', pagesBefore: before.pages, pagesAfter: after.pages,
+      dimsAfter: after.perPage.map(p => `${p.w}x${p.h}`),
+      textCharsBefore: beforeText.length, textCharsAfter: afterText.length,
       outInkPage1: inkPixels(await renderShot(out, 1, 'compress-photo-out')),
     });
     expect(after.pages).toBe(before.pages);
     expect(after.perPage.map(p => `${p.w}x${p.h}`)).toEqual(before.perPage.map(p => `${p.w}x${p.h}`));
-    if (afterSize < beforeSize && afterText === 0) {
-      defect('compress', 'Reduce file size by optimizing embedded images while preserving page dimensions.',
-        `a page that mixes a photograph with selectable text was flattened to a picture: ${beforeSize} B → ${afterSize} B while the text layer went ${beforeText} chars → ${afterText} chars, because compressPdf re-renders the whole PAGE to JPEG (services/pdfService.ts:296-336) instead of only re-encoding the embedded images it advertises`, 'high');
-    }
+    // The defect this replaces: the page came back 78% smaller with its text characters reduced to
+    // none, because the whole page was re-drawn as a JPEG rather than only its embedded images.
+    expect(afterText.length).toBeGreaterThan(0);
+    expect(afterText).toBe(beforeText);
+    expect(afterSize).toBeLessThanOrEqual(beforeSize);
+  }, 900_000);
+
+  it('rasterize mode is the one that trades the text layer for size, and says so in its own output', async () => {
+    const mixed = await photoTextDoc('R', 4);
+    const srcPath = await emitFile('compress', 'src-photo-raster', mixed);
+    const beforeText = flat(docText(srcPath)).length;
+    const out = await emit('compress', 'photo-text-raster', await compressPdf(mixed, 0.60, () => {}, undefined, 'rasterize'));
+    const afterText = flat(docText(out)).length;
+    record('compress', 'photoTextRaster', { beforeText, afterText, pages: pdfInfo(out).pages });
+    expect(beforeText).toBeGreaterThan(0);
+    // Correct behaviour for the named opt-in — text is gone, which is exactly why it is not the default.
     expect(afterText).toBe(0);
   }, 900_000);
 });

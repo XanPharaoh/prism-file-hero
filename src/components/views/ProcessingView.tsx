@@ -184,8 +184,22 @@ export default function ProcessingView({
             <option value="extreme">Extreme Compression (Maximum size reduction for email/upload)</option>
             <option value="low">Low Compression (Highest visual quality, mild compression)</option>
           </select>
+          <label htmlFor="compress-mode" className="block text-sm font-bold text-slate-700 dark:text-slate-200">
+            Compression Method
+          </label>
+          <select
+            id="compress-mode"
+            value={s.toolOptions.compressionMode ?? 'images'}
+            onChange={(e) => s.setToolOptions({ compressionMode: e.target.value as 'images' | 'rasterize' })}
+            className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
+          >
+            <option value="images">Embedded images only — text stays selectable</option>
+            <option value="rasterize">Rebuild each page as one picture — smaller, text becomes unselectable</option>
+          </select>
           <p className="text-[11px] text-slate-400">
-            Optimizes high-resolution scans and rasterizes heavy streams while preserving original dimensions.
+            {s.toolOptions.compressionMode === 'rasterize'
+              ? 'Every page is re-drawn as a single image. Original page dimensions are kept, but the text layer is gone: the result cannot be searched, copied, or read by a screen reader.'
+              : 'Re-encodes the photos and scans inside the file. Text, form fields and page dimensions are left exactly as they are.'}
           </p>
         </div>
       )}

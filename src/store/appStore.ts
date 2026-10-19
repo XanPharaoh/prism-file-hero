@@ -110,6 +110,7 @@ interface AppState {
     splitPages: string;
     jpgPages: string;
     compressionLevel: 'extreme' | 'recommended' | 'low';
+    compressionMode: 'images' | 'rasterize';
     compressionQuality?: number;
     redactKeywords: string;
     deletePages: string;
@@ -354,6 +355,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     splitPages: '',
     jpgPages: '',
     compressionLevel: 'recommended',
+    compressionMode: 'images',
     compressionQuality: 0.6,
     redactKeywords: '',
     deletePages: '',

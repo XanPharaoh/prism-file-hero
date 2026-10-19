@@ -258,7 +258,10 @@ function filtersOf(dict: PDFDict, ctx: Ctx): string[] {
  * JPEG codestream, so the image can still be handed over unaltered. `DecompressionStream('deflate')`
  * is the zlib format of RFC 1950, which is exactly what /FlateDecode is.
  */
-async function inflateBytes(bytes: Uint8Array): Promise<Uint8Array> {
+/** Unwrap a PDF /FlateDecode layer. Shared with compression, which meets the same wrapper. */
+export const inflateBytes = inflateBytesInner;
+
+async function inflateBytesInner(bytes: Uint8Array): Promise<Uint8Array> {
   if (typeof DecompressionStream === 'undefined') throw new Error('this runtime has no inflate');
   const decompressor = new DecompressionStream('deflate');
   const writer = decompressor.writable.getWriter();

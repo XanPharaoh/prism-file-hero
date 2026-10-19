@@ -74,7 +74,11 @@ export const TOOL_REGISTRY: ToolHandler[] = [
       else if (options?.compressionLevel === 'low') quality = 0.75;
       else if (typeof options?.compressionQuality === 'number') quality = options.compressionQuality;
 
-      const blob = await compressPdf(files[0], quality, onProgress);
+      // 'images' re-encodes the embedded JPEGs and leaves the rest of the document alone, so text
+      // stays selectable. 'rasterize' is the aggressive one and must be chosen deliberately: it turns
+      // each page into a single picture, which discards any text layer the page had.
+      const mode = options?.compressionMode === 'rasterize' ? 'rasterize' as const : 'images' as const;
+      const blob = await compressPdf(files[0], quality, onProgress, undefined, mode);
       return { blob, filename: `Compressed_${Date.now()}.pdf` };
     },
   },

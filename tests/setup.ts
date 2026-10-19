@@ -99,6 +99,23 @@ HTMLCanvasElement.prototype.toDataURL = function (this: HTMLCanvasElement, type?
 URL.createObjectURL = vi.fn().mockReturnValue('blob:mock-url');
 URL.revokeObjectURL = vi.fn();
 
+/**
+ * createImageBitmap backed by the same native decoder the canvas shim uses.
+ *
+ * Without it, any service that feature-detects `createImageBitmap` takes its "this runtime has no
+ * image codec" branch during tests, and a re-encoding path can pass while never actually re-encoding
+ * anything. The returned object is a real @napi-rs/canvas image, so `ctx.drawImage` accepts it.
+ */
+if (typeof (globalThis as any).createImageBitmap === 'undefined') {
+  (globalThis as any).createImageBitmap = async (blob: Blob) => {
+    const { loadImage } = await import('@napi-rs/canvas');
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const img = await loadImage(bytes);
+    if (!(img as any).close) (img as any).close = () => {};
+    return img;
+  };
+}
+
 // Silence jsdom navigation noise in tests
 HTMLAnchorElement.prototype.click = vi.fn();
 

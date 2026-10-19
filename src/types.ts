@@ -151,6 +151,7 @@ export interface ToolOptions {
   splitPages: string;
   jpgPages: string;
   compressionLevel: 'extreme' | 'recommended' | 'low';
+  compressionMode: 'images' | 'rasterize';
   compressionQuality?: number;
   redactKeywords: string;
   deletePages: string;
