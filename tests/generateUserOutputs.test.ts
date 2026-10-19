@@ -245,8 +245,10 @@ describe('Generate Organized User Outputs in Downloads Folder', () => {
 
     // 22. Repair PDF
     const repairDir = path.join(OUTPUT_BASE, '22_Repair_PDF_Feature');
-    const repairedBlob = await repairPdf(sbsaFile);
-    await saveBlobToFile(repairedBlob, repairDir, 'StandardBank_Reconstructed_Repaired.pdf');
+    // Standard Bank ships permission-encrypted. pdf-lib can read its structure but not decrypt its
+    // page content, so rebuilding it used to yield a 8-page file with 8 characters of text. Repair
+    // now refuses; Nedbank is the plaintext fixture that proves the operation still works.
+    await expect(repairPdf(sbsaFile)).rejects.toThrow(/password-protected/);
     const repairedNed = await repairPdf(nedbankFile);
     await saveBlobToFile(repairedNed, repairDir, 'Nedbank_Reconstructed_Repaired.pdf');
 

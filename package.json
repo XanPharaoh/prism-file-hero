@@ -34,6 +34,7 @@
     "inspect:prod-security": "node scripts/prod-security-inspect.mjs",
     "tokens:local": "node scripts/mint-local-tokens.mjs",
     "check:offline-ocr": "node scripts/offline-ocr-check.mjs",
+    "check:site-guard": "node scripts/feature-audit/site-guard-check.mjs",
     "check:app": "node scripts/app-evidence.mjs",
     "check:conversions": "node scripts/run-conversions.mjs",
     "test:internal-desktop": "VITE_DISTRIBUTION=internal-desktop vitest run tests/internalAiAuth.test.ts",

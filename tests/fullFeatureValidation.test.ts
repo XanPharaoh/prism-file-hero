@@ -52,6 +52,23 @@ function fixture(name: string): File {
   return new File([new Uint8Array(buf)], name, { type: 'application/pdf' });
 }
 
+/**
+ * pdf-lib reads an encrypted document's STRUCTURE but cannot decrypt its page content, so copying or
+ * re-saving one produced a file with the correct page count and nothing inside. Measured on this
+ * corpus: Standard Bank in 14,476 characters, output 8. Those operations now refuse instead.
+ * Encrypted here (pdfinfo): TEST = RC4, SBSA = AES, FNB/Robbie = AES. ABSA and NED are plaintext.
+ */
+const ENCRYPTED_FIXTURE_LABELS = new Set(['TEST', 'SBSA', 'FNB']);
+
+/** Returns the operation's result for rebuildable fixtures, and asserts the refusal for encrypted ones. */
+async function runOrExpectRefusal<T>(feature: string, label: string, op: () => Promise<T>): Promise<T | null> {
+  if (!ENCRYPTED_FIXTURE_LABELS.has(label)) return op();
+  await expect(op()).rejects.toThrow(/password-protected/);
+  report(feature, label, 'REFUSES', 'encrypted fixture: loud refusal, no silent empty document');
+  reportLines.push(`| ${feature} | ${label} | REFUSES | encrypted fixture — refused instead of shipping an empty file |`);
+  return null;
+}
+
 async function pdfInfo(blob: Blob): Promise<{ pages: number; textItems: number; sizeKb: number }> {
   const buf = await blob.arrayBuffer();
   const u8 = new Uint8Array(buf);
@@ -117,7 +134,9 @@ describe('Feature 01: Bank Statement → Excel', () => {
 describe('Feature 02: Sanitize PDF', () => {
   it.each([['ABSA'], ['NED'], ['TEST']])('%s → sanitized', async (label) => {
     const file = { SBSA, ABSA, FNB, NED, TEST }[label]!;
-    const blob = await sanitizePdf(file, { removeJs: true, removeAttachments: true, removeLinks: true, removeMetadata: true });
+    const blob = await runOrExpectRefusal('Sanitize', label, () =>
+      sanitizePdf(file, { removeJs: true, removeAttachments: true, removeLinks: true, removeMetadata: true }));
+    if (!blob) return;
     const { pages, textItems, sizeKb } = await pdfInfo(blob);
 
     const ok = sizeKb >= 5 && pages >= 1;
@@ -180,7 +199,8 @@ describe('Feature 05: Rubber Stamp Badges', () => {
 
   it.each(stamps)('%s stamp=%s', async (label, text, color) => {
     const file = { SBSA, ABSA, FNB, NED, TEST }[label]!;
-    const blob = await stampPdf(file, text, { color: color as any, dateStamp: true });
+    const blob = await runOrExpectRefusal('Stamp', label, () => stampPdf(file, text, { color: color as any, dateStamp: true }));
+    if (!blob) return;
     const { pages, textItems, sizeKb } = await pdfInfo(blob);
 
     const ok = sizeKb >= 10 && pages >= 1;
@@ -219,7 +239,8 @@ describe('Feature 06: Invert Colors', () => {
 describe('Feature 07: Auto-Rotate', () => {
   it.each([['NED'], ['ABSA'], ['TEST']])('%s → auto-rotated', async (label) => {
     const file = { SBSA, ABSA, FNB, NED, TEST }[label]!;
-    const blob = await autoRotatePdf(file);
+    const blob = await runOrExpectRefusal('AutoRotate', label, () => autoRotatePdf(file));
+    if (!blob) return;
     const { pages, textItems, sizeKb } = await pdfInfo(blob);
 
     const ok = sizeKb >= 5 && pages >= 1;
@@ -312,10 +333,11 @@ describe('Feature 11: Add Page Numbers', () => {
 describe('Feature 12: Header & Footer', () => {
   it.each([['NED'], ['ABSA'], ['TEST']])('%s → header/footer', async (label) => {
     const file = { SBSA, ABSA, FNB, NED, TEST }[label]!;
-    const blob = await addHeaderFooter(file, {
+    const blob = await runOrExpectRefusal('HeaderFooter', label, () => addHeaderFooter(file, {
       header: 'PRISM FILE HERO — OFFICIAL AUDIT',
       footer: 'Page {page} of {total} • Generated on {date}',
-    });
+    }));
+    if (!blob) return;
     const { pages, textItems, sizeKb } = await pdfInfo(blob);
 
     const ok = sizeKb >= 5 && pages >= 1;
@@ -540,7 +562,8 @@ describe('Feature 21: Remove Blank Pages', () => {
 describe('Feature 22: Repair PDF', () => {
   it.each([['SBSA'], ['NED'], ['TEST']])('%s → repaired', async (label) => {
     const file = { SBSA, ABSA, FNB, NED, TEST }[label]!;
-    const blob = await repairPdf(file);
+    const blob = await runOrExpectRefusal('Repair', label, () => repairPdf(file));
+    if (!blob) return;
     const { pages, sizeKb } = await pdfInfo(blob);
 
     const ok = sizeKb >= 5 && pages >= 1;

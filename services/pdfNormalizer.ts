@@ -1,4 +1,4 @@
-import { PDFDocument } from 'pdf-lib';
+import { loadPdfForRebuild } from '@/shared/pdf/loadGuard';
 
 export interface NormalizationResult {
   file: File;
@@ -11,11 +11,13 @@ export interface NormalizationResult {
 /**
  * Normalise raw PDF bytes (ArrayBuffer) by re-saving with pdf-lib.
  * Returns the normalised ArrayBuffer and a list of issues encountered.
- * Throws if pdf-lib cannot parse the PDF at all.
+ * Throws if pdf-lib cannot parse the PDF at all, and refuses encrypted input: re-saving an
+ * encrypted document through pdf-lib keeps the page count and empties the content, so both callers
+ * fall back to the original bytes -- which pdf.js can read -- rather than a normalised blank.
  */
 export async function normalizePdfBytes(bytes: ArrayBuffer): Promise<{ data: ArrayBuffer; issues: string[] }> {
   const issues: string[] = [];
-  const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+  const pdfDoc = await loadPdfForRebuild(bytes, 'Normalize');
 
   // Strategy 1: Save without object streams (maximum compatibility)
   try {

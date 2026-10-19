@@ -2,6 +2,7 @@
 import { pdfjsLib } from './pdfjsClient';
 import { PDFDocument, rgb, degrees, StandardFonts, PDFName, PDFArray, PDFDict } from 'pdf-lib';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
+import { EncryptedDocumentError, isEncryptedLoadFailure, loadPdfForRebuild } from '@/shared/pdf/loadGuard';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import JSZip from 'jszip';
 import {
@@ -52,18 +53,21 @@ function parsePageRange(pagesStr: string, totalPages: number): number[] {
 }
 
 /**
- * Resilient PDF loader that ignores permissions and automatically repairs malformed syntax
+ * Loader for every operation that rebuilds a document. It repairs malformed syntax, but it refuses
+ * encrypted input rather than producing a page-count-correct file with no content in it -- see
+ * shared/pdf/loadGuard.ts for the measurement that made this a hard rule.
  */
 export async function loadPdfResilient(file: File): Promise<PDFDocument> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   try {
-    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    const doc = await loadPdfForRebuild(bytes);
     doc.getPageCount();
     return doc;
-  } catch {
+  } catch (err) {
+    if (err instanceof EncryptedDocumentError) throw err;
     const repaired = await repairPdf(file);
     const repairedBytes = new Uint8Array(await repaired.arrayBuffer());
-    return await PDFDocument.load(repairedBytes, { ignoreEncryption: true });
+    return await loadPdfForRebuild(repairedBytes);
   }
 }
 
@@ -162,7 +166,7 @@ export async function splitPdf(file: File, rangesStr?: string): Promise<SplitRes
  */
 export async function rotatePdf(file: File, angle: number = 90): Promise<Blob> {
   const bytes = await file.arrayBuffer();
-  const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  const pdf = await loadPdfForRebuild(bytes, 'Rotate');
   const pages = pdf.getPages();
   pages.forEach(page => {
     const currRotation = page.getRotation().angle;
@@ -182,13 +186,17 @@ export async function protectPdf(file: File, password: string): Promise<Blob> {
   }
   let pdfBytes: Uint8Array;
   try {
-    const rawDoc = await PDFDocument.load(new Uint8Array(await file.arrayBuffer()), { ignoreEncryption: true });
+    const rawDoc = await loadPdfForRebuild(new Uint8Array(await file.arrayBuffer()), 'Protect');
     pdfBytes = await rawDoc.save();
-  } catch {
+  } catch (err) {
+    // Never relabel an encrypted document as "invalid PDF": the user would chase corruption that
+    // does not exist instead of reaching for the password.
+    if (err instanceof EncryptedDocumentError) throw err;
     try {
       const repaired = await repairPdf(file);
       pdfBytes = new Uint8Array(await repaired.arrayBuffer());
-    } catch {
+    } catch (repairErr) {
+      if (repairErr instanceof EncryptedDocumentError) throw repairErr;
       throw new Error('Failed to parse PDF document: Invalid PDF');
     }
   }
@@ -354,7 +362,7 @@ export async function compressPdf(
 
   // Fallback: try lossless stream compression
   try {
-    const pdfDocLib = await PDFDocument.load(originalBytes.slice(0), { ignoreEncryption: true });
+    const pdfDocLib = await loadPdfForRebuild(originalBytes.slice(0), 'Compress');
     const losslessBuffer = await pdfDocLib.save({ useObjectStreams: true });
     if (losslessBuffer.length < originalSize) {
       return new Blob([losslessBuffer as BlobPart], { type: 'application/pdf' });
@@ -393,6 +401,7 @@ export async function redactPdf(
   const signal = opts?.signal;
   let src: any = null;
   const clean = await PDFDocument.create();
+  const unredactedRegions: { page: number; text: string | null }[] = [];
 
   const abortIfNeeded = () => {
     if (signal?.aborted) throw new DOMException('Redaction cancelled', 'AbortError');
@@ -431,27 +440,29 @@ export async function redactPdf(
           return textContentCache;
         };
         for (const region of pageRegions) {
-          if (region.text && region.text.trim().length > 0) {
+          const needle = (region.text ?? '').trim();
+          let painted = false;
+
+          if (needle.length > 0) {
             const items = await getTextItems();
-            const needle = region.text.trim().toLowerCase();
-            let matched = false;
+            const lower = needle.toLowerCase();
 
             // 1. Whole phrase sits inside one text item.
             for (const item of items) {
               if (!item || typeof item.str !== 'string') continue;
-              if (!item.str.trim().toLowerCase().includes(needle)) continue;
+              if (!item.str.trim().toLowerCase().includes(lower)) continue;
               const tx = item.transform ? item.transform[4] : 0;
               const ty = item.transform ? item.transform[5] : 0;
               const fs = Math.abs(item.transform?.[3] || 12) || item.height || 12;
               const w = item.width || Math.max(10, item.str.trim().length * fs * 0.6);
               const h = item.height || fs;
               paintOpaqueBlackout(ctx, raster, [tx, ty, tx + w, ty + h]);
-              matched = true;
+              painted = true;
             }
 
             // 2. Phrase spans consecutive items on the same baseline (e.g. "John Doe"
             // split across separate text runs).
-            if (!matched && needle.includes(' ')) {
+            if (!painted && needle.includes(' ')) {
               const itemsWithPos = items.filter(
                 it => it && typeof it.str === 'string' && it.transform && it.str.trim().length > 0
               );
@@ -472,25 +483,35 @@ export async function redactPdf(
                   const w = it.width || Math.max(10, it.str.trim().length * fs * 0.6);
                   endX = tx + w; endTY = ty;
                   combined += (combined ? ' ' : '') + it.str.trim();
-                  if (combined.toLowerCase().includes(needle)) {
+                  if (combined.toLowerCase().includes(lower)) {
                     const y0 = Math.min(startTY, endTY);
                     const h0 = maxFS * 1.3;
                     paintOpaqueBlackout(ctx, raster, [startTX, y0 - maxFS * 0.25, endX, y0 + h0]);
-                    matched = true;
+                    painted = true;
                     break;
                   }
                 }
-                if (matched) break;
+                if (painted) break;
               }
             }
-          } else if (region.width > 0 && region.height > 0) {
-            // Caller box: top-origin points on the visible page → PDF rect → raster pixels.
+          }
+
+          // Both paths above need a text layer. A scanned statement is the same region carrying the
+          // box the caller drew, and the previous `else if` made that box unreachable the moment
+          // `text` was present: nothing was painted, the page saved unchanged, and the tool reported
+          // success on an un-redacted document. Falling through instead means a region the text
+          // matcher cannot find is covered by the caller's box — over-redaction is visible and
+          // recoverable, under-redaction is neither.
+          if (!painted && region.width > 0 && region.height > 0) {
             const pdfRect = topBoxToPdfRect(
               { x: region.x, y: region.y, width: region.width, height: region.height },
               visible.height
             );
             paintOpaqueBlackout(ctx, raster, pdfRect);
+            painted = true;
           }
+
+          if (!painted) unredactedRegions.push({ page: pNum, text: needle || null });
         }
       } catch (err) {
         // A render/paint failure on ANY page aborts the whole operation — never emit
@@ -514,6 +535,19 @@ export async function redactPdf(
     }
   } finally {
     if (src) { try { await src.destroy(); } catch {} }
+  }
+
+  // A region with neither a text match nor an area is a redaction that did not happen. Exporting
+  // the document anyway would hand the user a file they believe is safe.
+  if (unredactedRegions.length > 0) {
+    const where = unredactedRegions.slice(0, 3)
+      .map(r => `page ${r.page}${r.text ? ` ("${r.text.slice(0, 30)}")` : ''}`)
+      .join(', ');
+    throw new Error(
+      `Redaction refused: ${unredactedRegions.length} region(s) could not be located and no area was ` +
+      `supplied (${where}${unredactedRegions.length > 3 ? ', …' : ''}). Select the area on the page and ` +
+      `run it again — nothing was exported.`
+    );
   }
 
   const redactedPdfBytes = await clean.save({ useObjectStreams: false });
@@ -1068,7 +1102,7 @@ export async function repairPdf(file: File): Promise<Blob> {
 
   // Attempt 1: Standard load & page copy through pdf-lib to clean broken references/xref tables
   try {
-    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    const doc = await loadPdfForRebuild(bytes, 'Repair');
     const cleanDoc = await PDFDocument.create();
     const count = doc.getPageCount();
     if (count > 0) {
@@ -1078,6 +1112,9 @@ export async function repairPdf(file: File): Promise<Blob> {
       return new Blob([repairedBytes as BlobPart], { type: 'application/pdf' });
     }
   } catch (pdfLibError) {
+    // An encrypted file is not a corrupted one, and rasterizing it into an image-only PDF is not a
+    // repair the user asked for. Say what is blocking it.
+    if (pdfLibError instanceof EncryptedDocumentError) throw pdfLibError;
     console.warn('pdf-lib repair attempt failed, falling back to pdfjs rasterization:', pdfLibError);
   }
 
@@ -1610,12 +1647,13 @@ export async function sanitizePdf(
   let bytes = new Uint8Array(await file.arrayBuffer());
   let pdfDoc: PDFDocument;
   try {
-    pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    pdfDoc = await loadPdfForRebuild(bytes, 'Sanitize');
     pdfDoc.getPages();
-  } catch {
+  } catch (err) {
+    if (err instanceof EncryptedDocumentError) throw err;
     const repaired = await repairPdf(file);
     bytes = new Uint8Array(await repaired.arrayBuffer());
-    pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    pdfDoc = await loadPdfForRebuild(bytes, 'Sanitize');
   }
 
   const removeJs = options?.removeJs ?? true;

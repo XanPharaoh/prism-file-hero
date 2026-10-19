@@ -103,8 +103,10 @@ describe('PDF Tool Stress-Tester & Quality Auditor - All 37 Registered Tools', (
     it('1. merge: combines multiple real PDF fixtures with and without page ranges', async () => {
       const handler = getHandler('merge');
 
-      // Merge entire files
-      const resultAll = await handler(payload([julyFile, junJulFile, robbieFile]));
+      // Merge entire files — plaintext fixtures only. An encrypted member cannot be rebuilt by
+      // pdf-lib (structure without content), and mixing one in now aborts instead of quietly
+      // producing a merged file whose pages are empty.
+      const resultAll = await handler(payload([julyFile, junJulFile]));
       expect(resultAll.blob).toBeInstanceOf(Blob);
       expect(resultAll.filename).toMatch(/^Merged_\d+\.pdf$/);
 
@@ -115,6 +117,8 @@ describe('PDF Tool Stress-Tester & Quality Auditor - All 37 Registered Tools', (
       const resultSubset = await handler(payload([julyFile, junJulFile], { mergePages: '1' }));
       const docSubset = await parsePdf(resultSubset.blob!);
       expect(docSubset.getPageCount()).toBe(2);
+
+      await expect(handler(payload([julyFile, robbieFile]))).rejects.toThrow(/password-protected/);
     });
 
     it('2. split: extracts pages into ZIP archive with page ranges and individual pages', async () => {
@@ -269,12 +273,15 @@ describe('PDF Tool Stress-Tester & Quality Auditor - All 37 Registered Tools', (
     it('9. auto-rotate: standardizes mixed landscape/portrait pages to uniform portrait', async () => {
       const handler = getHandler('auto-rotate');
 
-      const result = await handler(payload([robbieFile]));
+      const result = await handler(payload([junJulFile]));
       expect(result.blob).toBeInstanceOf(Blob);
       expect(result.filename).toMatch(/_AutoRotated\.pdf$/);
 
       const doc = await parsePdf(result.blob!);
       expect(doc.getPageCount()).toBeGreaterThan(0);
+
+      // Encrypted fixture: refuse loudly rather than rebuild an empty document.
+      await expect(handler(payload([robbieFile]))).rejects.toThrow(/password-protected/);
     });
 
     it('10. stamp: stamps rubber badges (APPROVED, CONFIDENTIAL, RECEIVED, FINAL) with date options', async () => {
@@ -357,12 +364,16 @@ describe('PDF Tool Stress-Tester & Quality Auditor - All 37 Registered Tools', (
     it('13. pdf-repair: recovers and reconstructs real PDF fixtures', async () => {
       const handler = getHandler('pdf-repair');
 
-      const result = await handler(payload([testFile]));
+      const result = await handler(payload([julyFile]));
       expect(result.blob).toBeInstanceOf(Blob);
       expect(result.filename).toMatch(/_Repaired\.pdf$/);
 
       const doc = await parsePdf(result.blob!);
       expect(doc.getPageCount()).toBeGreaterThan(0);
+
+      // An encrypted file is not a corrupted one; repair says so instead of rasterizing it into
+      // an image-only "fix" the user did not ask for.
+      await expect(handler(payload([testFile]))).rejects.toThrow(/password-protected/);
     });
 
     it('14. crop-resize: trims margins and resizes pages to standard formats (A4, Letter, Legal, A3, A5)', async () => {
@@ -620,12 +631,14 @@ describe('PDF Tool Stress-Tester & Quality Auditor - All 37 Registered Tools', (
     it('30. flatten-pdf: locks interactive form fields, checkmarks, and annotations', async () => {
       const handler = getHandler('flatten-pdf');
 
-      const result = await handler(payload([testFile]));
+      const result = await handler(payload([junJulFile]));
       expect(result.blob).toBeInstanceOf(Blob);
       expect(result.filename).toMatch(/_Flattened\.pdf$/);
 
       const doc = await parsePdf(result.blob!);
       expect(doc.getPageCount()).toBeGreaterThan(0);
+
+      await expect(handler(payload([testFile]))).rejects.toThrow(/password-protected/);
     });
   });
 

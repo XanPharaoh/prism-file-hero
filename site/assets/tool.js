@@ -18,6 +18,25 @@
   }
   var libP = null;
   function pdfLib() { if (!libP) libP = window.PDFLib ? Promise.resolve(window.PDFLib) : loadScript(PDFLIB, PDFLIB_SRI).then(function () { return window.PDFLib; }); return libP; }
+
+  /* pdf-lib reads an encrypted document's STRUCTURE but cannot decrypt its page content, so copying
+     pages or re-saving one yields a file with the right page count and nothing inside it (measured on
+     this product's own statements: 14,476 characters in, 8 out). Anything that rebuilds a document
+     loads through here and refuses instead. Reading, OCR and redaction use pdf.js, which can decrypt
+     a file that opens without a password. */
+  function loadForRebuild(L, b, op) {
+    return L.PDFDocument.load(b, { ignoreEncryption: false }).catch(function (err) {
+      var msg = String((err && err.message) || err);
+      if (/is encrypted/i.test(msg)) {
+        var e = new Error((op || "This tool") + " cannot rebuild a password-protected PDF: its pages" +
+          " can be viewed, OCR'd and redacted, but not copied or re-saved without the password." +
+          " Unlock it first with the password, then run this again.");
+        e.code = "encrypted";
+        throw e;
+      }
+      throw err;
+    });
+  }
   var pdfjsP = null;
   function pdfJs() {
     if (!pdfjsP) pdfjsP = import(B + "assets/vendor/pdf/pdf.min.mjs").then(function (m) {
@@ -100,7 +119,7 @@
   var TOOLS = {
     "merge-pdf": { accept: ".pdf,application/pdf", multi: true, min: 2,
       run: function (f) { return pdfLib().then(function (L) {
-        return Promise.all(f.map(function (x) { return bytes(x).then(function (b) { return L.PDFDocument.load(b, { ignoreEncryption: true }); }); }))
+        return Promise.all(f.map(function (x) { return bytes(x).then(function (b) { return loadForRebuild(L, b, "This tool"); }); }))
           .then(function (docs) { return L.PDFDocument.create().then(function (out) {
             return docs.reduce(function (p, d) { return p.then(function () { return out.copyPages(d, d.getPageIndices()).then(function (ps) { ps.forEach(function (pg) { out.addPage(pg); }); }); }); }, Promise.resolve())
               .then(function () { return out.save(); }).then(function (b) { return [{ blob: new Blob([b], { type: "application/pdf" }), name: "merged.pdf" }]; });
@@ -113,7 +132,7 @@
         { key: "n", label: "N (for 'Every N pages')", type: "text", def: "2" }
       ],
       run: function (f, o) { return Promise.all([pdfLib(), jszip()]).then(function (rr) { var L = rr[0], Z = rr[1];
-        return bytes(f[0]).then(function (b) { return L.PDFDocument.load(b, { ignoreEncryption: true }); }).then(function (src) {
+        return bytes(f[0]).then(function (b) { return loadForRebuild(L, b, "This tool"); }).then(function (src) {
           var n = src.getPageCount(), groups = [];
           if (o.mode === "each" || !o.mode) {
             for (var i = 0; i < n; i++) groups.push([i]);
@@ -146,7 +165,7 @@
     "rotate-pdf": { accept: ".pdf,application/pdf", multi: false, min: 1,
       opts: [{ key: "angle", label: "Turn", type: "select", def: "90", choices: [["90", "90°"], ["180", "180°"], ["270", "270°"]] }],
       run: function (f, o) { return pdfLib().then(function (L) {
-        return bytes(f[0]).then(function (b) { return L.PDFDocument.load(b, { ignoreEncryption: true }); }).then(function (d) {
+        return bytes(f[0]).then(function (b) { return loadForRebuild(L, b, "This tool"); }).then(function (d) {
           var a = +o.angle; d.getPages().forEach(function (p) { p.setRotation(L.degrees((p.getRotation().angle + a) % 360)); });
           return d.save().then(function (b2) { return [{ blob: new Blob([b2], { type: "application/pdf" }), name: "rotated.pdf" }]; });
         });
@@ -181,7 +200,7 @@
       }); } },
     "edit-metadata": { accept: ".pdf,application/pdf", multi: false, min: 1,
       run: function (f) { return pdfLib().then(function (L) {
-        return bytes(f[0]).then(function (b) { return L.PDFDocument.load(b, { ignoreEncryption: true }); }).then(function (d) {
+        return bytes(f[0]).then(function (b) { return loadForRebuild(L, b, "This tool"); }).then(function (d) {
           ["setTitle", "setAuthor", "setSubject", "setProducer", "setCreator"].forEach(function (m) { try { d[m](undefined); } catch (e) {} });
           try { d.setKeywords([]); } catch (e) {}
           return d.save().then(function (b2) { return [{ blob: new Blob([b2], { type: "application/pdf" }), name: "clean.pdf" }]; });
@@ -207,7 +226,7 @@
 
   // Second wave: the remaining client-side-capable tools (Organize, Optimize, Convert).
   function toPdf(b, name) { return [{ blob: new Blob([b], { type: "application/pdf" }), name: name }]; }
-  function loadPdf(f) { return pdfLib().then(function (L) { return bytes(f).then(function (b) { return L.PDFDocument.load(b, { ignoreEncryption: true }).then(function (d) { return { L: L, d: d, b: b }; }); }); }); }
+  function loadPdf(f) { return pdfLib().then(function (L) { return bytes(f).then(function (b) { return loadForRebuild(L, b, "This tool").then(function (d) { return { L: L, d: d, b: b }; }); }); }); }
   Object.assign(TOOLS, {
     "add-page-numbers": { accept: ".pdf,application/pdf", multi: false, min: 1,
       run: function (f) { return loadPdf(f[0]).then(function (r) { var ps = r.d.getPages(); ps.forEach(function (p, i) { p.drawText(String(i + 1), { x: p.getSize().width / 2 - 8, y: 16, size: 11 }); }); return r.d.save().then(function (b) { return toPdf(b, "numbered.pdf"); }); }); } },
@@ -233,7 +252,7 @@
       run: function (f) { return loadPdf(f[0]).then(function (r) { return r.d.save({ useObjectStreams: false }).then(function (b) { return toPdf(b, "repaired.pdf"); }); }); } },
     "multi-page-layout": { accept: ".pdf,application/pdf", multi: false, min: 1,
       opts: [{ key: "per", label: "Pages per sheet", type: "select", def: "2", choices: [["2", "2-up"], ["4", "4-up"], ["9", "9-up"]] }],
-      run: function (f, o) { return pdfLib().then(function (L) { return bytes(f[0]).then(function (b) { return L.PDFDocument.load(b, { ignoreEncryption: true }).then(function (src) { var n = src.getPageCount(); return L.PDFDocument.create().then(function (out) { return out.embedPdf(b, Array.from({ length: n }, function (_, i) { return i; })).then(function (emb) { var per = +o.per || 2, g = nUpGrid(per), W = 595.28, H = 841.89, m = 16, cw = (W - m * (g.cols + 1)) / g.cols, ch = (H - m * (g.rows + 1)) / g.rows; for (var s = 0; s < n; s += per) { var sheet = out.addPage([W, H]); for (var k = 0; k < per && (s + k) < n; k++) { var col = k % g.cols, rw = Math.floor(k / g.cols), e = emb[s + k], sc = Math.min(cw / e.width, ch / e.height), dw = e.width * sc, dh = e.height * sc, cx = m + col * (cw + m), cy = H - m - (rw + 1) * ch - rw * 0; sheet.drawPage(e, { x: cx + (cw - dw) / 2, y: cy + (ch - dh) / 2, width: dw, height: dh }); } } return out.save(); }).then(function (bb) { return toPdf(bb, "n-up.pdf"); }); }); }); }); }); } },
+      run: function (f, o) { return pdfLib().then(function (L) { return bytes(f[0]).then(function (b) { return loadForRebuild(L, b, "This tool").then(function (src) { var n = src.getPageCount(); return L.PDFDocument.create().then(function (out) { return out.embedPdf(b, Array.from({ length: n }, function (_, i) { return i; })).then(function (emb) { var per = +o.per || 2, g = nUpGrid(per), W = 595.28, H = 841.89, m = 16, cw = (W - m * (g.cols + 1)) / g.cols, ch = (H - m * (g.rows + 1)) / g.rows; for (var s = 0; s < n; s += per) { var sheet = out.addPage([W, H]); for (var k = 0; k < per && (s + k) < n; k++) { var col = k % g.cols, rw = Math.floor(k / g.cols), e = emb[s + k], sc = Math.min(cw / e.width, ch / e.height), dw = e.width * sc, dh = e.height * sc, cx = m + col * (cw + m), cy = H - m - (rw + 1) * ch - rw * 0; sheet.drawPage(e, { x: cx + (cw - dw) / 2, y: cy + (ch - dh) / 2, width: dw, height: dh }); } } return out.save(); }).then(function (bb) { return toPdf(bb, "n-up.pdf"); }); }); }); }); }); } },
     "pdf-to-markdown": { accept: ".pdf,application/pdf", multi: false, min: 1,
       run: function (f) { return pdfJs().then(function (js) { return bytes(f[0]).then(function (b) { return js.getDocument({ data: b }).promise; }).then(function (doc) { var md = "", n = 1; function page() { if (n > doc.numPages) return Promise.resolve(); md += "\n\n## Page " + n + "\n\n"; return doc.getPage(n++).then(function (p) { return p.getTextContent(); }).then(function (tc) { md += tc.items.map(function (i) { return i.str; }).join(" ") + "\n"; return page(); }); } return page().then(function () { return [{ blob: new Blob([md.trim() + "\n"], { type: "text/markdown" }), name: "document.md" }]; }); }); }); } }
   });
@@ -304,7 +323,7 @@
             }); });
           })(n);
           return seq;
-        }).then(function () { return L.PDFDocument.load(buf, { ignoreEncryption: true }).then(function (src) {
+        }).then(function () { return loadForRebuild(L, buf, "Remove blank pages").then(function (src) {
           var keep = []; for (var i = 0; i < src.getPageCount(); i++) { if (marks[i] !== false) keep.push(i); } if (!keep.length) keep = [0];
           return L.PDFDocument.create().then(function (out) { return out.copyPages(src, keep).then(function (ps) { ps.forEach(function (p) { out.addPage(p); }); return out.save(); }).then(function (b) { return toPdf(b, "no-blanks.pdf"); }); });
         }); });
