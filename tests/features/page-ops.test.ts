@@ -656,16 +656,28 @@ describe('rotate — "Fix orientation for all pages — choose 90°, 180°, or 2
     expect(after.y0 - before.y0).toBeGreaterThan(120);   // content moved towards the bottom
   }, 240_000);
 
-  it('a 270° page + 90° turn is written as /Rotate 360, which the PDF spec forbids', async () => {
+  it('accumulated rotation stays inside the values the spec allows', async () => {
     const f = await labeledDoc('W', 1, { rotation: { 1: 270 } });
     const srcPath = await emitFile('rotate', 'src270', f);
     const out = await emit('rotate', 'accumulated', await rotatePdf(f, 90));
     const s = await structAsync(out);
     record('rotate', 'accumulated', { srcRot: pdfInfo(srcPath).perPage[0].rot, outRotPdfLib: s.rotations, outRotPoppler: pdfInfo(out).perPage[0].rot });
-    expect(s.rotations).toEqual([360]);
-    defect('rotate', 'Fix orientation for all pages — choose 90°, 180°, or 270°.',
-      `rotatePdf adds the angle to the existing /Rotate without reducing modulo 360 (services/pdfService.ts:168-169), so a page already at 270° is written as /Rotate 360 — an out-of-range value; poppler reports it back as ${pdfInfo(out).perPage[0].rot}`, 'low');
-  }, 180_000);
+    // 270 + 90 is a full turn: it must land on 0, not on the out-of-range 360 that used to be written.
+    expect(s.rotations).toEqual([0]);
+    expect(pdfInfo(out).perPage[0].rot).toBe(0);
+
+    // Every starting angle through every turn must stay legal, not just this one case.
+    for (const start of [0, 90, 180, 270]) {
+      for (const turn of [90, 180, 270]) {
+        const doc = await PDFDocument.create();
+        const page = doc.addPage([300, 400]);
+        page.setRotation(degrees(start));
+        const srcFile = asFile(await doc.save(), `rot-${start}.pdf`);
+        const after = await structAsync(await emit('rotate', `sweep-${start}-${turn}`, await rotatePdf(srcFile, turn)));
+        expect(after.rotations, `${start}° + ${turn}°`).toEqual([(start + turn) % 360]);
+      }
+    }
+  }, 400_000);
 });
 
 describe('auto-rotate — "Smart auto-detection to standardize mixed landscape and portrait pages into uniform layout."', () => {
@@ -693,17 +705,27 @@ describe('auto-rotate — "Smart auto-detection to standardize mixed landscape a
     expect(info.readable).toBe(true);
   }, 300_000);
 
-  it('running auto-rotate a second time un-rotates the page it just fixed', async () => {
+  it('auto-rotate is idempotent: a second pass changes nothing', async () => {
     const once = await autoRotatePdf(await mixed());
+    const oncePath = await emit('auto-rotate', 'once2', once);
     const twice = await autoRotatePdf(await pdfjsAsFile(once, 'auto-once.pdf'));
     const out = await emit('auto-rotate', 'twice', twice);
-    const s1 = await renderShot(await emit('auto-rotate', 'once2', once), 2, 'auto-twice-first');
+    const s1 = await renderShot(oncePath, 2, 'auto-twice-first');
     const s2 = await renderShot(out, 2, 'auto-twice-second');
-    record('auto-rotate', 'idempotency', { firstPass: `${s1.w}x${s1.h}`, secondPass: `${s2.w}x${s2.h}`, rot: pdfInfo(out).perPage[1].rot });
+    const rot1 = pdfInfo(oncePath).perPage[1].rot;
+    const rot2 = pdfInfo(out).perPage[1].rot;
+    record('auto-rotate', 'idempotency', { firstPass: `${s1.w}x${s1.h}`, secondPass: `${s2.w}x${s2.h}`, rotFirst: rot1, rotSecond: rot2 });
+
+    // The defect this replaces: the decision read page.getSize() (the MediaBox) and ignored the
+    // existing /Rotate, so every pass flipped the same page again — 300x400 became 400x300.
     expect([s1.w, s1.h]).toEqual([300, 400]);
-    expect([s2.w, s2.h]).toEqual([400, 300]);
-    defect('auto-rotate', 'Smart auto-detection to standardize mixed landscape and portrait pages into uniform layout.',
-      `the decision uses page.getSize() (the MediaBox) and ignores the existing /Rotate (services/pdfService.ts:2045-2048), so the tool is not idempotent: two passes put the landscape page back to landscape (${s1.w}x${s1.h} → ${s2.w}x${s2.h})`, 'medium');
+    expect([s2.w, s2.h]).toEqual([s1.w, s1.h]);
+    expect(rot2).toBe(rot1);
+    // A third pass must also be a no-op, not a coin toss on parity.
+    const thrice = await autoRotatePdf(await pdfjsAsFile(twice, 'auto-twice.pdf'));
+    const s3 = await renderShot(await emit('auto-rotate', 'thrice', thrice), 2, 'auto-third');
+    expect([s3.w, s3.h]).toEqual([s1.w, s1.h]);
+    expect(pdfInfo(await emit('auto-rotate', 'thrice2', thrice)).perPage[1].rot).toBe(rot1);
   }, 300_000);
 });
 async function pdfjsAsFile(blob: Blob, name: string): Promise<File> {

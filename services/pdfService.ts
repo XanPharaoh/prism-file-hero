@@ -186,7 +186,9 @@ export async function rotatePdf(file: File, angle: number = 90): Promise<Blob> {
   const pages = pdf.getPages();
   pages.forEach(page => {
     const currRotation = page.getRotation().angle;
-    page.setRotation(degrees(currRotation + angle));
+    // Normalised: pdf-lib writes whatever it is handed, and `/Rotate 450` is not a legal value —
+    // a 180° page rotated once more used to land on 450 rather than back on 90.
+    page.setRotation(degrees((((currRotation + angle) % 360) + 360) % 360));
   });
   const rotatedPdfBytes = await pdf.save();
   return new Blob([rotatedPdfBytes as BlobPart], { type: 'application/pdf' });
@@ -2637,9 +2639,16 @@ export async function autoRotatePdf(file: File): Promise<Blob> {
 
   pages.forEach((page) => {
     const { width, height } = page.getSize();
-    if (width > height * 1.1) {
-      const current = page.getRotation().angle;
-      page.setRotation(degrees((current + 90) % 360));
+    const angle = ((Math.round(page.getRotation().angle) % 360) + 360) % 360;
+    // The decision has to be about the page a reader sees. `getSize()` reports the MediaBox, which
+    // does not change when the page is rotated, so the old check kept firing on every pass: the
+    // second run put the page it had just stood upright straight back on its side.
+    const turnsFrame = angle === 90 || angle === 270;
+    const visibleWidth = turnsFrame ? height : width;
+    const visibleHeight = turnsFrame ? width : height;
+
+    if (visibleWidth > visibleHeight * 1.1) {
+      page.setRotation(degrees((angle + 90) % 360));
     }
   });
 
