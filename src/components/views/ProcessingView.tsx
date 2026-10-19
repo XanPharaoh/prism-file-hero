@@ -476,6 +476,26 @@ export default function ProcessingView({
               <option value="A5">A5 (148 x 210 mm)</option>
             </select>
           </div>
+          <div className="space-y-2">
+            <label htmlFor="resize-mode" className="block text-sm font-bold text-slate-700 dark:text-slate-200">
+              When the page shape differs
+            </label>
+            <select
+              id="resize-mode"
+              value={s.toolOptions.resizeMode ?? 'fit'}
+              onChange={(e) => s.setToolOptions({ resizeMode: e.target.value as 'fit' | 'fill' | 'stretch' | 'clip' })}
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
+            >
+              <option value="fit">Fit everything inside — keep all content, add margins</option>
+              <option value="fill">Fill the page — edges are cropped away</option>
+              <option value="stretch">Stretch — the whole page shows, but is distorted</option>
+              <option value="clip">Keep the original size — anything outside is cropped</option>
+            </select>
+            <p className="text-[11px] text-slate-400">
+              The page is resized by transforming its content, so nothing is silently left behind: what
+              &ldquo;cropped&rdquo; means here is your choice, not the code&rsquo;s.
+            </p>
+          </div>
         </div>
       )}
 

@@ -767,7 +767,12 @@ export const TOOL_REGISTRY: ToolHandler[] = [
       const margins = options?.cropMargins as { top?: number } | undefined;
       const cropMarginMm = typeof margins?.top === 'number' ? margins.top : 0;
       const targetSize = options?.targetSize ? String(options.targetSize) : undefined;
-      const blob = await cropResizePdf(files[0], { cropMarginMm, targetSize });
+      // 'fit' keeps the whole page visible with bars; 'fill' fills the sheet and clips the overflow;
+      // 'stretch' distorts; 'clip' is the old behaviour, kept as something the user can choose.
+      const resizeMode = (['fit', 'fill', 'stretch', 'clip'] as const).includes(options?.resizeMode as any)
+        ? (options?.resizeMode as 'fit' | 'fill' | 'stretch' | 'clip')
+        : 'fit';
+      const blob = await cropResizePdf(files[0], { cropMarginMm, targetSize, resizeMode });
       return { blob, filename: `${files[0].name.replace(/\.pdf$/i, '')}_Cropped.pdf` };
     },
   },

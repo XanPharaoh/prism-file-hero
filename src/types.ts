@@ -171,6 +171,7 @@ export interface ToolOptions {
   metaProducer: string;
   stripMetadata: boolean;
   targetSize: number;
+  resizeMode: 'fit' | 'fill' | 'stretch' | 'clip';
   ocrEngine: 'tesseract' | 'gemini' | 'hybrid';
   unlockPassword: string;
   qaQuestion: string;

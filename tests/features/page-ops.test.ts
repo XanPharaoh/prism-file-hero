@@ -1064,24 +1064,54 @@ describe('crop-resize — "Trim margins or resize pages to standard sizes (A4, L
     expect(after).toContain('BODY');
   }, 240_000);
 
-  it('target size rewrites the box but does not scale the artwork', async () => {
+  it('target size scales the artwork, and nothing that was visible is deleted', async () => {
     const f = await labeledDoc('Z', 1, { size: [600, 800], marginText: true });
     const srcPath = await emitFile('crop-resize', 'src600', f);
     const outA4 = await emit('crop-resize', 'toA4', await cropResizePdf(f, { targetSize: 'A4' }));
     const outA5 = await emit('crop-resize', 'toA5', await cropResizePdf(await labeledDoc('Z', 1, { size: [600, 800], marginText: true }), { targetSize: 'A5' }));
     const before = inkBBox(await renderShot(srcPath, 1, 'crop-resize-src'))!;
-    const after = inkBBox(await renderShot(outA4, 1, 'crop-resize-a4'))!;
+    const afterA4 = inkBBox(await renderShot(outA4, 1, 'crop-resize-a4'))!;
+    const afterA5 = inkBBox(await renderShot(outA5, 1, 'crop-resize-a5'))!;
+    const srcText = flat(docText(srcPath));
+    const a5Text = flat(docText(outA5));
     record('crop-resize', 'resize', {
       a4dims: `${pdfInfo(outA4).perPage[0].w}x${pdfInfo(outA4).perPage[0].h}`,
       a5dims: `${pdfInfo(outA5).perPage[0].w}x${pdfInfo(outA5).perPage[0].h}`,
-      inkBefore: before, inkAfterGrow: after, a5Text: flat(docText(outA5)), srcText: flat(docText(srcPath)),
+      inkBefore: before, inkAfterA4: afterA4, inkAfterA5: afterA5, srcText, a5Text,
     });
+
     expect(pdfInfo(outA4).perPage[0].w).toBeCloseTo(595.28, 1);
     expect(pdfInfo(outA5).perPage[0].w).toBeCloseTo(419.53, 1);
-    expect(Math.abs(before.x0 - after.x0)).toBeLessThan(2);      // artwork never rescaled
-    expect(docText(outA5).includes('PRISMZ1')).toBe(false);      // top-of-page content clipped away
-    defect('crop-resize', 'Trim margins or resize pages to standard sizes (A4, Letter, Legal, etc.).',
-      `page.setSize() only rewrites the boxes — nothing is scaled (services/pdfService.ts:1276-1280). Growing a 600×800 page to A4 leaves the artwork at its original size (ink bbox ${before.x0},${before.y0} → ${after.x0},${after.y0} on a 595×842 sheet) and shrinking to A5 (419×595) silently deletes the content that no longer fits: "${flat(docText(srcPath)).slice(0, 40)}" became "${flat(docText(outA5)).slice(0, 40)}"`, 'high');
+
+    // 600x800 -> A5 is 419.53/600 = 0.6992 by width, the binding axis. The ink must follow the box.
+    const wOf = (b: { x0: number; x1: number }) => b.x1 - b.x0;
+    const expectW = wOf(before) * (419.53 / 600);
+    expect(Math.abs(wOf(afterA5) - expectW)).toBeLessThan(expectW * 0.06);
+    expect(wOf(afterA5)).toBeLessThan(wOf(before));
+    expect(wOf(afterA4)).toBeCloseTo(wOf(before) * (595.28 / 600), 0);
+
+    // The defect this replaces: shrinking to A5 silently deleted the top-of-page text.
+    expect(a5Text).toContain('PRISMZ1');
+    expect(a5Text).toContain('BODY');
+    const srcTokens = new Set(srcText.split(/\s+/).filter(Boolean));
+    const lostTokens = [...srcTokens].filter((t) => !a5Text.includes(t));
+    expect(lostTokens, `tokens lost by shrinking to A5: ${lostTokens.join(', ')}`).toEqual([]);
+  }, 400_000);
+
+  it('fit, fill and clip are three different choices, and the user makes it', async () => {
+    const f = () => labeledDoc('Q', 1, { size: [600, 800], marginText: true });
+    const fit = await emit('crop-resize', 'mode-fit', await cropResizePdf(await f(), { targetSize: 'A5', resizeMode: 'fit' }));
+    const clip = await emit('crop-resize', 'mode-clip', await cropResizePdf(await f(), { targetSize: 'A5', resizeMode: 'clip' }));
+    const fitText = flat(docText(fit));
+    const clipText = flat(docText(clip));
+    record('crop-resize', 'modes', {
+      fitDims: `${pdfInfo(fit).perPage[0].w}x${pdfInfo(fit).perPage[0].h}`,
+      clipDims: `${pdfInfo(clip).perPage[0].w}x${pdfInfo(clip).perPage[0].h}`,
+      fitChars: fitText.length, clipChars: clipText.length,
+      fitKeepsTop: fitText.includes('PRISMQ1'), clipKeepsTop: clipText.includes('PRISMQ1'),
+    });
+    expect(fitText.includes('PRISMQ1')).toBe(true);    // everything is drawn, scaled into the sheet
+    expect(clipText.includes('PRISMQ1')).toBe(false);  // 'clip' is the old behaviour, now chosen by name
   }, 400_000);
 
   it('Letter target on the A4 statement produces exactly 612×792 for all 16 pages', async () => {

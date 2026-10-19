@@ -2,7 +2,7 @@
 import { pdfjsLib } from './pdfjsClient';
 import {
   PDFDocument, rgb, degrees, StandardFonts, PDFName, PDFArray, PDFDict, PDFContext,
-  PDFNumber, PDFRef, PDFString, PDFHexString, PDFRawStream, PDFStream, PDFPageLeaf, type PDFObject,
+  PDFNumber, PDFRef, PDFString, PDFHexString, PDFRawStream, PDFStream, PDFPageLeaf, decodePDFRawStream, type PDFObject,
 } from 'pdf-lib';
 import { appearanceMatrix, bakeOperators, type PdfMatrix, type PdfRect } from '@/shared/pdf/appearanceBake';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
@@ -1455,12 +1455,30 @@ export async function addHeaderFooter(
 /**
  * Editing: Crop and/or Resize PDF pages
  */
+/**
+ * Crop margins and/or resize pages to a standard size — by actually transforming the content.
+ *
+ * `page.setSize()` rewrites the page boxes only. The drawing inside stays at its original size and
+ * position, so growing a document left the artwork sitting in a corner of a bigger blank page, and
+ * shrinking one cut whatever fell outside the new box out of every future view of the file. The tool
+ * reported success either way.
+ *
+ * The page's existing content streams are now lifted into a Form XObject and drawn back through a
+ * matrix, so the content moves with the box. The mode decides what happens when source and target
+ * disagree about aspect ratio, because that is a decision the user should make rather than one the
+ * code should bury.
+ */
 export async function cropResizePdf(
   file: File,
-  options?: { cropMarginMm?: number; targetSize?: string }
+  options?: {
+    cropMarginMm?: number;
+    targetSize?: string;
+    resizeMode?: 'fit' | 'fill' | 'stretch' | 'clip';
+  }
 ): Promise<Blob> {
   const pdfDoc = await loadPdfResilient(file);
   const pages = pdfDoc.getPages();
+  const ctx = pdfDoc.context;
 
   const STANDARD_SIZES: Record<string, [number, number]> = {
     A4: [595.28, 841.89],
@@ -1472,28 +1490,113 @@ export async function cropResizePdf(
 
   const cropMarginMm = options?.cropMarginMm ?? 0;
   const cropMarginPoints = cropMarginMm * 2.83465; // 1 mm = ~2.83465 pt
+  const mode = options?.resizeMode ?? 'fit';
 
   const targetSizeKey = options?.targetSize?.trim().toUpperCase();
   const targetDimensions = targetSizeKey ? STANDARD_SIZES[targetSizeKey] : undefined;
 
-  for (const page of pages) {
-    if (cropMarginPoints > 0) {
+  if (!targetDimensions && cropMarginPoints <= 0) return new Blob([await pdfDoc.save() as BlobPart], { type: 'application/pdf' });
+
+  // Trim only: move the boxes inward, leave the content exactly where it is. That is what "trim the
+  // margins" asks for, and re-writing the page just to shift an origin would be a larger change than
+  // the request.
+  if (!targetDimensions) {
+    for (const page of pages) {
       const { x, y, width, height } = page.getMediaBox();
-      const newX = x + cropMarginPoints;
-      const newY = y + cropMarginPoints;
       const newW = width - 2 * cropMarginPoints;
       const newH = height - 2 * cropMarginPoints;
-
       if (newW > 10 && newH > 10) {
-        page.setCropBox(newX, newY, newW, newH);
-        page.setMediaBox(newX, newY, newW, newH);
+        page.setCropBox(x + cropMarginPoints, y + cropMarginPoints, newW, newH);
+        page.setMediaBox(x + cropMarginPoints, y + cropMarginPoints, newW, newH);
+      }
+    }
+    const trimmed = await pdfDoc.save();
+    return new Blob([trimmed as BlobPart], { type: 'application/pdf' });
+  }
+
+  for (const page of pages) {
+    const media = page.getMediaBox();
+    const targetW = targetDimensions ? targetDimensions[0] : media.width - 2 * cropMarginPoints;
+    const targetH = targetDimensions ? targetDimensions[1] : media.height - 2 * cropMarginPoints;
+    if (targetW <= 1 || targetH <= 1) continue;
+
+    // The region of the source page that should survive, in the page's own coordinates.
+    const src = {
+      x: media.x + cropMarginPoints,
+      y: media.y + cropMarginPoints,
+      width: media.width - 2 * cropMarginPoints,
+      height: media.height - 2 * cropMarginPoints,
+    };
+    if (src.width <= 10 || src.height <= 10) continue;
+
+    const contentRef = page.node.Contents();
+    const streams: PDFRawStream[] = [];
+    if (contentRef instanceof PDFArray) {
+      for (let i = 0; i < contentRef.size(); i++) {
+        const s = ctx.lookup(contentRef.get(i));
+        if (s instanceof PDFRawStream) streams.push(s);
+      }
+    } else if (contentRef instanceof PDFRawStream) {
+      streams.push(contentRef);
+    }
+
+    if (!streams.length) {
+      page.setMediaBox(media.x, media.y, targetW, targetH);
+      page.setCropBox(media.x, media.y, targetW, targetH);
+      continue;
+    }
+
+    const bodies = streams.map((s) => decodePDFRawStream(s).decode());
+    const original = new Uint8Array(bodies.reduce((n, b) => n + b.length + 1, 0));
+    let at = 0;
+    for (const body of bodies) {
+      original.set(body, at);
+      at += body.length;
+      original[at++] = 0x0a;
+    }
+
+    const sx = targetW / src.width;
+    const sy = targetH / src.height;
+    let scale: [number, number];
+    let offset: [number, number];
+    switch (mode) {
+      case 'stretch':
+        scale = [sx, sy];
+        offset = [0, 0];
+        break;
+      case 'clip':
+        scale = [1, 1];
+        offset = [0, 0];
+        break;
+      case 'fill': {
+        const s = Math.max(sx, sy);
+        scale = [s, s];
+        offset = [(targetW - src.width * s) / 2 - src.x * s, (targetH - src.height * s) / 2 - src.y * s];
+        break;
+      }
+      default: {
+        const s = Math.min(sx, sy);
+        scale = [s, s];
+        offset = [(targetW - src.width * s) / 2 - src.x * s, (targetH - src.height * s) / 2 - src.y * s];
       }
     }
 
-    if (targetDimensions) {
-      const [targetW, targetH] = targetDimensions;
-      page.setSize(targetW, targetH);
-    }
+    const formRef = ctx.register(
+      ctx.flateStream(original, {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [media.x, media.y, media.x + media.width, media.y + media.height],
+        Resources: page.node.get(PDFName.of('Resources')) ?? ctx.obj({}),
+      }),
+    );
+
+    page.node.delete(PDFName.of('Contents'));
+    const key = page.node.newXObject('PrismScaledPage', formRef);
+    const ops = `q ${scale[0]} 0 0 ${scale[1]} ${offset[0]} ${offset[1]} cm /${key.toString().replace(/^[/]/, '')} Do Q\n`;
+    page.node.addContentStream(ctx.register(ctx.flateStream(ops, {})));
+
+    page.setMediaBox(0, 0, targetW, targetH);
+    page.setCropBox(0, 0, targetW, targetH);
   }
 
   const savedBytes = await pdfDoc.save();
