@@ -131,6 +131,50 @@ against a correct answer.
 Wall clock varied by a factor of five between runs on the same model (2.9 s and 14.6 s for the same
 `ocr` payload). Treat the latencies above as a floor and an ordering signal, not as a capacity model.
 
+## Concurrency: how much of this survives more than one user
+
+Measured with `scripts/feature-audit/omniroute-load.mjs` against the same gateway, using the Worker's
+own payload (`max_tokens: 4096` — a smaller budget makes a reasoning model answer 200 with
+`content: null`, which a naive probe would score as an empty reply). Each request re-derives the
+12-row ledger totals, so **`correct` is arithmetic, not HTTP status**: a fast wrong answer counts as a
+failure. 126 requests, peak 16 concurrent.
+
+| concurrency | north-mini-code p50 | p95 | req/s | correct | nemotron-3-super p50 | p95 | req/s | correct |
+| --: | --: | --: | --: | --: | --: | --: | --: | --: |
+| 1 | 3.7 s | 12.3 s | 0.15 | 3/3 | 15.6 s | 16.6 s | 0.07 | 3/3 |
+| 4 | 4.5 s | 5.6 s | 0.87 | 12/12 | 20.1 s | 52.8 s | 0.14 | 12/12 |
+| 8 | 5.9 s | 6.0 s | 1.36 | 24/24 | 15.3 s | 17.0 s | 0.54 | 24/24 |
+| 16 | 9.5 s | 9.5 s | 1.95 | 24/24 | 13.9 s | 14.4 s | 0.85 | 24/24 |
+| both @16 | 4.8 s | 4.8 s | — | 16/16 | 13.7 s | 13.7 s | — | 16/16 |
+
+**What it shows.** The gateway queues rather than sheds: `north-mini-code` latency grows roughly with
+concurrency (3.7 → 4.5 → 5.9 → 9.5 s) while throughput still climbs (0.15 → 1.95 req/s), and every
+single request returned 200 with correct arithmetic. Correctness is the useful result here — the
+failure worth having for a tool that touches bank statements is a confident wrong number, and it did
+not occur in 126 tries. At ~2 req/s on one model, a subscriber-facing throughput of roughly 100
+completions a minute is available before the gateway starts pushing back.
+
+**What it does not show, and must not be read as showing.** No request failed, so **no failure mode
+was reached or characterised**. There is no 429, no 402, no timeout, no queue-full and no retry
+observed anywhere in this data, which means the ceiling sits above 16 concurrent / ~2 req/s and this
+test simply stopped short of it. Free upstreams commonly rate-limit per rolling minute; this run
+finished in a couple of minutes, so a sustained load would likely find a limit this one did not. The
+`combined` phase showing no mutual slowdown is therefore *not* evidence that the two fallback entries
+are independent — with zero errors in either model, the test could not distinguish independence from
+merely being unstressed. The n=3 row at concurrency 1 is too small to trust its p95.
+
+Deliberately not done: pushing harder until the upstream refuses. That is somebody else's free tier,
+and driving it into rate limits risks the connector for every other use of it, which is a worse
+outcome than an unmeasured ceiling. The next step is a sustained-load test (e.g. 8 concurrent for
+ten minutes) against a throwaway credential, or an owner-approved hammer run, before quoting a
+per-subscriber capacity figure.
+
+Practical consequence for now: the honest number to plan against is `north-mini-code` at p50 ≈ 6 s
+and ~1.4 req/s at 8 concurrent — which is why the paid providers stay behind it in the chain rather
+than beside it.
+
+
+
 ## What must be true before this serves production traffic
 
 Cloudflare Workers cannot open a connection to a Tailnet address. The gateway was reachable for every
