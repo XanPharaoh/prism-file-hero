@@ -7,6 +7,7 @@ import {
 import { appearanceMatrix, bakeOperators, type PdfMatrix, type PdfRect } from '@/shared/pdf/appearanceBake';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
 import { EncryptedDocumentError, isEncryptedLoadFailure, loadPdfForRebuild } from '@/shared/pdf/loadGuard';
+import { collectEmbeddedImages } from '@/shared/pdf/embeddedImages';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import JSZip from 'jszip';
 import {
@@ -2048,47 +2049,93 @@ export async function sanitizePdf(
  * Extraction: Extract All Embedded Images (Stirling-grade)
  * Extracts all raster images across all pages and packages them into a clean ZIP.
  */
+/**
+ * Extract the images a document actually carries.
+ *
+ * This used to render every page to a canvas and put those PNGs in the ZIP. That is not extraction:
+ * a page containing a 2400×3508 scan came back as a 1190×1684 picture of the sheet, with the text and
+ * the photo merged into one flat bitmap, and five image placements produced one file. The ZIP then
+ * reported a count of pages, not of assets.
+ *
+ * Now the XObject tree is walked and the original bytes come out — see shared/pdf/embeddedImages.ts.
+ * A page render is only used for a page that contains no images at all, and is labelled as such in
+ * the manifest rather than passed off as an extracted asset.
+ */
 export async function extractEmbeddedImages(file: File): Promise<{ zipBlob: Blob; count: number }> {
-  const arrayBuffer = await file.arrayBuffer();
-  let pdf: any = null;
+  const pdfDoc = await loadPdfResilient(file);
   const zip = new JSZip();
-  let imageCount = 0;
 
+  let pdfjsDoc: any = null;
   try {
-    pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    pdfjsDoc = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
 
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      const page = await pdf.getPage(pageNum);
+    const renderFallback = async (pageIndex: number) => {
+      const page = await pdfjsDoc.getPage(pageIndex + 1);
       const viewport = page.getViewport({ scale: 2.0 });
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        page.cleanup?.();
-        continue;
-      }
-
+      if (!ctx) { page.cleanup?.(); return null; }
       canvas.width = Math.max(1, Math.round(viewport.width));
       canvas.height = Math.max(1, Math.round(viewport.height));
-
       await page.render({ canvasContext: ctx, viewport }).promise;
-
       const dataUrl = canvas.toDataURL('image/png', 1.0);
-      canvas.width = 0;
-      canvas.height = 0;
+      canvas.width = 0; canvas.height = 0;
       page.cleanup?.();
+      const bytes = new Uint8Array(Buffer.from(dataUrl.split(',')[1], 'base64'));
+      return { bytes, ...pngDimensions(bytes) };
+    };
 
-      const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
-      zip.file(`Page_${String(pageNum).padStart(3, '0')}_render.png`, base64Data, { base64: true });
-      imageCount++;
+    const result = await collectEmbeddedImages(
+      pdfDoc.context as never,
+      pdfDoc.getPages() as never,
+      renderFallback,
+    );
+
+    for (const image of result.images) {
+      zip.file(image.filename, image.bytes, { compression: 'STORE' });
     }
+
+    const lines = [
+      'Extracted images — one line per asset.',
+      '',
+      '  original        the bytes the PDF itself carries, unmodified',
+      '  reconstructed   lossless re-packing of the PDF sample data (no recompression)',
+      '  page render     the page contains no images at all; this is a picture of the sheet',
+      '',
+      ...result.images.map((i) =>
+        `${i.filename}\tpage ${i.page}\t${i.width ?? '?'}×${i.height ?? '?'}\t${i.filter}\t${i.fidelity}`),
+      '',
+      ...(result.caveats.length
+        ? ['', `Written, but not with everything attached (${result.caveats.length}):`,
+            ...result.caveats.map((c) => `${c.filename}\tpage ${c.page}\t${c.reason}`)]
+        : []),
+      ...(result.duplicates.length
+        ? ['', `Skipped as duplicates of an image already written (${result.duplicates.length}):`,
+            ...result.duplicates.map((d) => `page ${d.page}\talready extracted as ${d.of}`)]
+        : []),
+      ...(result.skipped.length
+        ? ['', `Could not be extracted (${result.skipped.length}):`,
+            ...result.skipped.map((s) => `page ${s.page}\t${s.name}\t${s.reason}`)]
+        : []),
+      '',
+      `${result.placements} image placement(s) seen · ${result.images.length} distinct asset(s) written · ` +
+      `${result.duplicates.length} duplicate(s) · ${result.caveats.length} written without their mask · ` +
+      `${result.skipped.length} unreadable`,
+    ];
+    zip.file('manifest.txt', lines.join('\n'));
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    return { zipBlob, count: result.images.length };
   } finally {
-    if (pdf) {
-      try { await pdf.destroy(); } catch {}
-    }
+    if (pdfjsDoc) { try { await pdfjsDoc.destroy(); } catch {} }
   }
+}
 
-  const zipBlob = await zip.generateAsync({ type: 'blob' });
-  return { zipBlob, count: imageCount };
+/** A PNG's IHDR carries its size as two big-endian 32-bit integers at offsets 16 and 20. */
+function pngDimensions(bytes: Uint8Array): { width: number; height: number } {
+  if (bytes.length < 24) return { width: 0, height: 0 };
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return { width: view.getUint32(16), height: view.getUint32(20) };
 }
 
 /**

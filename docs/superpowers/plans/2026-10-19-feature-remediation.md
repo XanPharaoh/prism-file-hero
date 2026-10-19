@@ -217,11 +217,12 @@ so this section is the record a reader of the repository can verify.
 | A1 `page-numbers` | `c4f33fe` | `tests/features/page-numbers.test.ts` 9/9, **7 of which failed before the fix**; stamps read back from the content stream, all four UI tokens plus default, template, `startNum`, position geometry, and an unknown format now throwing |
 | A6 `remove-blank-pages` | `89045e6` | measured first: a pure-white page scans as **exactly 0** ink pixels at every darkness threshold, a 2×2 mark as 4 — so "blank = zero ink" separates the two without a density guess. The audit's defect record now proves both pages survive at the default and the sparse page drops only under an explicit `0.001`. 119/119 page-ops + pdfService |
 | A5 `flatten-pdf` | this commit | `tests/features/appearance-bake.test.ts` 11/11 pins the §12.5.5 placement math with exact numbers; `tests/features/page-ops.test.ts` flatten block 6/6 — field ink **782 px before → 782 px after** (pixel-identical bake) on both the plain form and the one containing an unsigned `/Sig` that used to zero it out, `pdftotext` now recovers `APPEARANCE-ALPHAVALUE` from the page content, `/Annots` resolves to `[]` with no dangling ref and pdf-lib re-reads the output cleanly, and the two un-bakeable shapes (`no-appearance`, `with-freetext`) throw `FlattenRefusal` naming the field and its value instead of deleting it. Consumers re-run: stressTestAllTools + fullFeatureValidation 99/99, generateUserOutputs real NED (2p/522 chars) and ABSA (16p/4516 chars) |
+| B1 `extract-images` | this commit | `tests/features/conversion.test.ts` 31/31. The tool was rendering each **page** to a PNG; it now walks `/XObject /Subtype /Image` (recursing into Form XObjects) and hands over what the document carries, with a `manifest.txt` stating for every file whether it is `original`, `reconstructed` or a `page render`, plus every duplicate and every unreadable image with its reason. Measured on the real NED statement: **4 distinct assets at 709×207, 677×435, 1148×160 and 586×528 from 8 placements**, each recovered JPEG independently opened by ImageMagick; on the fixture the JPEGs are byte-for-byte equal to the stored stream and the Flate image round-trips with **0 differing samples out of 43,200**. 220/220 across pdfService, page-ops, stress, fullFeatureValidation, generateUserOutputs |
 | encrypted-input guard (C2 precursor) | `5b53016` | `shared/pdf/loadGuard.ts` + `npm run check:site-guard` 4/4 across both engines |
 | upload stale-closure | `58f8d0d` | Playwright journey loads 2 files through `ToolDashboard`; `multiple` + input reset proven |
 | D5 (part) — free-model gateway | `e3a1dbf` | `tests/omnirouteProviderChain.test.ts` 9/9 and `docs/omniroute-e2e-probe.txt`: a real `wrangler dev` instance holding **no paid keys** answered `/api/ai` for `ocr` (2.9 s) and `pdf-summary` (8.5 s) from `north-mini-code:free`, meter settled with no PENDING, and an unlisted tool correctly reached no provider |
 
-Carried forward, unverified and therefore not claimed: A4, A7–A10, B1–B5, C1/C3/C4/C5, D1–D4, D6, E1–E5.
+Carried forward, unverified and therefore not claimed: A4, A7–A10, B2–B5, C1/C3/C4/C5, D1–D4, D6, E1–E5.
 
 One gap in A5 stated rather than glossed: the bake path is proven on constructed forms that carry
 appearance streams exactly as a producer writes them (four variants, ink-compared against poppler),
@@ -245,3 +246,14 @@ Two facts this pass changed about the plan itself, recorded rather than quietly 
    `qwen3-vl:4b` and `k2-horizon:3.7b`, while `http://127.0.0.1:11434/api/tags` currently lists only
    `qwen2.5vl:7b`, `qwen2.5vl:latest` and `nomic-embed-text:latest`. That is reported, not worked
    around by editing someone else's model defaults.
+3. **B1's fixture work hid a real-data gap.** Against the constructed forms everything passed, then the
+   first run on the actual NED statement reported six images "not decodable" because their filter chain
+   is `[ /FlateDecode /DCTDecode ]` — a JPEG inside a zlib wrapper, which pdf-lib refuses outright
+   ("/DCTDecode stream encoding not supported"). Inflating the wrapper is all it takes, and the bytes
+   underneath are the document's own JPEG. The lesson is recorded where it can be read: **a green
+   fixture suite is not evidence until a real document has been pushed through it.** Two further bugs
+   surfaced the same way — a zlib trailer written with little-endian ADLER32 (libpng rejects the whole
+   PNG; the harness's own reader silently returned the image minus its bottom row) and an `/SMask` read
+   through a helper that narrowed on `instanceof PDFDict`, which a stream is not, so transparency was
+   being dropped without a word. `identify` from ImageMagick is now part of the gate precisely because
+   the harness decoder cannot see these failures.
