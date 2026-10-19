@@ -439,6 +439,58 @@ export default function ProcessingView({
         </div>
       )}
 
+      {tool.id === 'pdf-to-jpg' && (
+        <div className="space-y-4 w-full max-w-md mx-auto">
+          <div className="space-y-2">
+            <label htmlFor="jpg-pages" className="block text-sm font-bold text-slate-700 dark:text-slate-200">
+              Pages (optional)
+            </label>
+            <input
+              id="jpg-pages"
+              type="text"
+              placeholder="All pages — or 1-10, 3, 12-15"
+              value={s.toolOptions.jpgPages ?? ''}
+              onChange={(e) => s.setToolOptions({ jpgPages: e.target.value })}
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 text-sm font-semibold focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-200 dark:text-white"
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="jpg-dpi" className="block text-sm font-bold text-slate-700 dark:text-slate-200">
+              Resolution — {s.toolOptions.jpgDpi ?? 150} DPI
+            </label>
+            <input
+              id="jpg-dpi"
+              type="range"
+              min={72}
+              max={300}
+              step={6}
+              value={s.toolOptions.jpgDpi ?? 150}
+              onChange={(e) => s.setToolOptions({ jpgDpi: Number(e.target.value) })}
+              className="w-full accent-brand-600"
+            />
+            <p className="text-[11px] text-slate-400">
+              72 DPI is screen-small, 300 DPI is print. A page is measured in pixels, so the file grows
+              with the square of this number.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="jpg-quality" className="block text-sm font-bold text-slate-700 dark:text-slate-200">
+              JPEG quality — {Math.round((s.toolOptions.jpgQuality ?? 0.9) * 100)}%
+            </label>
+            <input
+              id="jpg-quality"
+              type="range"
+              min={40}
+              max={98}
+              step={2}
+              value={Math.round((s.toolOptions.jpgQuality ?? 0.9) * 100)}
+              onChange={(e) => s.setToolOptions({ jpgQuality: Number(e.target.value) / 100 })}
+              className="w-full accent-brand-600"
+            />
+          </div>
+        </div>
+      )}
+
       {tool.id === 'pdf-to-excel' && (
         <div className="w-full max-w-md mx-auto">
           <label className="flex items-start gap-3 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 cursor-pointer">

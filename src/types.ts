@@ -150,6 +150,8 @@ export interface ToolOptions {
   mergePages: string;
   splitPages: string;
   jpgPages: string;
+  jpgDpi: number;
+  jpgQuality: number;
   compressionLevel: 'extreme' | 'recommended' | 'low';
   compressionMode: 'images' | 'rasterize';
   compressionQuality?: number;

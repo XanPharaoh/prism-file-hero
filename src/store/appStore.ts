@@ -109,6 +109,8 @@ interface AppState {
     mergePages: string;
     splitPages: string;
     jpgPages: string;
+    jpgDpi: number;
+    jpgQuality: number;
     compressionLevel: 'extreme' | 'recommended' | 'low';
     compressionMode: 'images' | 'rasterize';
     compressionQuality?: number;
@@ -356,6 +358,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     mergePages: '',
     splitPages: '',
     jpgPages: '',
+    jpgDpi: 150,
+    jpgQuality: 0.9,
     compressionLevel: 'recommended',
     compressionMode: 'images',
     compressionQuality: 0.6,

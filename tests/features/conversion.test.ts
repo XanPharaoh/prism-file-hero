@@ -401,7 +401,7 @@ describe('conversion family — real-service byte audit', () => {
   beforeAll(() => { installBrowserFaithfulCanvas(); fs.mkdirSync(EV, { recursive: true }); });
 
   /* ------------------------------------------------------ harness provenance check */
-  it('PROVENANCE: the stock tests/setup.ts canvas shim reports 300x150 for this family (harness artefact, not a product defect)', async () => {
+  it('PROVENANCE: the 300x150 canvas-shim artefact is gone, because the service now sizes first', async () => {
     const { file } = gsTextPdf('harness-provenance', 1, [200, 300]);
     restoreStockCanvas();
     let stock: any;
@@ -409,8 +409,7 @@ describe('conversion family — real-service byte audit', () => {
       const imgs = await convertPdfToImages(file, undefined, 50, false);
       const b = Buffer.from(imgs[0].base64, 'base64');
       const jp = jpegScan(b)!;
-      stock = { emittedDims: `${jp.width}x${jp.height}`, bytes: b.length, pageBoxPt: '200x300',
-        dimsExpectedInABrowser: '400x600 (scale 2.0)' };
+      stock = { emittedDims: `${jp.width}x${jp.height}`, bytes: b.length, pageBoxPt: '200x300' };
     } finally {
       installBrowserFaithfulCanvas();
     }
@@ -418,13 +417,17 @@ describe('conversion family — real-service byte audit', () => {
     const mb = Buffer.from(mine[0].base64, 'base64');
     const mjp = jpegScan(mb)!;
     ev('harness-provenance.json', JSON.stringify({
-      why: 'convertPdfToImages calls getContext() before assigning canvas.width/height (services/pdfService.ts:594-601). Browsers resize the drawing buffer in place; tests/setup.ts caches the surface created at getContext() time and reuses it in toDataURL, so the stock harness emits a fixed 300x150 image for every page.',
+      history: 'convertPdfToImages used to call getContext() before assigning canvas.width/height. Browsers resize the drawing buffer either way, but tests/setup.ts binds its surface at getContext() time, so under the stock shim every page came out a fixed 300x150 — which is how a DPI control could pass tests while doing nothing.',
+      nowFixedIn: 'services/pdfService.ts — the canvas is sized before getContext()',
       stockSetupShim: stock,
       withBrowserFaithfulShim: { emittedDims: `${mjp.width}x${mjp.height}`, bytes: mb.length },
-      consequence: 'tests/stressTestAllTools.test.ts:459-472 asserts only bytes.length > 0 per ZIP entry, so it passes against a blank 300x150 image',
+      bothAgree: stock.emittedDims === `${mjp.width}x${mjp.height}`,
     }, null, 2));
-    expect(stock.emittedDims).toBe('300x150');
+    // 200x300 pt at the default scale 2.0. Both shims must agree now; if they ever diverge again,
+    // some render path has gone back to sizing after getContext.
+    expect(stock.emittedDims).toBe('400x600');
     expect(`${mjp.width}x${mjp.height}`).toBe('400x600');
+    expect(stock.emittedDims).toBe(`${mjp.width}x${mjp.height}`);
   }, 300000);
 
   /* ---------------------------------------------------------------- pdf-to-jpg */
@@ -454,9 +457,10 @@ describe('conversion family — real-service byte audit', () => {
         expect(jp, `${names[i]} is not a JPEG (first bytes ${b.subarray(0, 4).toString('hex')})`).not.toBeNull();
         expect(jp!.eoi, `${names[i]} truncated: no FFD9 EOI`).toBe(true);
         expect(jp!.components, `${names[i]} is not a 3-component JPEG`).toBe(3);
-        // 400x600 pt page rendered at the hardcoded scale 2.0 => 800x1200 px => 144 DPI.
-        expect(jp!.width, `${names[i]} width`).toBe(800);
-        expect(jp!.height, `${names[i]} height`).toBe(1200);
+        // 400x600 pt page at the tool's default 150 DPI => scale 2.0833 => 833x1250 px.
+        // It used to be a hardcoded scale 2.0, which is what "144 DPI" really was.
+        expect(jp!.width, `${names[i]} width`).toBe(833);
+        expect(jp!.height, `${names[i]} height`).toBe(1250);
         expect(b.length, `${names[i]} is a trivially small JPEG (${b.length} B)`).toBeGreaterThan(8000);
         const s = await pix(b);
         expect(s.darkFrac, `${names[i]} contains no ink (blank) — darkFrac=${s.darkFrac}`).toBeGreaterThan(0.0005);
@@ -465,13 +469,17 @@ describe('conversion family — real-service byte audit', () => {
         ev(`pdf-to-jpg-page${i + 1}.jpg`, b);
       }
 
-      // Independent reference render of the same source at the same 144 DPI.
-      execFileSync('pdftoppm', ['-r', '144', '-jpeg', p, path.join(EV, 'pdftoppm-ref')]);
+      // Independent reference render, at the tool's own default 150 DPI so the grids are comparable.
+      execFileSync('pdftoppm', ['-r', '150', '-jpeg', p, path.join(EV, 'pdftoppm-ref')]);
       for (let i = 1; i <= 3; i++) {
         const ref = fs.readFileSync(path.join(EV, `pdftoppm-ref-${i}.jpg`));
         const got = fs.readFileSync(path.join(EV, `pdf-to-jpg-page${i}.jpg`));
         const a = await pix(ref); const b = await pix(got);
-        expect([a.w, a.h], `poppler/app grid mismatch on page ${i}`).toEqual([b.w, b.h]);
+        // ±1 px: 400 pt at 150 DPI is 833.33, and poppler rounds the frame up while the service
+        // rounds the canvas down. Demanding byte-identical grids here would be testing two
+        // rasterisers' rounding, not this tool's layout.
+        expect(Math.abs(a.w - b.w), `poppler/app width mismatch on page ${i} (${a.w} vs ${b.w})`).toBeLessThanOrEqual(1);
+        expect(Math.abs(a.h - b.h), `poppler/app height mismatch on page ${i} (${a.h} vs ${b.h})`).toBeLessThanOrEqual(1);
         const mae = blockMae(a.blocks, b.blocks);
         expect(mae, `page ${i}: app render does not match poppler layout (blockMae=${mae.toFixed(2)})`).toBeLessThan(25);
         expect(Math.abs(a.darkFrac - b.darkFrac), `page ${i}: ink coverage differs from poppler`).toBeLessThan(0.02);
@@ -491,20 +499,25 @@ describe('conversion family — real-service byte audit', () => {
         { claim: 'site/assets/features.data.js:81 "Batch export all pages or the current one"',
           measured: 'jpgPages forwards to parsePageSelection, but grep of src/components shows no component ever writes jpgPages', result: 'PARTIAL (headless only)' },
         { claim: 'src/registry/toolRegistry.ts:279 "Convert each PDF page into high-quality JPG images"',
-          measured: `${pages.length} valid FFD8/FFD9 3-component JPEGs, 46-48 KB each, 800x1200 = page box x2.0, layout matches pdftoppm -r 144 (blockMae ${pages.map((p: any) => p.poppler.blockMae).join('/')})`, result: 'PASS' },
+          measured: `${pages.length} valid FFD8/FFD9 3-component JPEGs, 833x1250 = page box at the default 150 DPI, layout matches pdftoppm -r 150 (blockMae ${pages.map((p: any) => p.poppler.blockMae).join('/')})`, result: 'PASS' },
       ]);
     }, 600000);
 
-    it('no DPI/resolution/quality knob reaches the service (source probe)', () => {
+    it('the DPI and quality controls reach the service (source probe)', () => {
       const src = fs.readFileSync(path.join(ROOT, 'services', 'pdfService.ts'), 'utf8');
       const body = src.slice(src.indexOf('export async function convertPdfToImages'), src.indexOf('export async function createTextPdf'));
-      expect(body).toMatch(/getViewport\(\{ scale: 2\.0 \}\)/);
-      expect(body).toMatch(new RegExp("toDataURL\\('image/jpeg', 0\\.90\\)"));
-      expect(/dpi/i.test(body)).toBe(false);
+      // B2: scale and JPEG quality used to be literals. They are now derived from the caller, so the
+      // sliders on the tool do something.
+      expect(body).toMatch(/const scale = opts\?\.dpi/);
+      expect(body).toMatch(/getViewport\(\{ scale \}\)/);
+      expect(body).toMatch(/toDataURL\('image\/jpeg', quality\)/);
+      expect(body).toMatch(/opts\?\.quality/);
       const reg = fs.readFileSync(path.join(ROOT, 'src', 'registry', 'toolRegistry.ts'), 'utf8');
       const call = reg.slice(reg.indexOf("id: 'pdf-to-jpg'"), reg.indexOf("id: 'jpg-to-pdf'"));
-      expect(call).toMatch(/50,\s*\n?\s*false,/);            // maxPages + enhanceForOcr hardcoded
-      expect(call).toMatch(/options\?\.jpgPages/);            // the only forwarded option
+      expect(call).toMatch(/jpgDpi/);
+      expect(call).toMatch(/\{ dpi, quality \}/);
+      expect(call).not.toMatch(/\n\s+50,\s*\n\s*false,/);   // the hardcoded 50-page ceiling is gone
+      expect(call).toMatch(/options\?\.jpgPages/);            // the page range is forwarded
       const uiRefs: string[] = [];
       const walk = (d: string) => fs.readdirSync(d, { withFileTypes: true }).forEach((e) => {
         const fp = path.join(d, e.name);
@@ -514,10 +527,15 @@ describe('conversion family — real-service byte audit', () => {
       walk(path.join(ROOT, 'src', 'components'));
       walk(path.join(ROOT, 'src', 'hooks'));
       walk(path.join(ROOT, 'src', 'providers'));
-      ev('pdf-to-jpg-parameter-probe.json', JSON.stringify({ serviceMentionsDpi: /dpi/i.test(body),
-        hardcodedScale: '2.0', hardcodedQuality: 0.90, registryHardcodedMaxPages: 50,
-        uiFilesWritingJpgPages: uiRefs, toolRegistryReadsJpgPages: true }, null, 2));
-      expect(uiRefs, 'no UI writes jpgPages').toEqual([]);
+      ev('pdf-to-jpg-parameter-probe.json', JSON.stringify({
+        serviceDerivesScaleFromDpi: /opts\?\.dpi/.test(body), registryPassesDpiAndQuality: /jpgDpi/.test(call),
+        uiFilesWritingJpgPages: uiRefs,
+      }, null, 2));
+      // B2: the controls used to exist only in the registry's option type, with no UI writing them.
+      expect(uiRefs.length, 'a UI surface now writes these options').toBeGreaterThan(0);
+      const view = fs.readFileSync(path.join(ROOT, 'src', 'components', 'views', 'ProcessingView.tsx'), 'utf8');
+      expect(view).toMatch(/jpgDpi/);
+      expect(view).toMatch(/jpgQuality/);
     });
 
     it('page-range selection works when supplied programmatically; default page cap is 50', async () => {
@@ -601,13 +619,14 @@ describe('conversion family — real-service byte audit', () => {
       const firstMissing = Array.from({ length: 60 }, (_, i) => `Page_${i + 1}.jpg`).find((n) => !zip.files[n]);
       ev('pdf-to-jpg-truncated.json', JSON.stringify({
         sourcePages: 60, emittedImages: names.length, firstPageMissing: firstMissing ?? null,
-        cause: 'src/registry/toolRegistry.ts:292 hardcodes maxPages=50 and no warning is returned',
+        was: 'src/registry/toolRegistry.ts hardcoded maxPages=50 and returned a success with 50 images',
       }, null, 2));
-      expect(names.length).toBe(50);
-      expect(firstMissing).toBe('Page_51.jpg');
+      // B2 fixed: every page converts. The old behaviour was 50 images and a green result.
+      expect(names.length).toBe(60);
+      expect(firstMissing, 'a page is missing from the ZIP').toBeUndefined();
       claimCheck('pdf-to-jpg:page completeness', [
         { claim: 'src/registry/toolRegistry.ts:279 "Convert EACH PDF page into high-quality JPG images"',
-          measured: `60-page input -> ${names.length} JPEGs; ${firstMissing} onward absent, with no error or notice`, result: 'FAIL for documents over 50 pages' },
+          measured: `60-page input -> ${names.length} JPEGs, none missing`, result: 'PASS' },
       ]);
     }, 900000);
   });

@@ -758,6 +758,17 @@ export async function convertImagesToPdf(files: File[]): Promise<Blob> {
   return new Blob([pdfDocBytes as BlobPart], { type: 'application/pdf' });
 }
 
+/** How many pages a document has, without rendering anything. */
+export async function getPageCount(file: File, password?: string): Promise<number> {
+  let pdf: any = null;
+  try {
+    pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer(), password }).promise;
+    return pdf.numPages;
+  } finally {
+    if (pdf) { try { await pdf.destroy(); } catch {} }
+  }
+}
+
 export async function convertPdfToImages(
   file: File,
   onProgress?: (percent: number) => void,
@@ -765,8 +776,12 @@ export async function convertPdfToImages(
   enhanceForOcr: boolean = false,
   password?: string,
   signal?: AbortSignal,
-  pagesStr?: string
+  pagesStr?: string,
+  opts?: { dpi?: number; quality?: number }
 ): Promise<{ base64: string; pageNumber: number }[]> {
+  // 72 pt per inch is the PDF unit, so the render scale a given DPI asks for is dpi/72.
+  const scale = opts?.dpi ? Math.min(8, Math.max(0.5, opts.dpi / 72)) : 2.0;
+  const quality = Math.min(1, Math.max(0.1, opts?.quality ?? 0.90));
   let pdf: any = null;
   try {
     const arrayBuffer = await file.arrayBuffer();
@@ -789,16 +804,19 @@ export async function convertPdfToImages(
 
       const pageNum = pageIndices[idx] + 1;
       const page = await pdf.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 2.0 });
+      const viewport = page.getViewport({ scale });
       const canvas = document.createElement('canvas');
+      // Sized before getContext on purpose. A browser resizes the backing store when width/height are
+      // assigned, so the old order worked there — but any canvas shim that binds its surface at
+      // getContext time silently renders every page at the 300x150 default, which is how a DPI
+      // control can look implemented while doing nothing.
+      canvas.width = Math.max(1, Math.round(viewport.width));
+      canvas.height = Math.max(1, Math.round(viewport.height));
       const context = canvas.getContext('2d', { willReadFrequently: true });
       if (!context) {
         page.cleanup?.();
         continue;
       }
-
-      canvas.height = Math.max(1, Math.round(viewport.height));
-      canvas.width = Math.max(1, Math.round(viewport.width));
 
       await page.render({ canvasContext: context, viewport }).promise;
 
@@ -809,7 +827,7 @@ export async function convertPdfToImages(
         context.putImageData(processedImageData, 0, 0);
       }
 
-      const base64 = canvas.toDataURL('image/jpeg', 0.90).split(',')[1];
+      const base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
       canvas.width = 0;
       canvas.height = 0;
       page.cleanup?.();

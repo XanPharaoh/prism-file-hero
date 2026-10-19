@@ -1,6 +1,6 @@
 import type { ToolID, ToolCategory, ToolHandler, ToolExecutionPayload, ToolResult } from '../types';
 import {
-  mergePdfs, splitPdf, compressPdf, convertPdfToImages,
+  mergePdfs, splitPdf, compressPdf, convertPdfToImages, getPageCount,
   convertImagesToPdf, protectPdf, redactPdf, watermarkPdf,
   createTextPdf, rotatePdf, deletePages, extractPages,
   addPageNumbers, unlockPdf, repairPdf, reorderPages,
@@ -300,14 +300,29 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     handler: async ({ files, options, onProgress }: ToolExecutionPayload): Promise<ToolResult> => {
       // convertPdfToImages statically imported
       const JSZip = (await import('jszip')).default;
+
+      // The tool promises "each PDF page". It used to pass maxPages 50, and convertPdfToImages
+      // honours that by quietly returning the first 50 — a 60-page contract handed back 50 images
+      // and a success message. Every page now converts; an absurd document is refused out loud, with
+      // the page-range field named as the way through.
+      const pageCount = await getPageCount(files[0]);
+      if (pageCount > 500 && !options?.jpgPages) {
+        throw new Error(
+          `This PDF has ${pageCount} pages, more than one JPG batch can safely hold. ` +
+          'Use the page range field (for example "1-200") to convert it in parts.',
+        );
+      }
+      const dpi = typeof options?.jpgDpi === 'number' ? options.jpgDpi : 150;
+      const quality = typeof options?.jpgQuality === 'number' ? options.jpgQuality : 0.9;
       const images = await convertPdfToImages(
         files[0],
         onProgress,
-        50,
+        pageCount || 1,
         false,
         undefined,
         undefined,
-        options?.jpgPages as string | undefined
+        options?.jpgPages as string | undefined,
+        { dpi, quality }
       );
       const zip = new JSZip();
       images.forEach((img: { base64: string; pageNumber: number }) => {
