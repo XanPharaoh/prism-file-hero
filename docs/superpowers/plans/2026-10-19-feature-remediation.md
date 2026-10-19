@@ -197,6 +197,25 @@ a table committed with the sweep script.
 **E5 Capitec is unproven** — no fixture exists anywhere. Blocked on a redacted real fixture from the
 owner; until then it is reported as unproven, never as supported.
 
+**E6 Intermittent worker-start failure reported as a passing suite with exit 1.** Caught running
+`--reporter=verbose tests/features/`: the summary said `Test Files 9 passed (9) / Tests 177 passed |
+1 skipped`, yet the process exited 1, because the real signal is an `Unhandled Error` below the
+summary — `[vitest-pool]: Failed to start threads worker for test files
+/mnt/hdd/Prism/prism-file-hero/tests/features/pdf-to-jpg.test.ts`, caused by
+`[vitest-pool-runner]: Timeout waiting for worker to respond`. **No assertion failed**; a file was
+never run, and a reader watching only the `Tests` line would conclude the suite is green.
+Confirmed not a product or test defect: that file passes 4/4 in isolation and passed inside complete
+`tests/features/` runs repeatedly. The failing run took 183 s against ~66 s for the green ones, with
+`import 220.07s` — a slow run, so the trigger is environmental; two `rustc` processes and a linker
+were active on the box, but load average was 3.66 on 18 cores, so contention is the likely mechanism
+and is **not proven**.
+Fix belongs in the harness, not the test: fail loudly rather than silently. Options — treat an
+unhandled pool error as a named failure in the summary, or bound concurrency in
+`vitest.config.ts`. Note that the uncommitted `maxWorkers: 4` in that file is already acting as the
+mitigation; whichever direction is chosen, decide it deliberately instead of inheriting an
+undeclared cap. Related: E2, and the load-induced pool starvation seen while the owner's model
+download was running.
+
 ## Sequencing
 
 A2/A3/A5/A6/A10 and B1 (silent loss or wrong output) first, then A1/A4/A7/A8/A9/B2-B5, then C1/C2/C4,
@@ -254,7 +273,7 @@ so this section is the record a reader of the repository can verify.
 | upload stale-closure | `58f8d0d` | Playwright journey loads 2 files through `ToolDashboard`; `multiple` + input reset proven |
 | D5 (part) — free-model gateway | `e3a1dbf` | `tests/omnirouteProviderChain.test.ts` 9/9 and `docs/omniroute-e2e-probe.txt`: a real `wrangler dev` instance holding **no paid keys** answered `/api/ai` for `ocr` (2.9 s) and `pdf-summary` (8.5 s) from `north-mini-code:free`, meter settled with no PENDING, and an unlisted tool correctly reached no provider |
 
-Carried forward, unverified and therefore not claimed: A9, B3–B5, C1/C3/C4/C5, D1, D2, D4, D5 (part), D6, E1–E5.
+Carried forward, unverified and therefore not claimed: A9, B3–B5, C1/C3/C4/C5, D1, D2, D4, D5 (part), D6, E1–E6.
 
 One more thing B2 changed about how this plan should be read: several defects were logged as
 *harness* artifacts when they were really the product ordering its own calls wrongly. The
