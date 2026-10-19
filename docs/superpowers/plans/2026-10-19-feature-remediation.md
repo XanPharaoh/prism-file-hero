@@ -204,3 +204,35 @@ then C3 (unlocks the encrypted corpus for everything else), then D1-D6, then E1-
 late: it is the largest single item and changes the expected behaviour of every A/B test that currently
 asserts a refusal, so those assertions must be written knowing it is coming — each refusal test names
 the task that will flip it.
+
+## Execution record
+
+Only tasks with a gate result are listed as done. The ledger file under `.superpowers/` is gitignored,
+so this section is the record a reader of the repository can verify.
+
+| task | commit | what proves it |
+| :-- | :-- | :-- |
+| A2 `reorder-pages` | `ad8dcb1` | `tests/features/page-selection-contract.test.ts` 12/12 — reverse range `4-1` emits four pages in that order, an incomplete permutation is refused *naming the missing pages*, verified by reading page tokens back out of the produced bytes |
+| A3 `split` junk | `ad8dcb1` | same file — `3-abc` on a 4-page document is a refusal, not a copy of the whole document; `merge`'s documented all-pages fallback is asserted to still exist |
+| A1 `page-numbers` | `c4f33fe` | `tests/features/page-numbers.test.ts` 9/9, **7 of which failed before the fix**; stamps read back from the content stream, all four UI tokens plus default, template, `startNum`, position geometry, and an unknown format now throwing |
+| encrypted-input guard (C2 precursor) | `5b53016` | `shared/pdf/loadGuard.ts` + `npm run check:site-guard` 4/4 across both engines |
+| upload stale-closure | `58f8d0d` | Playwright journey loads 2 files through `ToolDashboard`; `multiple` + input reset proven |
+| D5 (part) — free-model gateway | this commit | `tests/omnirouteProviderChain.test.ts` 9/9 and `docs/omniroute-e2e-probe.txt`: a real `wrangler dev` instance holding **no paid keys** answered `/api/ai` for `ocr` (2.9 s) and `pdf-summary` (8.5 s) from `north-mini-code:free`, meter settled with no PENDING, and an unlisted tool correctly reached no provider |
+
+Carried forward, unverified and therefore not claimed: A4–A10, B1–B5, C1/C3/C4/C5, D1–D4, D6, E1–E5.
+
+Two facts this pass changed about the plan itself, recorded rather than quietly absorbed:
+
+1. **The survey's long-form grader was wrong before it was right.** It required
+   `content.length > 120`, which graded nine *correct, terse* ledger summaries as failures and reported
+   1/14 passing. Grading on the four target figures to the cent gives 7/14. See
+   `docs/omniroute-model-selection.md` — the lesson (a metric that rewards verbosity on a financial
+   tool rewards padding) is written into the doc, and the superseded run's output is left in place
+   rather than deleted.
+2. **D5's premise is partly obsolete.** The task assumed no provider response had ever been obtained
+   and pointed at the connected ollama host. A provider response has now been obtained end to end —
+   through OmniRoute, which is the owner's stated production intent. The local ollama route is a
+   separate concern, and it cannot run as specified today: `pipeline/ollamaVision.mjs:8-9` defaults to
+   `qwen3-vl:4b` and `k2-horizon:3.7b`, while `http://127.0.0.1:11434/api/tags` currently lists only
+   `qwen2.5vl:7b`, `qwen2.5vl:latest` and `nomic-embed-text:latest`. That is reported, not worked
+   around by editing someone else's model defaults.

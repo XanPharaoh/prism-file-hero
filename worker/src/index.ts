@@ -16,6 +16,14 @@ interface Env {
   MISTRAL_API_KEY_1?: string;
   MISTRAL_API_KEY_2?: string;
   MISTRAL_API_KEY_3?: string;
+  /**
+   * Free-model gateway (the operator's OmniRoute). Empty/absent leaves the chain exactly as it is
+   * today — this is a config gate, not a code flag. Must be https outside localtest.
+   */
+  OMNIROUTE_BASE_URL?: string;
+  OMNIROUTE_API_KEY?: string;
+  /** Comma-separated tool ids allowed to use the free gateway, e.g. "ocr,pdf-summary,pdf-to-excel". */
+  OMNIROUTE_TOOLS?: string;
   /** Comma-separated explicit CORS origins. */
   ALLOWED_ORIGINS?: string;
   /** Comma-separated trusted HTTPS host suffixes for one-label preview subdomains. */
@@ -303,7 +311,7 @@ function currentMonth(): string {
 }
 
 type NvidiaMessage = { role: string; content: any };
-type ProviderName = 'nvidia' | 'groq' | 'mistral';
+type ProviderName = 'nvidia' | 'groq' | 'mistral' | 'omniroute';
 
 interface ProviderConfig {
   name: ProviderName;
@@ -400,8 +408,65 @@ function buildOpenAiCompatPayload(toolId: string, model: string, messages: Nvidi
   return { ...nvidiaPayload, model };
 }
 
-function getProviderChain(env: Env, toolId: string): ProviderConfig[] {
+/**
+ * Free-model gateway routing. Every id here was measured, not assumed — see
+ * evidence/features/omniroute/ and scripts/feature-audit/omniroute-survey.mjs. Order is by measured
+ * latency for the stage the tool actually needs:
+ *
+ *   north-mini-code:free            statement image read correctly in 5.5s, ledger sums exact
+ *   nemotron-3-super-120b-a12b:free both correct, 26.2s on vision and 9.5s on the 12-row ledger
+ *
+ * Deliberately excluded: nemotron-3-ultra-550b returns HTTP 200 while saying it cannot see the
+ * attached image (the gateway drops image parts upstream), and poolside/laguna-s-2.1 and
+ * liquid/lfm-2.5-2.6b answer with confident, wrong totals — the worst possible failure for a tool
+ * that touches bank statements.
+ */
+const OMNIROUTE_VISION_FIRST = [
+  'kilocode/cohere/north-mini-code:free',
+  'kilocode/nvidia/nemotron-3-super-120b-a12b:free',
+];
+const OMNIROUTE_TEXT_FIRST: string[] = [...OMNIROUTE_VISION_FIRST].reverse();
+
+function omniRouteModels(toolId: string): string[] {
+  // redact runs against gliner-pii, a named-entity model. Substituting a chat model that guesses at
+  // spans is how a redaction quietly misses one, and that is not a trade worth making for free tokens.
+  if (toolId === 'redact') return [];
+  return toolId === 'grammar-check' ? OMNIROUTE_TEXT_FIRST : OMNIROUTE_VISION_FIRST;
+}
+
+function omniRouteProviders(env: Env, toolId: string): ProviderConfig[] {
+  const base = env.OMNIROUTE_BASE_URL?.trim();
+  if (!base) return [];
+  const models = omniRouteModels(toolId);
+  const tools = new Set((env.OMNIROUTE_TOOLS ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+  if (!models.length || !tools.has(toolId)) return [];
+
+  let endpoint: URL;
+  try {
+    endpoint = new URL(`${base.replace(/\/+$/, '')}/chat/completions`);
+  } catch {
+    console.error('[AI] OMNIROUTE_BASE_URL is not a parseable URL — free-model routing skipped');
+    return [];
+  }
+  if (endpoint.protocol !== 'https:' && env.ENVIRONMENT !== 'localtest') {
+    console.error(
+      `[AI] refusing plaintext gateway ${endpoint.href} — document text and PII must not leave the Worker unencrypted; ` +
+      'put an HTTPS tunnel in front of it',
+    );
+    return [];
+  }
+
+  return models.map((model) => ({
+    name: 'omniroute' as ProviderName,
+    apiKey: env.OMNIROUTE_API_KEY?.trim() || undefined,
+    endpoint: endpoint.toString(),
+    model,
+  }));
+}
+
+export function getProviderChain(env: Env, toolId: string): ProviderConfig[] {
   const providers: ProviderConfig[] = [
+    ...omniRouteProviders(env, toolId),
     {
       name: 'nvidia',
       apiKey: env.NVIDIA_API_KEY,
@@ -440,7 +505,16 @@ function getProviderChain(env: Env, toolId: string): ProviderConfig[] {
     },
   ];
 
-  return providers.filter((provider) => Boolean(provider.apiKey));
+  // A paid provider without a key is not a provider. The free gateway is the exception: a self-hosted
+  // OmniRoute may be unauthenticated, and it is already gated on OMNIROUTE_BASE_URL + OMNIROUTE_TOOLS.
+  return providers.filter((provider) => provider.name === 'omniroute' || Boolean(provider.apiKey));
+}
+
+export function shouldTryNextProvider(status: number): boolean {
+  // 402 is what a spent free connection answers with ("credits exhausted — please reconnect").
+  // Falling through to a paid provider is the only behaviour that keeps the tool working.
+  if (status === 402) return true;
+  return status === 400 || status === 413 || status === 422 || status === 429 || status >= 500;
 }
 
 function mapProviderError(status: number): { error: string; status: number } {
@@ -450,17 +524,14 @@ function mapProviderError(status: number): { error: string; status: number } {
   return { error: 'AI processing failed. Please try again later.', status: 502 };
 }
 
-function shouldTryNextProvider(status: number): boolean {
-  return status === 400 || status === 413 || status === 422 || status === 429 || status >= 500;
-}
-
 async function callAiProvider(provider: ProviderConfig, toolId: string, messages: NvidiaMessage[]) {
   const payload = buildOpenAiCompatPayload(toolId, provider.model, messages);
   const response = await fetch(provider.endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${provider.apiKey}`,
+      // `Bearer undefined` is a valid-looking header that a gateway can only answer with 401.
+      ...(provider.apiKey ? { Authorization: `Bearer ${provider.apiKey}` } : {}),
     },
     body: JSON.stringify(payload),
   });

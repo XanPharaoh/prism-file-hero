@@ -1,0 +1,12 @@
+PASS ocr: /api/ai answered 200 through the free gateway
+PASS ocr: the answer came from a measured free model, not a paid provider
+PASS ocr: the statement text actually came back
+     2929ms wall clock · **Description (2‑3 sentences)** The statement page displays the header of a bank statement from **Meridian Bank**, wit
+PASS pdf-summary: 200 from the free gateway
+     8489ms wall clock
+PASS meter: both gateway calls settled, no dangling PENDING
+     [{"status":"SUCCESS","tool_id":"ocr"},{"status":"SUCCESS","tool_id":"pdf-summary"}]
+PASS gate: an unlisted tool has no provider here (502, not a silent 200)
+     10ms · grammar-check is outside OMNIROUTE_TOOLS
+
+6 passed, 0 failed

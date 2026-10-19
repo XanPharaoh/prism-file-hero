@@ -22,6 +22,17 @@ CLERK_JWT_ISSUER = "https://clerk.prismfilehero.com"
 # every reservation without a redeploy; unset means enabled.
 # AI_PROXY_ENABLED = "true"
 
+# Free-model gateway (the operator's OmniRoute). Unset = the paid chain exactly as before; routing is
+# opt-in per tool by listing ids in OMNIROUTE_TOOLS. A deployed Worker refuses a plaintext gateway in
+# code, so this must be a public HTTPS tunnel — Cloudflare cannot reach a Tailnet 100.64/10 address
+# either, so http://<tailnet-ip>:20128 is only usable under --env localtest below.
+#   OMNIROUTE_BASE_URL = "https://<tunnel-hostname>/v1"
+#   OMNIROUTE_TOOLS = "ocr,ocr-to-md,pdf-to-excel,pdf-to-word,compare,pdf-summary,pdf-qa,grammar-check"
+# redact is deliberately absent from that list: it runs against gliner-pii, a named-entity model, and
+# a chat model guessing at PII spans is how a redaction silently misses one.
+# Model order and every latency/accuracy figure behind it: docs/omniroute-model-selection.md
+#   wrangler secret put OMNIROUTE_API_KEY   # only if the gateway requires a bearer token
+
 # SECURITY: Secrets must NOT be in this file — use: cd worker && npx wrangler secret put <KEY_NAME>
 # Required secrets:
 #   wrangler secret put NVIDIA_API_KEY
@@ -60,6 +71,10 @@ crons = ["0 */6 * * *"]
 ENVIRONMENT = "localtest"
 CLERK_JWKS_URL = "http://127.0.0.1:8799/.well-known/jwks.json"
 CLERK_JWT_ISSUER = "http://127.0.0.1:8799"
+# ENVIRONMENT=localtest is the one place a plaintext AI gateway is allowed, so the operator's OmniRoute
+# can be probed on the tailnet without a tunnel. Unset leaves the paid chain in front.
+# OMNIROUTE_BASE_URL = "http://<tailnet-ip>:20128/v1"
+# OMNIROUTE_TOOLS = "ocr,pdf-summary"
 
 # ── Staging: isolated, sandbox, genuine Clerk ──────────────────────────────────────────────
 # `--env staging` is the pre-production target. It never inherits the production bindings: the
