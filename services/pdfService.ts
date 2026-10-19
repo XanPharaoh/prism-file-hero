@@ -1383,9 +1383,16 @@ export async function editMetadata(
 }
 
 /**
- * Clean: Remove blank pages from PDF based on canvas rendering and pixel ink density.
+ * Remove pages that hold no ink at all.
+ *
+ * A page counts as blank only when its rendered canvas contains zero non-white pixels. Judging blank
+ * by *density* — which this function used to do at a 0.1% default — deletes sparse real content: on a
+ * 320×400 page 0.1% is 128 pixels, so a signature, a hairline rule or a 2×2 corner stamp (4 measured
+ * ink pixels) all read as "blank". Keeping an unwanted blank page costs the user a glance; deleting a
+ * page that carried content costs them the document. Pass `densityThreshold` deliberately to filter
+ * noisy scans where a few stray dark pixels are not content.
  */
-export async function removeBlankPages(file: File, threshold: number = 0.001): Promise<Blob> {
+export async function removeBlankPages(file: File, densityThreshold = 0): Promise<Blob> {
   const bytes = await file.arrayBuffer();
   let pdfjsDoc: any = null;
   const nonBlankIndices: number[] = [];
@@ -1431,7 +1438,8 @@ export async function removeBlankPages(file: File, threshold: number = 0.001): P
       }
 
       const inkRatio = totalPixels > 0 ? inkPixels / totalPixels : 0;
-      if (inkRatio >= threshold) {
+      const blank = densityThreshold > 0 ? inkRatio < densityThreshold : inkPixels === 0;
+      if (!blank) {
         nonBlankIndices.push(i - 1);
       }
     }

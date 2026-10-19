@@ -886,18 +886,23 @@ describe('remove-blank-pages — "Automatically scan and eliminate empty or whit
     expect(info.pages).toBe(2);
   }, 400_000);
 
-  it('a page holding a small but genuine mark is deleted because the scan is density-based', async () => {
+  it('keeps a page holding a 2×2 mark, and drops it only when density is explicitly asked for', async () => {
     const specs = [{ w: 320, h: 400, side: 2 }, { w: 300, h: 400, side: 40 }];
     const srcPath = await emitFile('remove-blank-pages', 'src-dot', await inkAreaDoc(specs));
     const truth2 = inkPixels(await renderShot(srcPath, 1, 'remove-blank-dot-truth'));
-    const out = await emit('remove-blank-pages', 'dot', await removeBlankPages(await inkAreaDoc(specs)));
-    const survivors = out ? pdfInfo(out).perPage.map(p => `${p.w}x${p.h}`) : [];
-    record('remove-blank-pages', 'sparseContent', { truthPage1Ink: truth2, pagesBefore: pdfInfo(srcPath).pages, pagesAfter: pdfInfo(out).pages, survivors });
     expect(pdfInfo(srcPath).perPage[0]).toMatchObject({ w: 320, h: 400 });
     expect(truth2).toBeGreaterThan(0);                       // poppler sees real content on that page
-    expect(survivors).toEqual(['300x400']);                   // the service threw it away
-    defect('remove-blank-pages', 'Automatically scan and eliminate empty or white pages from documents.',
-      `a page with ${truth2} genuine ink pixels (a 2×2 pt black mark on 320×400) was deleted: the scan compares ink density against a 0.001 default threshold (services/pdfService.ts:1358-1375), so sparse real content — a signature, a hairline rule, a corner stamp — is discarded as "blank"`, 'medium');
+
+    const out = await emit('remove-blank-pages', 'dot', await removeBlankPages(await inkAreaDoc(specs)));
+    const survivors = pdfInfo(out).perPage.map(p => `${p.w}x${p.h}`);
+    record('remove-blank-pages', 'sparseContent', { truthPage1Ink: truth2, pagesBefore: 2, pagesAfter: pdfInfo(out).pages, survivors });
+    expect(survivors).toEqual(['320x400', '300x400']);       // neither page is empty, so neither is dropped
+
+    // The aggressive behaviour is still available — it is just a choice the caller makes, not a
+    // default that deletes content the user never agreed to lose.
+    const dense = await emit('remove-blank-pages', 'dot-density', await removeBlankPages(await inkAreaDoc(specs), 0.001));
+    record('remove-blank-pages', 'sparseContentDense', { survivors: pdfInfo(dense).perPage.map(p => `${p.w}x${p.h}`) });
+    expect(pdfInfo(dense).perPage.map(p => `${p.w}x${p.h}`)).toEqual(['300x400']);
   }, 400_000);
 
   it('an all-blank document still yields one page', async () => {

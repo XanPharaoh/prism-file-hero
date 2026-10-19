@@ -802,7 +802,8 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     maxFiles: 1,
     supportsBatchProcessing: false,
     handler: async ({ files, options }: ToolExecutionPayload): Promise<ToolResult> => {
-      const threshold = typeof options?.blankPageThreshold === 'number' ? options.blankPageThreshold : 0.001;
+      // No UI control sets this, so the default is the safe one: only a page with zero ink is blank.
+      const threshold = typeof options?.blankPageThreshold === 'number' ? options.blankPageThreshold : 0;
       const blob = await removeBlankPages(files[0], threshold);
       return { blob, filename: `${files[0].name.replace(/\.pdf$/i, '')}_NoBlankPages.pdf` };
     },
