@@ -923,6 +923,45 @@ export async function extractPages(file: File, pagesStr: string): Promise<Blob> 
  * Supports positions: 'bottom-center' | 'bottom-right' | 'top-right' | 'bottom-left' | 'top-left' | 'top-center'
  * Supports formats: 'Page {page} of {total}', 'Page X of Y', '{page}', 'X'
  */
+/**
+ * The formats the page-number control offers, resolved to text. Unrecognised input is an error:
+ * the previous code fell through to stamping the format string itself, so all four UI options
+ * (`page_n_of_m | page_n | n_of_m | n`) painted the literal token `page_n_of_m` on every page and
+ * still returned a PDF that looked like a successful run.
+ */
+const PAGE_NUMBER_FORMATS: Record<string, (n: number, total: number) => string> = {
+  page_n_of_m: (n, t) => `Page ${n} of ${t}`,
+  page_x_of_y: (n, t) => `Page ${n} of ${t}`,
+  'page-of-total': (n, t) => `Page ${n} of ${t}`,
+  page_n: (n) => `Page ${n}`,
+  n_of_m: (n, t) => `${n} of ${t}`,
+  n: (n) => `${n}`,
+  number_only: (n) => `${n}`,
+  x: (n) => `${n}`,
+  y: (_n, t) => `${t}`,
+};
+
+export function renderPageNumber(rawFormat: string | undefined, pageNum: number, total: number): string {
+  const raw = (rawFormat ?? 'Page {page} of {total}').trim();
+
+  if (raw.includes('{page}') || raw.includes('{total}')) {
+    return raw.replace(/\{page\}/gi, String(pageNum)).replace(/\{total\}/gi, String(total));
+  }
+
+  const known = PAGE_NUMBER_FORMATS[raw.toLowerCase().replace(/\s+/g, '_')];
+  if (known) return known(pageNum, total);
+
+  // Legacy single-letter templates: "X", "X of Y", "-X-".
+  if (/\b[xy]\b/i.test(raw)) {
+    return raw.replace(/\bX\b/gi, String(pageNum)).replace(/\bY\b/gi, String(total));
+  }
+
+  throw new Error(
+    `Unknown page-number format "${raw}". Choose one of ${Object.keys(PAGE_NUMBER_FORMATS).join(', ')}, ` +
+    'or write a template using {page} and {total}.'
+  );
+}
+
 export async function addPageNumbers(
   file: File,
   options?: { position?: string; startNum?: number; format?: string }
@@ -933,26 +972,12 @@ export async function addPageNumbers(
   const totalPages = pages.length;
   const startNum = options?.startNum ?? 1;
   const position = (options?.position || 'bottom-center').toLowerCase();
-  const rawFormat = options?.format || 'Page {page} of {total}';
+  const rawFormat = options?.format;
   const fontSize = 10;
 
   pages.forEach((page, index) => {
     const pageNum = startNum + index;
-    let text = rawFormat;
-
-    if (rawFormat.includes('{page}') || rawFormat.includes('{total}')) {
-      text = rawFormat
-        .replace(/\{page\}/gi, String(pageNum))
-        .replace(/\{total\}/gi, String(totalPages));
-    } else if (rawFormat.toLowerCase() === 'page x of y' || rawFormat === 'page-of-total') {
-      text = `Page ${pageNum} of ${totalPages}`;
-    } else if (rawFormat === 'X' || rawFormat === 'number-only' || rawFormat === '{n}') {
-      text = String(pageNum);
-    } else {
-      text = rawFormat
-        .replace(/X/g, String(pageNum))
-        .replace(/Y/g, String(totalPages));
-    }
+    const text = renderPageNumber(rawFormat, pageNum, totalPages);
 
     const { width, height } = page.getSize();
     const textWidth = font.widthOfTextAtSize(text, fontSize);

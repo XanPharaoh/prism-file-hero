@@ -814,20 +814,28 @@ describe('page-numbers — "Insert dynamic page numbers with customizable format
     expect(brW.every(w => w.yMin > 330 && w.xMax > 240)).toBe(true);
   }, 300_000);
 
-  it('every format the app UI offers paints its placeholder string instead of a number', async () => {
+  it('every format the app UI offers stamps a real number, never the token', async () => {
+    // A1: all four of these used to fall through to the literal-token branch and paint the
+    // placeholder word itself on every page. Kept as a contract proof, not a defect record.
     const painted: Record<string, string> = {};
     for (const fmt of ['page_n_of_m', 'page_n', 'n_of_m', 'n'] as const) {
       const out = await emit('page-numbers', `fmt-${fmt}`, await addPageNumbers(await labeledDoc('F', 2), { format: fmt }));
       painted[fmt] = flat(pageText(out, 1));
     }
     record('page-numbers', 'uiFormats', painted);
-    expect(painted['page_n_of_m']).toContain('page_n_of_m');
-    expect(painted['n_of_m']).toContain('n_of_m');
-    expect(painted['page_n']).toContain('page_n');
-    expect(Object.values(painted).some(t => /Page 1|1 of 2/.test(t))).toBe(false);
-    defect('page-numbers', 'Insert dynamic page numbers with customizable format and positioning.',
-      `all four formats the app offers (src/types.ts:160, rendered by src/components/views/ProcessingView.tsx:367-370 as page_n_of_m | page_n | n_of_m | n) fall through to the literal-token branch at services/pdfService.ts:898-910, so every page is stamped with the placeholder word itself — measured page 1 text: "${painted['page_n_of_m']}" — and no page number is ever inserted`, 'critical');
+    expect(painted['page_n_of_m']).toContain('Page 1 of 2');
+    expect(painted['page_n']).toContain('Page 1');
+    expect(painted['n_of_m']).toContain('1 of 2');
+    expect(painted['n']).toContain('1');
+    for (const text of Object.values(painted)) {
+      expect(text).not.toMatch(/page_n|n_of_m|\bn\b_/);
+    }
   }, 300_000);
+
+  it('an unknown format is refused rather than painted on the page', async () => {
+    await expect(addPageNumbers(await labeledDoc('F', 2), { format: 'whatever' })).rejects.toThrow(/Unknown page-number format/);
+    record('page-numbers', 'unknownFormat', 'refused with the accepted list (services/pdfService.ts renderPageNumber)');
+  }, 60_000);
 
   it('startNum shifts the counter while {total} keeps the document length', async () => {
     const out = await emit('page-numbers', 'start5', await addPageNumbers(await labeledDoc('H', 2), { startNum: 5 }));
