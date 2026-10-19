@@ -137,7 +137,7 @@ Measured with `scripts/feature-audit/omniroute-load.mjs` against the same gatewa
 own payload (`max_tokens: 4096` — a smaller budget makes a reasoning model answer 200 with
 `content: null`, which a naive probe would score as an empty reply). Each request re-derives the
 12-row ledger totals, so **`correct` is arithmetic, not HTTP status**: a fast wrong answer counts as a
-failure. 126 requests, peak 16 concurrent.
+failure. 158 requests, peak 16 concurrent (63 per model in isolation, plus 32 with both models in flight together).
 
 | concurrency | north-mini-code p50 | p95 | req/s | correct | nemotron-3-super p50 | p95 | req/s | correct |
 | --: | --: | --: | --: | --: | --: | --: | --: | --: |
@@ -151,7 +151,7 @@ failure. 126 requests, peak 16 concurrent.
 concurrency (3.7 → 4.5 → 5.9 → 9.5 s) while throughput still climbs (0.15 → 1.95 req/s), and every
 single request returned 200 with correct arithmetic. Correctness is the useful result here — the
 failure worth having for a tool that touches bank statements is a confident wrong number, and it did
-not occur in 126 tries. At ~2 req/s on one model, a subscriber-facing throughput of roughly 100
+not occur in any of the 158. At ~2 req/s on one model, a subscriber-facing throughput of roughly 100
 completions a minute is available before the gateway starts pushing back.
 
 **What it does not show, and must not be read as showing.** No request failed, so **no failure mode
@@ -191,3 +191,8 @@ is not that machine. So:
    not an optimisation.
 4. **`AI_PROXY_ENABLED=false` still stops everything**, free gateway included — the switch is checked
    before authentication, before any reservation, and before the chain is built.
+5. **Each provider call needs its own timeout.** `callAiProvider` sends no `AbortSignal`, and the chain
+   is sequential, so one straggler holds the request open instead of falling through: `nemotron-3-super`
+   took 52.8 s at only 4 concurrent, while its p50 sits near 14-15 s. Size the budget to that tail, and
+   treat the latency figures in this file as p50s with an unbounded upper end — not response times to
+   promise subscribers.

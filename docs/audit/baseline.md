@@ -1626,3 +1626,32 @@ reconciliation gate warning instead of refusing (`ledgerGuard.ts:51` dead ternar
 `site/financial.html:44`; "offline" OCR pulling 21 CDN requests while the vendored assets go unused;
 all six cloud AI tools unproven end-to-end (no provider key has ever produced an observable output
 here) with `pdf-to-word` delivering markdown; Capitec extraction unverified (no fixture exists).
+
+### Correction — request count in the gateway concurrency test, and a straggler the summary hid (2026-10-19)
+
+`5175f69` and `docs/omniroute-model-selection.md` both state **126 requests**. Wrong, and found by
+reading the evidence records rather than the printed summary:
+`evidence/features/omniroute/load-2026-10-19T20-17-01-321Z.jsonl` holds **158** — 63 isolated per
+model (3+12+24+24) plus a 32-request combined phase that the summary line never counted. The
+"correct 158/158" figure in the doc was therefore understating its own evidence; the conclusion
+(no failure mode reached) is unchanged and if anything slightly better supported than described.
+
+The review also surfaced something no summary column showed. Re-aggregating per record:
+
+- 158/158 status 200, `finish_reason: stop`, zero error strings, zero empty bodies, **zero
+  truncations** — so nothing in the data is a failure mode, confirming rather than softening the
+  earlier caveat that the ceiling sits above 16 concurrent.
+- `nemotron-3-super` at only **4 concurrent** produced one request of **52,795 ms** — 88% of the
+  probe's 60 s ceiling, and above the 45 s the survey script uses, which would have been scored a
+  timeout. That model's p50 also *falls* as concurrency rises (15.6 → 20.1 → 15.3 → 13.9 s), i.e.
+  its variance is upstream-driven, not load-driven, so a near-timeout can arrive at low concurrency.
+- `north-mini-code` p50 rises sub-linearly (3.7 → 4.5 → 5.9 → 9.5 s for 1 → 16 concurrent) and its
+  best p95 (6.0 s at level 8) is *lower* than its level-1 p95 (12.3 s, n=3 — one straggler, too
+  small to read as anything).
+
+Consequence for the code, not just the doc: `callAiProvider` in `worker/src/index.ts` sends no
+`AbortSignal.timeout`, and the Worker's chain is sequential, so a 52 s straggler is not cut off
+early and never reaches the paid fallback behind it. Before this gateway faces subscribers, the
+chain needs a per-provider budget sized to the observed tail — and the free-model latency figures in
+`docs/omniroute-model-selection.md` should be read as p50s with an unbounded upper tail, not as
+response times to promise users.
