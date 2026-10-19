@@ -205,6 +205,32 @@ late: it is the largest single item and changes the expected behaviour of every 
 asserts a refusal, so those assertions must be written knowing it is coming — each refusal test names
 the task that will flip it.
 
+## B3 attempted and withdrawn — read this before implementing it
+
+B3 (jpg-to-pdf ignores EXIF orientation) was worked on and reverted; the change is not in the tree.
+Two things were learned, and they are the reason to write this down rather than just retry it.
+
+1. **`createImageBitmap` applies EXIF orientation by default**, so a fix that decodes a camera JPEG to
+   a bitmap and then also mirrors/rotates the pixels applies the correction twice and produces the
+   original sideways raster again. The symptom is not an error — the mirrored family simply keeps
+   failing its own pixel comparison by a constant margin, which reads like a wrong transform table
+   and sent one debugging session in circles. Any pixel-level orientation work has to either decode
+   with the orientation explicitly suppressed or confirm what the decoder already did.
+2. **A test that passes for all eight cases can be comparing one image to itself.** The first version
+   tagged fixtures with `magick x.jpg -set orientation N out.jpg`, which does not survive a JPEG
+   rewrite: all eight files stayed at orientation 1, all eight reported the same box and the same
+   block error, and the test went green while verifying nothing. It was caught only because the
+   recorded numbers were identical across cases. A test that sweeps a parameter must assert that the
+   parameter *changed something* — the fixed version asserts the tag round-trips and that the eight
+   cases produce more than one distinct page box.
+
+What is known to be sound for the retry: the four pure rotations (1/3/6/8, which is what cameras
+emit) need no pixel work at all — they are expressible as page size plus a `drawImage` rotation, so
+the original JPEG bytes are embedded untouched and nothing is re-encoded. Only the mirrored family
+(2/4/5/7) needs pixels, and that is where the double-orientation trap lives. `jpegWithExifOrientation`
+in `tests/features/conversion.test.ts` does produce tags that `magick -auto-orient` honours, which is
+the oracle to compare against.
+
 ## Execution record
 
 Only tasks with a gate result are listed as done. The ledger file under `.superpowers/` is gitignored,
