@@ -5,7 +5,7 @@
  */
 
 export const OLLAMA_BASE = process.env.OLLAMA_URL || process.env.OLLAMA_HOST || 'http://100.75.214.23:11434';
-export const VISION_MODEL = process.env.OLLAMA_VISION_MODEL || 'qwen2.5vl:7b';
+export const VISION_MODEL = process.env.OLLAMA_VISION_MODEL || 'qwen3-vl:4b';
 export const EMBED_MODEL  = process.env.OLLAMA_EMBED_MODEL  || 'nomic-embed-text:latest';
 
 const DEFAULT_TIMEOUT_MS = 120_000; // vision calls can take ~30-60s on CPU
@@ -57,7 +57,8 @@ export async function ollamaVision(prompt, images = [], opts = {}) {
       }
 
       const data = await res.json();
-      return data.response ?? '';
+      const content = data.response && data.response.trim().length > 0 ? data.response : (data.thinking ?? '');
+      return content;
     } catch (err) {
       if (attempt === MAX_RETRIES) throw err;
       console.warn(`[ollamaVision] attempt ${attempt + 1} failed: ${err.message}, retrying…`);
