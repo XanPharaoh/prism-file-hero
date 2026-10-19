@@ -439,6 +439,27 @@ export default function ProcessingView({
         </div>
       )}
 
+      {tool.id === 'pdf-to-excel' && (
+        <div className="w-full max-w-md mx-auto">
+          <label className="flex items-start gap-3 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-surface dark:bg-slate-800 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(s.toolOptions.allowAIFallback)}
+              onChange={(e) => s.setToolOptions({ allowAIFallback: e.target.checked })}
+              className="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/30"
+            />
+            <span className="text-xs leading-relaxed">
+              <span className="block font-bold text-slate-700 dark:text-slate-200">Read with cloud AI</span>
+              <span className="text-slate-500 dark:text-slate-400">
+                Only used if no table can be read from the file itself. Scanned statements have no text
+                layer, so this is how they are read — it sends every page to a cloud model and uses
+                one credit per page. Leave it off to be charged nothing and told when it would be needed.
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
       {tool.id === 'crop-resize' && (
         <div className="space-y-4 w-full max-w-md mx-auto">
           <div className="space-y-2">

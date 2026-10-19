@@ -148,6 +148,16 @@ export const TOOL_REGISTRY: ToolHandler[] = [
       }
 
       if (!result?.rows?.length) {
+        // Reaching a cloud provider is a spend the user has to have asked for. A scan of a bank
+        // statement has no text layer, so local extraction always fails here, and this path used to
+        // charge one credit per page silently, mid-run, on a tool labelled as a table converter.
+        if (!options?.allowAIFallback) {
+          throw new Error(
+            'This document has no readable text layer, so the table can only be read by sending its pages ' +
+            'to cloud AI — which costs one credit per page. Turn on "Read with cloud AI" under the options ' +
+            'and run it again if you want that.',
+          );
+        }
         // AI Vision fallback: convert PDF pages to images and send to AI
         try {
           // First try normalizing the PDF to fix compression issues before rendering

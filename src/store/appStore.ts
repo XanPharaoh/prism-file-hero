@@ -130,6 +130,7 @@ interface AppState {
     metaProducer: string;
     stripMetadata: boolean;
     targetSize: number;
+    allowAIFallback: boolean;
     resizeMode: 'fit' | 'fill' | 'stretch' | 'clip';
     ocrEngine: 'tesseract' | 'gemini' | 'hybrid';
     unlockPassword: string;
@@ -376,6 +377,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     metaProducer: '',
     stripMetadata: false,
     targetSize: 10,
+    allowAIFallback: false,
     resizeMode: 'fit',
     ocrEngine: 'tesseract',
     unlockPassword: '',
