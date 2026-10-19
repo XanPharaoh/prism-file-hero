@@ -1309,7 +1309,7 @@ describe('flatten-pdf — "Lock interactive form fields, checkmarks, and annotat
     expect(docText(out)).toContain('STATIC-BASE-TEXT');
   }, 400_000);
 
-  it('a form containing a signature field: the error is swallowed and the filled values vanish', async () => {
+  it('a form containing an unsigned signature field keeps every filled value', async () => {
     const f = await formDoc('sig-first');
     const srcPath = await emitFile('flatten-pdf', 'src-sig', f);
     const out = await emit('flatten-pdf', 'sig-first', await flattenPdf(f));
@@ -1322,19 +1322,37 @@ describe('flatten-pdf — "Lock interactive form fields, checkmarks, and annotat
     });
     expect(info.form).toBe('none');
     expect(beforeInk).toBeGreaterThan(0);
-    expect(afterInk).toBe(0);
-    defect('flatten-pdf', 'Lock interactive form fields, checkmarks, and annotations into static pages.',
-      `when pdf-lib's form.flatten() throws (a /Sig widget has no appearance stream, so findWidgetAppearanceRef fails), the catch at services/pdfService.ts:1405-1409 swallows it and the code still deletes /AcroForm and every /Widget — the filled value disappears from the page (field ink ${beforeInk} px → ${afterInk} px) while the tool hands back a file as if it had succeeded`, 'critical');
+    // The old behaviour: pdf-lib threw on the /Sig widget, the catch swallowed it, the value-baking
+    // never ran, and the deletion still did — 782 ink pixels became 0.
+    expect(afterInk).toBe(beforeInk);
+    expect(docText(out)).toContain('APPEARANCE-ALPHAVALUE');
+    expect(docText(out)).toContain('STATIC-BASE-TEXT');
   }, 400_000);
 
-  it('non-widget annotations are not flattened at all — they stay separate annotation objects', async () => {
+  it('refuses to delete a FreeText note it has no appearance for, rather than losing it silently', async () => {
     const f = await formDoc('with-freetext');
-    const out = await emit('flatten-pdf', 'with-freetext', await flattenPdf(f));
-    const s = await structAsync(out);
-    record('flatten-pdf', 'freetext', { loads: s.loads, loadError: s.loadError, acroForm: s.acroForm, annotSubtypes: s.annotSubtypes });
-    expect(s.annotSubtypes.some(a => a.includes('FreeText'))).toBe(true);
-    defect('flatten-pdf', 'Lock interactive form fields, checkmarks, and annotations into static pages.',
-      `the annots pass keeps every non-/Widget annotation (services/pdfService.ts:1424-1441), so FreeText/Highlight/Pen markup stays a separate, still-editable annotation object: measured subtypes in the output = ${JSON.stringify(s.annotSubtypes)}`, 'high');
+    let error: any = null;
+    try { await emit('flatten-pdf', 'with-freetext', await flattenPdf(f)); } catch (e) { error = e; }
+    record('flatten-pdf', 'freetextRefusal', {
+      thrown: error?.name ?? null, unbaked: error?.unbaked ?? null, message: String(error?.message ?? '').slice(0, 200),
+    });
+    expect(error).not.toBeNull();
+    expect(error.name).toBe('FlattenRefusal');
+    expect(error.message).toMatch(/Flatten stopped/);
+    expect(String(error.unbaked)).toContain('FreeText');
+    // The alternative was the old behaviour: keep it as a live, still-editable annotation object while
+    // claiming the page had been locked.
+  }, 400_000);
+
+  it('refuses a filled field whose value only exists in /V, because a viewer would render it', async () => {
+    const f = await formDoc('no-appearance');
+    let error: any = null;
+    try { await emit('flatten-pdf', 'no-appearance', await flattenPdf(f)); } catch (e) { error = e; }
+    record('flatten-pdf', 'noAppearance', { thrown: error?.name ?? null, unbaked: error?.unbaked ?? null });
+    expect(error?.name).toBe('FlattenRefusal');
+    // poppler paints nothing for this field, but Acrobat and Chrome generate the appearance at
+    // display time — so "no ink in my renderer" is not evidence that deleting it is safe.
+    expect(String(error?.unbaked)).toContain('q1');
   }, 400_000);
 
   it('structural validity: the flattened output must not carry dangling annotation refs', async () => {
@@ -1343,11 +1361,14 @@ describe('flatten-pdf — "Lock interactive form fields, checkmarks, and annotat
     const info = pdfInfo(out);
     const s = await structAsync(out);
     record('flatten-pdf', 'validity', { stderr: flat(info.stderr).slice(0, 200), annots: s.annotSubtypes, pdfLibLoadError: s.loadError, pages: s.pages });
-    const damaged = s.annotSubtypes.includes('DANGLING_REF') || !s.loads;
     record('flatten-pdf', 'damageSignals', { dangling: s.annotSubtypes.includes('DANGLING_REF'), popplerSays: flat(info.stderr).slice(0, 60) || '(no error)', annots: s.annotSubtypes });
-    expect(damaged).toBe(true);
-    defect('flatten-pdf', 'Lock interactive form fields, checkmarks, and annotations into static pages.',
-      `the output page keeps an /Annots entry that points at a deleted object (pdf-lib re-read: ${JSON.stringify(s.annotSubtypes)}); poppler renders it silently and reports "${flat(info.stderr).slice(0, 40) || 'no error'}", so a stricter reader can reject the file. Cause: pdf-lib deletes the widget objects while page /Annots still references them, and the post-pass (services/pdfService.ts:1426-1440) re-keeps any entry it cannot resolve into a dict`, 'medium');
+    // The old output kept an /Annots entry pointing at a deleted widget object — legal-looking to
+    // poppler, rejected by stricter readers.
+    expect(s.loads).toBe(true);
+    expect(s.loadError).toBe('');
+    expect(s.annotSubtypes.includes('DANGLING_REF')).toBe(false);
+    expect(s.annotSubtypes).toEqual([]);
+    expect(flat(info.stderr)).toBe('');
   }, 400_000);
 
   it('flattening a document that has no form leaves it intact', async () => {

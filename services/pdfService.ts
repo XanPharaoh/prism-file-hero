@@ -1,6 +1,10 @@
 
 import { pdfjsLib } from './pdfjsClient';
-import { PDFDocument, rgb, degrees, StandardFonts, PDFName, PDFArray, PDFDict } from 'pdf-lib';
+import {
+  PDFDocument, rgb, degrees, StandardFonts, PDFName, PDFArray, PDFDict, PDFContext,
+  PDFNumber, PDFRef, PDFString, PDFHexString, PDFRawStream, PDFPageLeaf, type PDFObject,
+} from 'pdf-lib';
+import { appearanceMatrix, bakeOperators, type PdfMatrix, type PdfRect } from '@/shared/pdf/appearanceBake';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
 import { EncryptedDocumentError, isEncryptedLoadFailure, loadPdfForRebuild } from '@/shared/pdf/loadGuard';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
@@ -1467,57 +1471,255 @@ export async function removeBlankPages(file: File, densityThreshold = 0): Promis
  * Security/Editing: Flatten PDF
  * Permanently fuses interactive form fields and AcroForm widgets into static base page streams.
  */
+/**
+ * Annotation subtypes that hold something a person can see. A widget's value, a FreeText note, a
+ * highlight — if one of these has no appearance stream and we delete it, the page loses ink without
+ * losing a page, which is the kind of loss nobody notices until the document is filed.
+ */
+const VISIBLE_ANNOT_SUBTYPES = new Set([
+  'Widget', 'FreeText', 'Text', 'Highlight', 'StrikeOut', 'Squiggly', 'Underline', 'Ink', 'Caret',
+  'Square', 'Circle', 'Line', 'Polygon', 'PolyLine', 'Stamp', 'FileAttachment', 'Redact',
+]);
+
+/** Thrown when flattening would have to delete content it cannot first make permanent. */
+export class FlattenRefusal extends Error {
+  readonly unbaked: string[];
+
+  constructor(message: string, unbaked: string[]) {
+    super(message);
+    this.name = 'FlattenRefusal';
+    this.unbaked = unbaked;
+  }
+}
+
+/**
+ * `context.lookupMaybe` throws when the object exists but is of another type, so every read of a
+ * foreign PDF here narrows with `instanceof` instead. A file that puts a stream where a dictionary
+ * belongs is not an error condition — it is Tuesday on a corpus of real bank documents.
+ */
+function asDict(ctx: PDFContext, value: PDFObject | undefined) {
+  const obj = value === undefined ? undefined : ctx.lookup(value);
+  return obj instanceof PDFDict ? obj : undefined;
+}
+
+function asArray(ctx: PDFContext, value: PDFObject | undefined) {
+  const obj = value === undefined ? undefined : ctx.lookup(value);
+  return obj instanceof PDFArray ? obj : undefined;
+}
+
+function nameOf(ctx: PDFContext, value: PDFObject | undefined): string {
+  const obj = value === undefined ? undefined : ctx.lookup(value);
+  return obj instanceof PDFName ? obj.toString().replace(/^[/]/, '') : '';
+}
+
+function textOf(ctx: PDFContext, value: PDFObject | undefined): string {
+  if (value === undefined) return '';
+  const obj = ctx.lookup(value);
+  if (obj instanceof PDFString) return obj.decodeText();
+  if (obj instanceof PDFHexString) return obj.decodeText();
+  return '';
+}
+
+function numbersIn(ctx: PDFContext, arr: PDFArray | undefined): number[] | null {
+  if (!arr) return null;
+  const out: number[] = [];
+  for (let i = 0; i < arr.size(); i++) {
+    const n = ctx.lookup(arr.get(i));
+    if (!(n instanceof PDFNumber)) return null;
+    out.push(n.asNumber());
+  }
+  return out;
+}
+
+/**
+ * The normal (/N) appearance stream of an annotation, with the geometry needed to place it.
+ * AP/N is either the stream itself or a dictionary of alternate appearances, in which case the first
+ * entry is what a viewer would draw for the default state.
+ */
+function appearanceOf(
+  ctx: PDFContext,
+  dict: PDFDict,
+): { ref: PDFRef; bbox: PdfRect; elementMatrix: PdfMatrix | null } | null {
+  const ap = asDict(ctx, dict.get(PDFName.of('AP')));
+  if (!ap) return null;
+
+  let target = ap.get(PDFName.of('N'));
+  const alternates = asDict(ctx, target);
+  if (alternates) {
+    const keys = alternates.keys();
+    if (!keys.length) return null;
+    target = alternates.get(keys[0]);
+  }
+  if (target === undefined) return null;
+  const looked = target instanceof PDFRef ? ctx.lookup(target) : target;
+  if (!(looked instanceof PDFRawStream)) return null;
+  const stream = looked;
+  const ref = target instanceof PDFRef ? target : ctx.register(stream);
+
+  const bbox = numbersIn(ctx, asArray(ctx, stream.dict.get(PDFName.of('BBox'))));
+  if (!bbox || bbox.length !== 4) return null;
+
+  const elementMatrix = numbersIn(ctx, asArray(ctx, ap.get(PDFName.of('Matrix'))));
+  return {
+    ref,
+    bbox: bbox as PdfRect,
+    elementMatrix: elementMatrix && elementMatrix.length === 6 ? (elementMatrix as PdfMatrix) : null,
+  };
+}
+
+/**
+ * Appearances generated at flatten time may name fonts from /AcroForm /DR rather than from the page's
+ * own resources. /DR lives in the catalog we are about to delete, so anything the baked content still
+ * borrows from it has to move onto the page or the text renders as nothing.
+ */
+function mergeAcroFormResources(ctx: PDFContext, page: PDFPageLeaf, acroForm: PDFDict) {
+  const dr = asDict(ctx, acroForm.get(PDFName.of('DR')));
+  if (!dr) return;
+  let resources = page.Resources();
+  if (!resources) {
+    resources = ctx.obj({}) as PDFDict;
+    page.set(PDFName.of('Resources'), resources);
+  }
+  for (const category of dr.keys()) {
+    const source = asDict(ctx, dr.get(category));
+    if (!source) continue;
+    const target = asDict(ctx, resources.get(category));
+    if (!target) {
+      resources.set(category, source);
+      continue;
+    }
+    for (const key of source.keys()) {
+      if (!target.has(key)) target.set(key, source.get(key));
+    }
+  }
+}
+
+/**
+ * Flatten: make every form field, checkmark and annotation permanent page content.
+ *
+ * The previous implementation called pdf-lib's `form.flatten()` inside a `catch {}` and then deleted
+ * /AcroForm and all /Widget annotations regardless of what had happened. pdf-lib throws as soon as one
+ * widget has no appearance stream (an unsigned /Sig field is enough), so on any form containing one the
+ * whole flatten aborted, the values were never baked, and the deletion still ran — filled fields lost
+ * their contents while the tool returned a file as if it had succeeded.
+ *
+ * The rule now is: **nothing that carries content is removed until its appearance has been drawn into
+ * the page.** Anything that cannot be drawn is named in a refusal, and the document is handed back
+ * untouched.
+ */
 export async function flattenPdf(file: File): Promise<Blob> {
   const pdfDoc = await loadPdfResilient(file);
+  const ctx = pdfDoc.context;
 
-  try {
-    const form = pdfDoc.getForm();
-    form.flatten();
-  } catch {
-    // If no AcroForm exists or flattening is not needed, proceed
-  }
+  const acroFormRef = pdfDoc.catalog.get(PDFName.of('AcroForm'));
+  const acroForm = asDict(ctx, acroFormRef);
 
-  // Remove AcroForm from catalog to prevent any residual interactive form dictionaries
-  if (pdfDoc.catalog.has(PDFName.of('AcroForm'))) {
-    pdfDoc.catalog.delete(PDFName.of('AcroForm'));
-  }
-
-  // Remove any remaining Widget annotations from pages
-  const pages = pdfDoc.getPages();
-  for (const page of pages) {
+  // Generating appearances is the cheap way to make a value permanent, so try it. Its failure is not
+  // fatal: the per-annotation check below decides what can actually be removed.
+  if (acroForm) {
     try {
-      const annotsRef = page.node.get(PDFName.of('Annots'));
-      if (annotsRef) {
-        const annots = pdfDoc.context.lookup(annotsRef);
-        if (annots instanceof PDFArray) {
-          const nonWidgetAnnots: any[] = [];
-          for (let i = 0; i < annots.size(); i++) {
-            const annotItem = annots.get(i);
-            const annotDict = pdfDoc.context.lookup(annotItem);
-            if (annotDict instanceof PDFDict) {
-              const subtype = annotDict.get(PDFName.of('Subtype'))?.toString();
-              if (subtype !== '/Widget') {
-                nonWidgetAnnots.push(annotItem);
-              }
-            } else {
-              nonWidgetAnnots.push(annotItem);
-            }
-          }
-          if (nonWidgetAnnots.length === 0) {
-            page.node.delete(PDFName.of('Annots'));
-          } else if (nonWidgetAnnots.length !== annots.size()) {
-            page.node.set(PDFName.of('Annots'), pdfDoc.context.obj(nonWidgetAnnots));
-          }
+      pdfDoc.getForm().updateFieldAppearances();
+    } catch {
+      // Some field is beyond pdf-lib's generator (no /DA, /Sig, unsupported font). Expected sometimes.
+    }
+  }
+
+  const unbaked: string[] = [];
+
+  for (const page of pdfDoc.getPages()) {
+    const pageNode = page.node as unknown as PDFPageLeaf;
+    const annots = pageNode.Annots();
+    if (!annots) continue;
+
+    const ops: string[] = [];
+    const keep: PDFObject[] = [];
+    const removed: PDFRef[] = [];
+
+    for (let i = 0; i < annots.size(); i++) {
+      const item = annots.get(i);
+      const dict = asDict(ctx, item);
+      if (!dict) { keep.push(item); continue; }
+
+      const subtype = nameOf(ctx, dict.get(PDFName.of('Subtype')));
+      // A link is interaction, not ink: baking it and then deleting it would remove a working target
+      // while adding nothing visible.
+      if (subtype === 'Link') { keep.push(item); continue; }
+
+      const parent = asDict(ctx, dict.get(PDFName.of('Parent')));
+      const name = textOf(ctx, dict.get(PDFName.of('T'))) || (parent ? textOf(ctx, parent.get(PDFName.of('T'))) : '');
+      const value = textOf(ctx, dict.get(PDFName.of('V'))) || (parent ? textOf(ctx, parent.get(PDFName.of('V'))) : '');
+      const rect = numbersIn(ctx, asArray(ctx, dict.get(PDFName.of('Rect'))));
+      const appearance = appearanceOf(ctx, dict);
+
+      if (appearance && rect && rect.length === 4) {
+        try {
+          const key = pageNode.newXObject('PrismBake', appearance.ref);
+          ops.push(bakeOperators(appearanceMatrix(rect as PdfRect, appearance.bbox, appearance.elementMatrix), key.toString()));
+          if (item instanceof PDFRef) removed.push(item);
+          continue;
+        } catch {
+          // Undecodable geometry: fall through, where the content check below decides whether losing
+          // this annotation is acceptable.
         }
       }
-    } catch {}
+
+      const carriesContent = subtype === 'Widget'
+        ? value.length > 0
+        : VISIBLE_ANNOT_SUBTYPES.has(subtype) || textOf(ctx, dict.get(PDFName.of('Contents'))).length > 0;
+
+      if (carriesContent) {
+        unbaked.push(name ? `“${name}”${value ? ` (${value})` : ''}` : `${subtype} annotation`);
+        keep.push(item);
+      } else if (item instanceof PDFRef) {
+        removed.push(item);
+      } else {
+        keep.push(item);
+      }
+    }
+
+    if (ops.length) {
+      pageNode.addContentStream(ctx.register(ctx.flateStream(ops.join(''), {})));
+      if (acroForm) mergeAcroFormResources(ctx, pageNode, acroForm);
+    }
+
+    for (const ref of removed) ctx.delete(ref);
+
+    if (keep.length === 0) pageNode.delete(PDFName.of('Annots'));
+    else if (keep.length !== annots.size()) pageNode.set(PDFName.of('Annots'), ctx.obj(keep));
   }
+
+  if (unbaked.length) {
+    const listed = unbaked.slice(0, 6).join(', ');
+    throw new FlattenRefusal(
+      `Flatten stopped: ${unbaked.length === 1 ? 'one field has' : `${unbaked.length} fields have`} no appearance to bake into the page` +
+      ` (${listed}${unbaked.length > 6 ? ', …' : ''}). Deleting them would erase content that is currently visible, ` +
+      'so the document has been left unchanged. Open it in the application that created it and save or export it ' +
+      'there — that writes the missing appearances — then flatten again.',
+      unbaked,
+    );
+  }
+
+  // Remove the form infrastructure only once every value it was responsible for is on the page.
+  if (acroForm) {
+    const fields = asArray(ctx, acroForm.get(PDFName.of('Fields')));
+    const dropField = (ref: PDFObject | undefined) => {
+      const field = asDict(ctx, ref);
+      if (!field) return;
+      const kids = asArray(ctx, field.get(PDFName.of('Kids')));
+      if (kids) for (let i = 0; i < kids.size(); i++) dropField(kids.get(i));
+      if (ref instanceof PDFRef) ctx.delete(ref);
+    };
+    if (fields) for (let i = 0; i < fields.size(); i++) dropField(fields.get(i));
+  }
+  if (acroFormRef instanceof PDFRef) ctx.delete(acroFormRef);
+  pdfDoc.catalog.delete(PDFName.of('AcroForm'));
 
   try {
     const flattenedBytes = await pdfDoc.save({ useObjectStreams: true });
     return new Blob([flattenedBytes as BlobPart], { type: 'application/pdf' });
   } catch {
-    // Fallback: copy into a fresh clean document
+    // Fallback: copy into a fresh clean document. The baked content is already in the page content
+    // streams by this point, so the values survive the copy.
     const cleanDoc = await PDFDocument.create();
     const count = pdfDoc.getPageCount();
     const copiedPages = await cleanDoc.copyPages(pdfDoc, Array.from({ length: count }, (_, i) => i));

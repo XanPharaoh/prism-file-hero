@@ -355,7 +355,13 @@
   Object.assign(TOOLS, {
     "flatten-pdf": { accept: ".pdf,application/pdf", multi: false, min: 1,
       run: function (f) { return loadPdf(f[0]).then(function (r) { var L = r.L, d = r.d, N = L.PDFName;
-        try { d.getForm().flatten(); } catch (e) {}
+        // If pdf-lib cannot bake the appearances, nothing here may delete the widgets. An unsigned
+        // /Sig field alone makes flatten() throw, and the old code swallowed that and stripped
+        // /AcroForm and every /Widget anyway — filled values gone, file handed back as a success.
+        // The app engine shares a real appearance baker; this one refuses.
+        try { d.getForm().flatten(); } catch (e) {
+          throw new Error("This form has fields that cannot be baked into the page (often an unsigned signature field). Flattening it here would erase the filled values, so the file was left unchanged.");
+        }
         try { if (d.catalog.has(N.of("AcroForm"))) d.catalog.delete(N.of("AcroForm")); } catch (e) {}
         d.getPages().forEach(function (page) { try {
           var ref = page.node.get(N.of("Annots")); if (!ref) return; var annots = d.context.lookup(ref);
