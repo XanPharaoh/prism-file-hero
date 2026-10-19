@@ -6,6 +6,7 @@
 
 export const OLLAMA_BASE = process.env.OLLAMA_URL || process.env.OLLAMA_HOST || 'http://100.75.214.23:11434';
 export const VISION_MODEL = process.env.OLLAMA_VISION_MODEL || 'qwen3-vl:4b';
+export const TEXT_MODEL   = process.env.OLLAMA_TEXT_MODEL   || 'k2-horizon:3.7b';
 export const EMBED_MODEL  = process.env.OLLAMA_EMBED_MODEL  || 'nomic-embed-text:latest';
 
 const DEFAULT_TIMEOUT_MS = 120_000; // vision calls can take ~30-60s on CPU
@@ -18,7 +19,7 @@ const MAX_RETRIES = 2;
  * @param {string} prompt      - The instruction for the model
  * @param {string[]} images    - Array of base64-encoded PNG/JPEG images (no data: prefix)
  * @param {object} opts
- * @param {string} [opts.model]   - Override model (default: qwen2.5vl:7b)
+ * @param {string} [opts.model]   - Override model (default: qwen3-vl:4b)
  * @param {number} [opts.timeout] - Override timeout in ms
  * @param {object} [opts.options] - Ollama sampling options
  */
@@ -71,12 +72,13 @@ export async function ollamaVision(prompt, images = [], opts = {}) {
 
 /**
  * Call Ollama chat API (no images). Used for rule reasoning and categorization.
+ * Defaults to K2 Horizon 3.7B for fast, accurate text/GL reasoning.
  */
 export async function ollamaChat(systemPrompt, userMessage, opts = {}) {
-  const model   = opts.model   ?? VISION_MODEL;
+  const model   = opts.model   ?? TEXT_MODEL;
   const timeout = opts.timeout ?? DEFAULT_TIMEOUT_MS;
 
-  const body = JSON.stringify({
+  const bodyObj = {
     model,
     messages: [
       { role: 'system', content: systemPrompt },
@@ -88,7 +90,11 @@ export async function ollamaChat(systemPrompt, userMessage, opts = {}) {
       num_ctx: 8192,
       ...opts.options,
     },
-  });
+  };
+  if (opts.format) {
+    bodyObj.format = opts.format;
+  }
+  const body = JSON.stringify(bodyObj);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
@@ -108,7 +114,9 @@ export async function ollamaChat(systemPrompt, userMessage, opts = {}) {
       }
 
       const data = await res.json();
-      return data.message?.content ?? '';
+      const rawContent = data.message?.content?.trim();
+      if (rawContent && rawContent.length > 0) return rawContent;
+      return data.message?.thinking ?? '';
     } catch (err) {
       if (attempt === MAX_RETRIES) throw err;
       console.warn(`[ollamaChat] attempt ${attempt + 1} failed: ${err.message}, retrying…`);
@@ -126,13 +134,13 @@ export async function checkOllamaReady(model = VISION_MODEL) {
     if (!res.ok) return { ready: false, reason: `HTTP ${res.status}` };
     const data = await res.json();
     const models = (data.models ?? []).map((m) => m.name);
-    if (!models.includes(model)) {
+    const modelClean = model.split(':')[0];
+    const hasModel = models.some((m) => m === model || m.startsWith(`${modelClean}:`));
+    if (!hasModel) {
       return { ready: false, reason: `Model "${model}" not pulled. Run: ollama pull ${model}` };
     }
     return { ready: true, models };
   } catch (err) {
-    return { ready: false, reason: err.message };
-  }
 }
 
 function sleep(ms) {
