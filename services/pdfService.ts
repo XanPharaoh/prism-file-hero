@@ -2225,10 +2225,15 @@ export async function sanitizePdf(
     pdfDoc.setKeywords([]);
     pdfDoc.setProducer('');
     pdfDoc.setCreator('');
-    try {
-      pdfDoc.setCreationDate(new Date(0));
-      pdfDoc.setModificationDate(new Date(0));
-    } catch {}
+    // Removed, not reset. Setting the dates to `new Date(0)` left `/CreationDate (D:19700101...)`
+    // in the info dictionary, so `pdfinfo` still printed a creation date on a document the user had
+    // just asked to be stripped of metadata — an epoch timestamp is still a statement about the file.
+    // pdf-lib keeps the info dictionary private and writes it at save time, so it is not reachable
+    // through catalog /Info here — that lookup finds nothing and the delete silently does nothing.
+    // This accessor is public at runtime and `private` only to the type definitions.
+    const infoDict = (pdfDoc as unknown as { getInfoDict(): PDFDict }).getInfoDict();
+    infoDict.delete(PDFName.of('CreationDate'));
+    infoDict.delete(PDFName.of('ModDate'));
   }
 
   // Sanitize per-page structures
