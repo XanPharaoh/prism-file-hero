@@ -24,6 +24,8 @@ interface Env {
   OMNIROUTE_API_KEY?: string;
   /** Comma-separated tool ids allowed to use the free gateway, e.g. "ocr,pdf-summary,pdf-to-excel". */
   OMNIROUTE_TOOLS?: string;
+  /** Per-provider wall-clock budget in ms. Default 30000, clamped to 5000-90000. */
+  AI_PROVIDER_TIMEOUT_MS?: string;
   /** Comma-separated explicit CORS origins. */
   ALLOWED_ORIGINS?: string;
   /** Comma-separated trusted HTTPS host suffixes for one-label preview subdomains. */
@@ -318,6 +320,8 @@ interface ProviderConfig {
   apiKey?: string;
   endpoint: string;
   model: string;
+  /** Wall-clock budget for this one call; the chain moves on when it expires. */
+  timeoutMs?: number;
 }
 
 function getNvidiaModel(toolId: string): string {
@@ -507,7 +511,10 @@ export function getProviderChain(env: Env, toolId: string): ProviderConfig[] {
 
   // A paid provider without a key is not a provider. The free gateway is the exception: a self-hosted
   // OmniRoute may be unauthenticated, and it is already gated on OMNIROUTE_BASE_URL + OMNIROUTE_TOOLS.
-  return providers.filter((provider) => provider.name === 'omniroute' || Boolean(provider.apiKey));
+  const timeoutMs = aiProviderTimeoutMs(env.AI_PROVIDER_TIMEOUT_MS);
+  return providers
+    .filter((provider) => provider.name === 'omniroute' || Boolean(provider.apiKey))
+    .map((provider) => ({ ...provider, timeoutMs }));
 }
 
 export function shouldTryNextProvider(status: number): boolean {
@@ -524,19 +531,40 @@ function mapProviderError(status: number): { error: string; status: number } {
   return { error: 'AI processing failed. Please try again later.', status: 502 };
 }
 
-async function callAiProvider(provider: ProviderConfig, toolId: string, messages: NvidiaMessage[]) {
+export async function callAiProvider(provider: ProviderConfig, toolId: string, messages: NvidiaMessage[]) {
   const payload = buildOpenAiCompatPayload(toolId, provider.model, messages);
-  const response = await fetch(provider.endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // `Bearer undefined` is a valid-looking header that a gateway can only answer with 401.
-      ...(provider.apiKey ? { Authorization: `Bearer ${provider.apiKey}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
+  try {
+    return await fetch(provider.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // `Bearer undefined` is a valid-looking header that a gateway can only answer with 401.
+        ...(provider.apiKey ? { Authorization: `Bearer ${provider.apiKey}` } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(provider.timeoutMs ?? aiProviderTimeoutMs()),
+    });
+  } catch (error) {
+    // A hung provider becomes a 504 rather than an exception. That distinction is the whole point:
+    // the loop above treats >=500 as "try the next provider", so one straggler costs the user a
+    // fallback at worst instead of ending the request. Measured reason: nemotron-3-super returned a
+    // 52.8s answer at four concurrent requests while its p50 was ~15s — without a budget that
+    // request held the chain open and the paid provider behind it was never reached.
+    console.error(`[AI] ${provider.name} call aborted or failed: ${(error as Error)?.name ?? ''} ${(error as Error)?.message ?? ''}`);
+    return new Response('', { status: 504 });
+  }
+}
 
-  return response;
+/**
+ * Per-provider wall-clock budget. Default sits above the slowest answer that was ever accepted
+ * (26.2 s for a vision request) and below the pathological tail (52.8 s), so a normal call is never
+ * cut off and a stalled one is. Clamped because a typo in a dashboard variable should not be able to
+ * disable the timeout entirely or stretch it past a Worker's own request ceiling.
+ */
+export function aiProviderTimeoutMs(raw?: string): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 30_000;
+  return Math.min(90_000, Math.max(5_000, Math.round(parsed)));
 }
 
 // ---- Zod schemas ----

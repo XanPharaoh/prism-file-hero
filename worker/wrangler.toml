@@ -22,6 +22,12 @@ CLERK_JWT_ISSUER = "https://clerk.prismfilehero.com"
 # every reservation without a redeploy; unset means enabled.
 # AI_PROXY_ENABLED = "true"
 
+# Wall-clock budget for ONE provider call. On expiry the call becomes a retryable 504 and the chain
+# moves to the next provider, so a hung upstream costs a fallback rather than a failed request.
+# Default 30000 ms — above the slowest answer ever measured (26.2 s) and below the pathological tail
+# (52.8 s); clamped to 5000-90000 so a typo cannot disable it. See docs/omniroute-model-selection.md.
+# AI_PROVIDER_TIMEOUT_MS = "30000"
+
 # Free-model gateway (the operator's OmniRoute). Unset = the paid chain exactly as before; routing is
 # opt-in per tool by listing ids in OMNIROUTE_TOOLS. A deployed Worker refuses a plaintext gateway in
 # code, so this must be a public HTTPS tunnel — Cloudflare cannot reach a Tailnet 100.64/10 address

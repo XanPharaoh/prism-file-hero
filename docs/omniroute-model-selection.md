@@ -191,8 +191,10 @@ is not that machine. So:
    not an optimisation.
 4. **`AI_PROXY_ENABLED=false` still stops everything**, free gateway included — the switch is checked
    before authentication, before any reservation, and before the chain is built.
-5. **Each provider call needs its own timeout.** `callAiProvider` sends no `AbortSignal`, and the chain
-   is sequential, so one straggler holds the request open instead of falling through: `nemotron-3-super`
-   took 52.8 s at only 4 concurrent, while its p50 sits near 14-15 s. Size the budget to that tail, and
-   treat the latency figures in this file as p50s with an unbounded upper end — not response times to
-   promise subscribers.
+5. **Each provider call now carries its own timeout.** `callAiProvider` passes `AbortSignal.timeout()`
+   and converts any thrown error — timeout *or* a bare connection failure, which previously escaped the
+   loop entirely — into a 504, which `shouldTryNextProvider` already treats as retryable. Budget defaults
+   to 30 s (above the slowest accepted answer measured, 26.2 s; below the 52.8 s straggler) and is
+   overridable with `AI_PROVIDER_TIMEOUT_MS`, clamped to 5–90 s so a typo cannot disable it. Read the
+   latency figures in this file as p50s with a long upper tail, not as response times to promise
+   subscribers — the timeout bounds the damage, it does not make the model fast.
