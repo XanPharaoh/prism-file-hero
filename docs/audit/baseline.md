@@ -1761,3 +1761,35 @@ machine as well as the tree. The suite was re-run after the greps exited and cam
   documented anywhere else, and a reader should not have to re-derive it.
 - 79 added lines mention `service_role`; all are prose in docs or code that reads the value from
   `.dev.vars` / `.localdev/tokens.json` at run time. None carries a value.
+
+### CORRECTION — the "no secrets in this push" claim above is wrong (2026-10-20)
+
+The pre-push secret scan in the previous section concluded from "no JWT in any added line" that nothing
+sensitive was being published. That conclusion was only as good as its patterns — JWT, `service_role`,
+`ghp_`, `AKIA`, `BEGIN RSA` — and it missed a provider API key with a completely different shape. The
+push was attempted and **GitHub rejected it**: `! [remote rejected] main -> main (push declined due to
+repository rule violations)`, flagging `tests/e2e/passive-learning.spec.ts:18`.
+
+What is actually there, established by reading the diff rather than inferring it:
+
+- The file exists at `a608c0b` (the published `origin/main` tip) with a `gsk_...` **placeholder** in
+  that input, sha1 `4a0099d2…`. The public repository has never contained a live key.
+- Exactly one line changed across the whole 154-commit range: `f798ed4` replaced the placeholder with a
+  **real 56-character Groq API key**. That single commit is why 149 commits appear to "contain" the key:
+  they all carry the same file state forward.
+- `git log -S"gsk_"` found nothing, which I first misread as a contradiction. It is not: the pickaxe
+  counts occurrences, and placeholder → real key keeps the count at one. A tool returning "no change" is
+  not a tool returning "no secret".
+- Exposure surface, verified by hash comparison rather than assumed: local working copy yes; GitHub public
+  repo no (the push was blocked); the Nextcloud backup **yes** — `rclone lsjson --hash` shows
+  `prism nextcloud:Prism HQ/prism-file-hero/tests/e2e/passive-learning.spec.ts` at sha1 `dbffbead…`,
+  identical to the local file, so the running `rclone sync` already mirrored the key off-site.
+- One further exposure is mine: a masking command of mine (`sed -n '18p' … | cut -c1-100`) truncated the
+  line to 100 characters without removing the key, printing most of it into this session's transcript.
+  Earlier probes had masked it correctly by printing only prefix and length.
+
+Consequence: the key must be treated as compromised and **rotated at the provider** — that is the only
+fix, and it belongs to the owner, not to this repository. Removing it from the unpushed history is hygiene
+around a credential that is already burned locally and off-site. A scan for secrets should search by
+*shape-agnostic* means (entropy, provider prefixes, and the diff itself) or use a real secret scanner;
+"no JWTs found" must never be written as "no secrets found", which is what the section above implied.
