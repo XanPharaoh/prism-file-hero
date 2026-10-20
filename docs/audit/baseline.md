@@ -1655,3 +1655,12 @@ early and never reaches the paid fallback behind it. Before this gateway faces s
 chain needs a per-provider budget sized to the observed tail — and the free-model latency figures in
 `docs/omniroute-model-selection.md` should be read as p50s with an unbounded upper tail, not as
 response times to promise users.
+
+### Correction — test count in `69988c3` (2026-10-20)
+
+The commit message claims `tests/aiProviderTimeout.test.ts 12/12`. Wrong: that file contains **7**
+tests (3 for the budget clamp and chain stamping, 4 for `callAiProvider` against hung/failed
+providers). The number came from misreading the combined run of two test files — `16 passed` across
+`aiProviderTimeout.test.ts` + `omnirouteProviderChain.test.ts` (7 + 9) — and attributing it to one
+file. Recorded rather than left: the suite is green either way, and an inflated test count is exactly
+the class of claim this repository's golden rule exists to catch.
