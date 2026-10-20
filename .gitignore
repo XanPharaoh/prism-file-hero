@@ -10,6 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# Desktop bundles inline whatever .env held at build time, so a committed dist-desktop is a second
+# copy of every VITE_* value — it is where the PostHog personal key was found.
+dist-desktop
 *.local
 *.keystore
 *.jks

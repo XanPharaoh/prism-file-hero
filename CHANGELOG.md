@@ -13,6 +13,29 @@ This release goes to production through `.github/workflows/deploy.yml` on push t
 this, `origin/main` was last updated 2026-06-29 and the live Worker had been deployed by hand, so
 the deploy that ships includes the Worker routes and the billing webhooks that production never had.
 
+### Security
+
+Two credentials were found in the commits being published, both by GitHub push protection, and both
+rejected the push rather than reaching the repository. Neither had ever been published: at `a608c0b`
+the only variable in `.env.production` was `VITE_WORKER_URL`, and the e2e spec carried the literal
+placeholder `gsk_...`.
+
+- `tests/e2e/passive-learning.spec.ts:18` held a real Groq API key where a placeholder used to be.
+  The spec now reads `process.env.GROQ_API_KEY` and declares an explicit skip with a reason when it is
+  absent, so the cloud-auth flow reports itself untested instead of quietly passing.
+- `.env.production:4` held a **PostHog personal API key** (`phx_`), which carries administrative API
+  access and is not the public project token (`phc_`). It is now `not-configured`. This changes no
+  behaviour: `src/services/analyticsService.ts:9` enables PostHog only for keys beginning `phc_`, so
+  production analytics has been disabled until someone supplies a public project key.
+- `complete source code with updates.md` — a 122,000-line concatenation of the source that also
+  contained a Groq key — and committed `dist-desktop/` bundles, which inlined the PostHog personal
+  key, were both already deleted at `HEAD`. They have been removed from the unpublished history so
+  no push carries them, and `dist-desktop/` is now gitignored because a committed bundle is a second
+  copy of every `VITE_*` value.
+- **Both credentials still require rotation by the owner.** They were never published, but each exists
+  in the local working tree and in the off-site backup that mirrors this volume, so treating them as
+  uncompromised would be a guess.
+
 ### Fixed — user-visible tool behaviour
 
 | Tool | What changed | Measured |
