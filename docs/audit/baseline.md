@@ -1704,3 +1704,60 @@ both directions: with `npx vitest run tests/pdfService.test.ts` in flight it exi
 competing PIDs; a `bash -c` wrapper whose command string merely mentions vitest does not trip it.
 E6 itself (unique per-process paths under `evidence/`) remains open — plain `npm test` can still race
 itself.
+
+## Pre-push verification battery for `675d9af` (2026-10-20)
+
+Run against `main` at `675d9af`, tracked modifications 0, before the push that fires
+`.github/workflows/deploy.yml`. The remote's `main` was last updated **2026-06-29** (`a608c0b`), so
+this push moves production by 153 commits and 917 files.
+
+| Gate | Command | Result |
+| :-- | :-- | :-- |
+| App typecheck | `npx tsc --noEmit` | exit 0 |
+| Worker typecheck | `npm run typecheck --prefix worker` | exit 0 |
+| Full test suite | `npm run check:counts` | **94 files, 943 passed, 0 failed, 6 skipped, 949 total**; re-run after the contention below, same numbers, 166 s of test time |
+| Schema release | `npm run check:schema-release` | 10 passed, 0 failed — including NEW Worker on OLD schema and OLD Worker on NEW schema both failing closed, and access-policy assertions re-run on a restored `pg_dump` |
+| Backend | `npm run check:backend` | 35 passed, 0 failed |
+| Privilege | `npm run check:privilege` | 29 passed, 0 failed |
+| Quota parity | `npm run check:quota` | 37 passed, 0 failed |
+| Auth isolation | `npm run check:auth-isolation` | 13 passed, 0 failed |
+| Worker routes | `npm run check:worker` | 20 passed, 0 failed (localtest :8788) |
+| Artifact | `npm run release:build` | exit 0 — `vite build` took **14 m 17 s** against the 49.45 s recorded in §1, while the mount was saturated |
+| Artifact boots | `npm run check:release` | 20 passed, 0 failed — pages runtime + real local Worker (:8787) + real Postgres; no stray `functions/`, no stand-in JWKS or localtest bindings in the artifact, no 4xx/5xx asset or script responses |
+
+### The suite could not be run for ~35 minutes, and it was not the code
+
+Between 11:40 and 12:15 the full suite reported `Test Files 0 passed (94)` / `Tests 0 passed (0)` and
+then `Error: [vitest-pool]: Failed to start forks worker for test files …: Timeout waiting for worker
+to respond`. Cause, measured: two recursive `grep -rn` processes belonging to **a different agent
+session on this machine** (`agy`, scanning the sibling project `Fiscal Fox v1.3`) were reading through
+the same `fuseblk` (ntfs-3g) mount the checkout lives on, at ~250 MB/s of `rchar` each. Cost per file
+during saturation: `tests/pdfValidator.test.ts` 71.73 s total with **50.53 s in jsdom environment
+creation**; `tests/types.test.ts` 50.89 s with 30.08 s environment and 14.56 s `tests/setup.ts`. The
+uncontended comparison is the same suite's own last good run: 114.8 s of test time for all 94 files,
+with single-file environment phases of 0.38–0.40 s.
+
+That is E6's silent-shrink failure mode arriving by a second route, and it is worth recording why the
+gate cannot simply be tuned around it: `START_TIMEOUT = 6e4` and `WORKER_START_TIMEOUT = 9e4` are
+hard-coded constants in `node_modules/vitest/dist/chunks/cli-api.B7PN_QUv.js` (lines 7380 and 7980 of
+vitest 4.0.18) with no config or environment override. So on saturated FUSE, *every* file fails to
+start and the run looks like a total code failure. Practical consequence: the suite is not reliable on
+this mount while anything else is walking that volume, and a green suite here is a statement about the
+machine as well as the tree. The suite was re-run after the greps exited and came back 943/0/6.
+
+### Pre-push secret scan of what is actually being published
+
+`git diff origin/main..HEAD` was scanned for credential material, JWTs and privileged tokens:
+
+- No JWT appears anywhere in the added lines (decoded-claim check), so no `service_role` or session
+  token is being published by this push.
+- `.localdev/` (dev tokens) and `worker/.dev.vars*` remain ignored by `.gitignore:49` and `:36`;
+  `git ls-tree` finds no tracked token file.
+- `.env.production` **is** tracked (since `678cc48`) and contains six variables, all `VITE_*`:
+  `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `WORKER_URL`, `POSTHOG_KEY`, `POSTHOG_HOST`,
+  `CLERK_PUBLISHABLE_KEY`. Every one of them is compiled into the public browser bundle, so the file
+  is publishable build configuration, not a secret. Stated because `.gitignore` claims `.env.*` and
+  AGENTS.md §6 treats that pattern as the secret guard — the exception is deliberate but is not
+  documented anywhere else, and a reader should not have to re-derive it.
+- 79 added lines mention `service_role`; all are prose in docs or code that reads the value from
+  `.dev.vars` / `.localdev/tokens.json` at run time. None carries a value.

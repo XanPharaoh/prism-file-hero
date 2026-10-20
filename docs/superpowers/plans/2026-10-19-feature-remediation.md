@@ -226,6 +226,24 @@ test environment.
 > Still open: unique per-run `evidence/` directories, so plain `npm test` cannot race itself. The gate
 > refuses to start while another vitest is running, which avoids the race but does not fix it.
 
+> **E6's other half reproduced for real, 2026-10-20.** While running the pre-push gate battery, the
+> full suite reported `Test Files 0 passed (94)` / `Tests 0 passed (0)` for over two minutes and then
+> `Error: [vitest-pool]: Failed to start forks worker for test files … Timeout waiting for worker to
+> respond` at 60 s — not one bad test, every file. Cause was external: the repository sits on a
+> `fuseblk` (ntfs-3g) mount at `/mnt/hdd`, and two recursive `grep -rn` jobs from **another agent
+> session on this machine** were reading a sibling project through the same mount at ~250 MB/s each
+> (`rchar`, not `read_bytes` — metadata and content requests through FUSE). Cost per file, measured on
+> two single-file invocations during the saturation: `tests/pdfValidator.test.ts` **71.73 s total,
+> 50.53 s of it jsdom environment creation**, and `tests/types.test.ts` **50.89 s total, 30.08 s
+> environment, 14.56 s `tests/setup.ts`**. For contrast, the last uncontended full run of the *whole*
+> suite summed to 114.8 s of test time across 94 files with single-file `environment` phases of
+> 0.38–0.40 s — so one file's environment setup alone had become about half the suite's working time.
+> The suite itself never got slower; worker startup exceeded vitest's fixed 60 s response window.
+> Consequence for this plan: the "a file silently does not run" failure in note 2 is not theoretical,
+> and on this filesystem it is triggered by anything that saturates FUSE — so the counts gate's
+> disk-coverage branch is load-bearing, and a green suite on a shared machine is a claim about the
+> machine as much as about the code.
+
 ## Sequencing
 
 A2/A3/A5/A6/A10 and B1 (silent loss or wrong output) first, then A1/A4/A7/A8/A9/B2-B5, then C1/C2/C4,
