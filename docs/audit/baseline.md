@@ -1824,3 +1824,34 @@ the unpushed range, and the credential literals are scrubbed from every historic
 
 Both credentials — Groq and PostHog — require rotation by the owner. The PostHog one in particular is
 present in `.env.local` on this machine (ignored, never pushed) and in the Nextcloud mirror.
+
+### Third rejection, and the method that ended the guessing (2026-10-20)
+
+After scrubbing `.env.production`, the source dump and `dist-desktop/`, the push was rejected a third
+time — `src/services/analyticsService.ts:8`. That version of the file did not exist at HEAD: an
+earlier commit had `const BLOCKED_KEYS = ['phx_…']`, i.e. the personal key itself pasted into a
+blocklist, later replaced by the `startsWith('phc_')` guard now in place. My per-path fixes were
+whack-a-mole, and each GitHub reply reveals only the locations it chose to print.
+
+The authoritative question is not "which files look suspicious" but "which paths in this range contain
+either pattern", answerable in one pass because `git grep` caches blob reads across revisions:
+
+    git grep -I -l -E 'phx_[A-Za-z0-9]{16,}|gsk_[A-Za-z0-9]{20,}' $(git rev-list a608c0b..HEAD)
+
+which returned exactly one path. Re-running the same command after the rewrite returns nothing, and
+`git grep -E … HEAD` was already clean, so the credential was only ever in history.
+
+Two verification habits worth keeping from this:
+
+- **Compare the HEAD tree hash before and after a history rewrite.** Before `bef693db…`, after
+  `bef693db…` — identical. That is what licenses saying "the gates that passed describe the tree being
+  published", rather than re-running everything and hoping.
+- **Derive the secret's identity from the blob, never from a guess.** `sha256sum` of empty input is
+  `e3b0c44298fc1c14…`; when a hash of a piped `sed -n '4p'` came back as that value, the real reading
+  was "the file exists but has no line 4 there" — the published `a608c0b` copy of `.env.production`
+  held only `VITE_WORKER_URL`, so neither credential had ever been public.
+
+Push outcome: `a608c0b..87a0e79 main -> main` accepted on the fourth attempt; 157 commits published,
+and `Deploy Production (Worker + Pages)` run `39428069550` picked up `87a0e79`. The previous deploy
+attempt in this repository's history (2026-06-29, run `28357175269`) ended in **failure**, so the
+deploy is treated as unproven until that run reports its result and production is probed.
