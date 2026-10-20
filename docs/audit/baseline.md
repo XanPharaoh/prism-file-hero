@@ -1664,3 +1664,43 @@ providers). The number came from misreading the combined run of two test files �
 `aiProviderTimeout.test.ts` + `omnirouteProviderChain.test.ts` (7 + 9) — and attributing it to one
 file. Recorded rather than left: the suite is green either way, and an inflated test count is exactly
 the class of claim this repository's golden rule exists to catch.
+
+### Per-file counts gate (`npm run check:counts`) — first full run, 2026-10-20
+
+`scripts/test-count-check.mjs` prints one row per test file (pass / fail / skip / total / ms) and exits
+1 when a file on disk reported nothing, when a file reported zero tests, or when any test failed. It
+exists because two claims of mine were wrong in ways a summary line cannot show (see the `69988c3`
+correction above) and because a run once exited 1 while printing `Test Files 9 passed`.
+
+First full run: **94 files, 943 passed, 6 skipped, 949 total — after 2 real failures**, both introduced
+by my own changes in this remediation pass and both invisible in any aggregate:
+
+1. **Compress stopped reporting progress for documents without embedded JPEGs.** `compressPdf`'s new
+   default `images` mode delegates to `recompressEmbeddedImages`, which counts steps as *embedded
+   images*; a text-only statement has none, so the loop body never ran, and `images` mode returns early
+   — before the `onProgress(100)` that the old rasterize path always reached. Caught by
+   `tests/localToolHandlers.stress.test.ts` asserting `progress).toContain(100)`. User-visible effect:
+   the progress bar for the most common compress input never completes. Fixed in `services/pdfService.ts`
+   by giving `images` mode its own completion report on every return path.
+2. **A refusal moved earlier, and an existing test asserted the later one.** `pdf-to-jpg` now calls
+   `getPageCount` before rendering (the A-family fix for a 60-page document quietly returning 50
+   images), so a structurally invalid PDF is refused with `Invalid PDF structure.` and never reaches the
+   rasterizer the test mocked to fail. The test was still named "propagates local rasterizer failure"
+   while no longer exercising it. Split: the rasterizer assertion now runs against a *valid* PDF the mock
+   keys by name, and the malformed input gets its own test asserting the earlier refusal.
+
+The same run exposed a third defect that only appears under a full pool, and it was destructive rather
+than noisy: `tests/generateUserOutputs.test.ts:61`
+deletes `/home/philander/Downloads/Prism_Feature_Outputs` recursively at test start, while
+`tests/fullFeatureValidation.test.ts:48` writes `VALIDATION_REPORT/` inside that same directory. With
+`maxWorkers: 8` the two run concurrently, so one suite deletes the other's workspace mid-flight; the
+symptom was `generateUserOutputs.test.ts` "failing" in 3 ms while passing in 1.9 s alone. Fixed by
+giving the deleting suite a leaf of its own (`.../Prism_Feature_Outputs/FEATURE_OUTPUTS`), which is also
+what its name claims it produces.
+
+Guard added, not a fix: `check:counts` now refuses to start while another vitest process is running —
+the E6 cross-process clobber — so the gate cannot produce a red that is really a collision. Verified in
+both directions: with `npx vitest run tests/pdfService.test.ts` in flight it exits 1 and names the three
+competing PIDs; a `bash -c` wrapper whose command string merely mentions vitest does not trip it.
+E6 itself (unique per-process paths under `evidence/`) remains open — plain `npm test` can still race
+itself.

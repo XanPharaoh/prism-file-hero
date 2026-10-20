@@ -214,6 +214,18 @@ detector: **181 passed = everything ran; 177 = a file vanished.**
 Related: E2, and the self-inflicted lesson that a background job from the same session is part of the
 test environment.
 
+> **Status 2026-10-20, part done.** The counting detector exists: `npm run check:counts`
+> (`scripts/test-count-check.mjs`) prints one row per file and exits 1 when a file on disk reported
+> nothing, reported zero tests, or reported a failure. Scope of the "181/177" figures above was wrong —
+> they were `tests/features/` only. The whole suite is **94 files / 949 tests** (943 passed, 6 skipped),
+> and that is the figure to compare against from now on. The first full run found three things, and
+> they are of different kinds: one user-visible product defect (compress progress never completed for a
+> PDF with no embedded JPEGs), one stale test contract (a refusal that now happens before the component
+> the test claimed to exercise), and one harness defect where a suite deleted another suite's output
+> directory mid-run. All three are recorded with measurements in `docs/audit/baseline.md`.
+> Still open: unique per-run `evidence/` directories, so plain `npm test` cannot race itself. The gate
+> refuses to start while another vitest is running, which avoids the race but does not fix it.
+
 ## Sequencing
 
 A2/A3/A5/A6/A10 and B1 (silent loss or wrong output) first, then A1/A4/A7/A8/A9/B2-B5, then C1/C2/C4,
@@ -271,7 +283,8 @@ so this section is the record a reader of the repository can verify.
 | upload stale-closure | `58f8d0d` | Playwright journey loads 2 files through `ToolDashboard`; `multiple` + input reset proven |
 | D5 (part) — free-model gateway | `e3a1dbf` | `tests/omnirouteProviderChain.test.ts` 9/9 and `docs/omniroute-e2e-probe.txt`: a real `wrangler dev` instance holding **no paid keys** answered `/api/ai` for `ocr` (2.9 s) and `pdf-summary` (8.5 s) from `north-mini-code:free`, meter settled with no PENDING, and an unlisted tool correctly reached no provider |
 
-Carried forward, unverified and therefore not claimed: A9, B3–B5, C1/C3/C4/C5, D1, D2, D4, D5 (part), D6, E1–E6.
+| E6 (part) — per-file counts gate | this commit | `npm run check:counts` (`scripts/test-count-check.mjs`): one row per test file with pass/fail/skip/total/ms, plus three exits-1 conditions — a file on disk that reported nothing, a file that reported zero tests, any failed test (named by full title). First full run **94 files / 949 tests**, and it found a defect the A10 gate had missed: `compressPdf`'s new `images` mode reported no progress at all for a PDF with no embedded JPEGs, because progress was counted per image and the early return skipped the trailing 100 — caught by `localToolHandlers.stress.test.ts` asserting `progress).toContain(100)`. Also split a `pdf-to-jpg` test that no longer exercised the rasterizer it named, and stopped `generateUserOutputs.test.ts` from `rm -rf`-ing the directory `fullFeatureValidation.test.ts` writes into. Watched both detectors fire on purpose (a file importing a nonexistent module; an assertion that does not hold). Full suite after fixes: 943 passed, 0 failed, 6 skipped, tsc clean. Disk-coverage branch not reproduced on demand — stated in the script header rather than claimed here |
+Carried forward, unverified and therefore not claimed: A9, B3–B5, C1/C3/C4/C5, D1, D2, D4, D5 (part), D6, E1–E5, and E6's remaining half (unique per-run `evidence/` directories — its counting detector shipped, see the row above).
 
 One more thing B2 changed about how this plan should be read: several defects were logged as
 *harness* artifacts when they were really the product ordering its own calls wrongly. The
