@@ -10,7 +10,7 @@
  * hung provider becomes a retryable status rather than an exception.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { aiProviderTimeoutMs, callAiProvider, getProviderChain, shouldTryNextProvider } from '../worker/src/index';
+import { aiProviderTimeoutMs, callAiProvider, callAiProviderResult, getProviderChain, shouldTryNextProvider } from '../worker/src/index';
 
 const ENV = { NVIDIA_API_KEY: 'nv', GROQ_API_KEY_1: 'g1' } as any;
 const MESSAGES = [{ role: 'user', content: 'hi' }] as never;
@@ -91,4 +91,59 @@ describe('callAiProvider against a hung provider', () => {
     expect(res.status).toBe(504);
     expect(Date.now() - started).toBeLessThan(4_000);
   }, 20_000);
+});
+
+describe('callAiProviderResult — the body read is inside the guard', () => {
+  const realFetch = globalThis.fetch;
+  beforeEach(() => { globalThis.fetch = vi.fn(); });
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  const hangAfterHeaders = (ms: number) => ({
+    ok: true, status: 200, headers: new Headers(),
+    text: () => new Promise<string>((_resolve, reject) => {
+      setTimeout(() => {
+        const err = new Error('aborted while reading body');
+        err.name = 'TimeoutError';
+        reject(err);
+      }, ms);
+    }),
+  });
+
+  it('a body that stalls after headers becomes 504 instead of rejecting the loop', async () => {
+    (globalThis.fetch as any).mockResolvedValue(hangAfterHeaders(120));
+    const res = await callAiProviderResult(provider({ timeoutMs: 5_000 }), 'ocr', MESSAGES);
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(504);
+    // Asserted as a return, not a throw: the point is that the caller's loop keeps going.
+  });
+
+  it('passes a good response through with its body intact', async () => {
+    const payload = JSON.stringify({ choices: [{ message: { content: 'ok' } }] });
+    (globalThis.fetch as any).mockResolvedValue(new Response(payload, { status: 200 }));
+    const res = await callAiProviderResult(provider(), 'ocr', MESSAGES);
+    expect(res).toEqual({ status: 200, ok: true, body: payload });
+    expect(() => JSON.parse(res.body)).not.toThrow();
+  });
+
+  it('keeps the error body for a failed status, so the log line is not empty', async () => {
+    (globalThis.fetch as any).mockResolvedValue(new Response('upstream exploded', { status: 503 }));
+    const res = await callAiProviderResult(provider(), 'ocr', MESSAGES);
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(503);
+    expect(res.body).toBe('upstream exploded');
+  });
+
+  it('regression witness: reading that same Response outside the guard still rejects', async () => {
+    (globalThis.fetch as any).mockResolvedValue(hangAfterHeaders(60));
+    const response = await callAiProvider(provider({ timeoutMs: 5_000 }), 'ocr', MESSAGES);
+    // This is the hole the helper closes. Before it, exactly this rejection escaped the provider loop
+    // and turned one slow provider into a 502 with no fallback attempted.
+    await expect(response.text()).rejects.toThrow(/aborted while reading body/);
+  });
+
+  it('a stalled body is still retryable, which is what the caller branches on', async () => {
+    (globalThis.fetch as any).mockResolvedValue(hangAfterHeaders(60));
+    const res = await callAiProviderResult(provider({ timeoutMs: 5_000 }), 'ocr', MESSAGES);
+    expect(shouldTryNextProvider(res.status)).toBe(true);
+  });
 });

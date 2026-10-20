@@ -293,12 +293,12 @@ async function proxyInternalAiRequest(env: Env, toolId: string, messages: Nvidia
     if (!providers.length) throw new Error('No provider configured');
     let failure = { error: 'AI processing failed. Please try again later.', status: 502 };
     for (const provider of providers) {
-      const response = await callAiProvider(provider, toolId, messages);
-      if (response.ok) {
-        return new Response(await response.text(), { status: 200, headers: { ...(cors as Record<string, string>), 'Content-Type': 'application/json' } });
+      const result = await callAiProviderResult(provider, toolId, messages);
+      if (result.ok) {
+        return new Response(result.body, { status: 200, headers: { ...(cors as Record<string, string>), 'Content-Type': 'application/json' } });
       }
-      failure = mapProviderError(response.status);
-      if (!shouldTryNextProvider(response.status)) break;
+      failure = mapProviderError(result.status);
+      if (!shouldTryNextProvider(result.status)) break;
     }
     return Response.json({ error: failure.error }, { status: failure.status, headers: cors });
   } catch (error) {
@@ -561,6 +561,33 @@ export async function callAiProvider(provider: ProviderConfig, toolId: string, m
  * cut off and a stalled one is. Clamped because a typo in a dashboard variable should not be able to
  * disable the timeout entirely or stretch it past a Worker's own request ceiling.
  */
+
+/**
+ * Call a provider and consume its body inside the same guarded call.
+ *
+ * Returning a Response from one function and reading it later in the caller's loop reintroduces the
+ * exact failure the per-provider timeout exists to prevent: if headers arrive promptly and the body
+ * then stalls, the signal fires while `response.text()` is awaited *outside* the try/catch, so the
+ * loop dies instead of falling through to the next provider. Reading the body here means every
+ * post-call failure - abort, reset, mid-stream error - becomes a status the loop already treats as
+ * retryable.
+ */
+export async function callAiProviderResult(
+  provider: ProviderConfig,
+  toolId: string,
+  messages: NvidiaMessage[],
+): Promise<{ status: number; ok: boolean; body: string }> {
+  const response = await callAiProvider(provider, toolId, messages);
+  try {
+    const body = await response.text();
+    return { status: response.status, ok: response.ok, body };
+  } catch (error) {
+    console.error(
+      `[AI] ${provider.name} response body failed after headers: ${(error as Error)?.name ?? ''} ${(error as Error)?.message ?? ''}`,
+    );
+    return { status: 504, ok: false, body: '' };
+  }
+}
 export function aiProviderTimeoutMs(raw?: string): number {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) return 30_000;
@@ -1000,15 +1027,22 @@ export default {
           let finalError: { error: string; status: number } = { error: 'AI processing failed. Please try again later.', status: 502 };
 
           for (const provider of providers) {
-            const providerRes = await callAiProvider(provider, toolId, messages);
-            if (providerRes.ok) {
-              providerData = await providerRes.json();
-              break;
+            const result = await callAiProviderResult(provider, toolId, messages);
+            if (result.ok) {
+              try {
+                providerData = JSON.parse(result.body);
+                break;
+              } catch (parseError) {
+                // A 200 whose body is not the JSON we were promised is one provider having failed, not
+                // the whole request having failed, so it gets treated like any other retryable status.
+                console.error(`[AI PROVIDER FAIL] ${provider.name.toUpperCase()} returned an unparseable 200:`, String((parseError as Error)?.message).slice(0, 300));
+                finalError = mapProviderError(502);
+                continue;
+              }
             }
-            const errText = await providerRes.text();
-            console.error(`[AI PROVIDER FAIL] ${provider.name.toUpperCase()} returned ${providerRes.status}:`, errText.substring(0, 500));
-            finalError = mapProviderError(providerRes.status);
-            if (!shouldTryNextProvider(providerRes.status)) break;
+            console.error(`[AI PROVIDER FAIL] ${provider.name.toUpperCase()} returned ${result.status}:`, result.body.substring(0, 500));
+            finalError = mapProviderError(result.status);
+            if (!shouldTryNextProvider(result.status)) break;
           }
 
           if (!providerData) {
