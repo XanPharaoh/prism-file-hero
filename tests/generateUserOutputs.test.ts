@@ -34,7 +34,10 @@ import { processDocumentExcel } from '../services/documentService';
 import { getExcelBlob } from '../services/excelService';
 
 const FIXTURES_DIR = path.resolve(__dirname, 'fixtures/statements');
-const OUTPUT_BASE = '/home/philander/Downloads/Prism_Feature_Outputs';
+// This suite deletes its output folder before writing, so it owns a leaf of its own: fullFeatureValidation
+// writes VALIDATION_REPORT/ under the same parent, and deleting the parent pulled the ground out from
+// under that suite when both ran in the same pool.
+const OUTPUT_BASE = '/home/philander/Downloads/Prism_Feature_Outputs/FEATURE_OUTPUTS';
 
 function loadFixtureAsFile(filename: string): File {
   const filePath = path.join(FIXTURES_DIR, filename);

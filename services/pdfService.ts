@@ -444,16 +444,22 @@ export async function compressPdf(
   const originalSize = originalBytes.byteLength;
 
   if (mode === 'images') {
+    // images mode returns early, so it must own its completion report: recompressEmbeddedImages
+    // counts steps as embedded JPEGs, and a text-only document has none, leaving the bar at zero.
+    const finish = (bytes: Uint8Array) => {
+      onProgress?.(100);
+      return new Blob([bytes as BlobPart], { type: 'application/pdf' });
+    };
     try {
       const shrunk = await recompressEmbeddedImages(originalBytes, quality, onProgress);
       if (shrunk && shrunk.length < originalSize) {
-        return new Blob([shrunk as BlobPart], { type: 'application/pdf' });
+        return finish(shrunk);
       }
-      return new Blob([originalBytes.slice(0) as BlobPart], { type: 'application/pdf' });
+      return finish(originalBytes.slice(0));
     } catch (error) {
       if (error instanceof EncryptedDocumentError) throw error;
       console.error('Error during image compression:', error);
-      return new Blob([originalBytes.slice(0) as BlobPart], { type: 'application/pdf' });
+      return finish(originalBytes.slice(0));
     }
   }
 

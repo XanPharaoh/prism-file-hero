@@ -147,7 +147,15 @@ describe('local advertised tool handlers: deterministic in-memory stress suite',
       const bytes = new Uint8Array(await archive.file(name)!.async('arraybuffer'));
       expect([bytes[0], bytes[1], bytes.at(-2), bytes.at(-1)]).toEqual([0xff, 0xd8, 0xff, 0xd9]);
     }
-    await expect(handler('pdf-to-jpg')(payload([new File(['broken'], 'corrupt.pdf', { type: 'application/pdf' })]))).rejects.toThrow('malformed fixture');
+    // Structurally valid, so it clears the page-count preflight and genuinely reaches the
+    // rasterizer; the mocked service is what fails here. A broken file would be refused earlier.
+    const rasterizerFails = await pdfFixture('corrupt.pdf', [[200, 100]]);
+    await expect(handler('pdf-to-jpg')(payload([rasterizerFails]))).rejects.toThrow('malformed fixture');
+  });
+
+  it('refuses an unreadable PDF before any page count, instead of emitting an empty archive', async () => {
+    const malformed = new File(['broken'], 'corrupt.pdf', { type: 'application/pdf' });
+    await expect(handler('pdf-to-jpg')(payload([malformed]))).rejects.toThrow(/Invalid PDF structure/);
   });
 
   it('rejects malformed PDFs and unsupported images instead of emitting misleading output', async () => {
