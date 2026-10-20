@@ -1793,3 +1793,34 @@ fix, and it belongs to the owner, not to this repository. Removing it from the u
 around a credential that is already burned locally and off-site. A scan for secrets should search by
 *shape-agnostic* means (entropy, provider prefixes, and the diff itself) or use a real secret scanner;
 "no JWTs found" must never be written as "no secrets found", which is what the section above implied.
+
+### Second correction the same day — my PostHog classification was wrong (2026-10-20)
+
+After the Groq finding I wrote that `.env.production` "contains only six `VITE_*` values… every one of
+them is compiled into the public browser bundle, so the file is publishable build configuration, not a
+secret". Push protection rejected the push over line 4 and that sentence was false.
+
+- `VITE_POSTHOG_KEY` is a **PostHog personal API key** (`phx_` prefix, 52 characters). Personal keys
+  carry administrative API access; they are not the public project token (`phc_`). Being a `VITE_*`
+  variable only means it *would* be inlined into the client bundle if the code used it — it says
+  nothing about whether the value is secret. That was the actual error: I reasoned from the variable's
+  name and prefix to its sensitivity, instead of from what the credential grants.
+- The repository's own code already knew better. `src/services/analyticsService.ts:9` enables PostHog
+  only when the key starts with `phc_`, and logs a security warning naming `phx_` keys as
+  administrative. So production analytics has been **disabled** the whole time — the committed key was
+  never used by the client, which is exactly why nothing looked broken.
+- Confirmed public by shape, and still checked: `VITE_SUPABASE_ANON_KEY` is `sb_publishable_…`, and
+  `VITE_CLERK_PUBLISHABLE_KEY` is `pk_live…`. Both are publishable by design.
+- Two other carriers existed only in history: `complete source code with updates.md` (23 commits, a
+  122k-line concatenation of the source that also contains a Groq key) and committed `dist-desktop/`
+  bundles (2 commits) which inline the PostHog personal key. Both are absent at HEAD.
+
+Action taken: `VITE_POSTHOG_KEY` is now `not-configured`, which keeps analytics disabled exactly as it
+behaves today and keeps `check:release`'s staging-leak guard at its required four production markers
+(reducing the marker count by deleting the variable would have silently weakened a check that exists
+because a staging build once shipped live bindings). The dump file and `dist-desktop/` are removed from
+the unpushed range, and the credential literals are scrubbed from every historical copy of
+`.env.production`.
+
+Both credentials — Groq and PostHog — require rotation by the owner. The PostHog one in particular is
+present in `.env.local` on this machine (ignored, never pushed) and in the Nextcloud mirror.
