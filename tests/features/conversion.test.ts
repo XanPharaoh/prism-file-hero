@@ -293,7 +293,14 @@ function allFontsEmbedded(pdfPath: string) {
   // whether they list them at all. Counting them as defects made this assertion a test of the
   // runner's poppler build: the JPEG-only fixture reported 1 unembedded font on CI and 0 locally.
   const BASE14 = /^(Helvetica|Times|Courier|Symbol|ZapfDingbats)/i;
-  const unembedded = rows.filter((l) => !BASE14.test(l.trim()) && /no\s+/.test(l.slice(-14))).length;
+  // A six-letter subset prefix ("NLGOEW+Times-Roman") exists precisely because the font program is
+  // embedded and subset. CI's poppler reports emb=no for such a Type 1C font while the local build
+  // reports yes, so the name is the reliable signal, not that column.
+  const SUBSET = /^[A-Z]{6}\+/;
+  const unembedded = rows.filter((l) => {
+    const name = l.trim();
+    return !BASE14.test(name) && !SUBSET.test(name) && /no\s+/.test(l.slice(-14));
+  }).length;
   return { txt, unembedded, rowCount: rows.length };
 }
 
