@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   rasterScale,
-  topBoxToPdfRect,
+  visibleBoxToRasterRect,
+  paintVisibleBlackout,
   pdfRectToRaster,
   paintOpaqueBlackout,
   type PdfJsViewportLike,
@@ -37,10 +38,45 @@ describe('rasterScale', () => {
   });
 });
 
-describe('topBoxToPdfRect', () => {
-  it('converts a top-origin preview box to bottom-origin PDF y for a 792pt page', () => {
-    // box at y=100 (from top), height 50 → pdf top edge = 792-100=692, bottom=792-150=642
-    expect(topBoxToPdfRect({ x: 10, y: 100, width: 200, height: 50 }, 792)).toEqual([10, 642, 210, 692]);
+describe('visibleBoxToRasterRect', () => {
+  it('maps a visible top-origin box by the render scale alone', () => {
+    expect(visibleBoxToRasterRect({ x: 100, y: 40, width: 200, height: 30 }, 2))
+      .toEqual({ x: 200, y: 80, width: 400, height: 60 });
+  });
+
+  it('keeps the caller box in visible space on a /Rotate 90 page', () => {
+    // A page whose MediaBox is 400x700 but which carries /Rotate 90 is DRAWN as 700x400.
+    // The caller measured the box on what it saw, so scaling is the only conversion.
+    const box = { x: 300, y: 50, width: 60, height: 20 };
+    expect(visibleBoxToRasterRect(box, 2)).toEqual({ x: 600, y: 100, width: 120, height: 40 });
+  });
+
+  it('proves the old round trip through user space landed the blackout elsewhere', () => {
+    // This is the defect C1 described: converting a visible box "back" into PDF user space and
+    // then through the viewport applies /Rotate a second time.
+    const vp = viewport(2, 400, 700, 90);
+    const box = { x: 300, y: 50, width: 60, height: 20 };
+    const direct = visibleBoxToRasterRect(box, 2);
+    const asUserSpace: [number, number, number, number] = [
+      box.x, 400 - box.y - box.height, box.x + box.width, 400 - box.y,
+    ];
+    const roundTrip = pdfRectToRaster(vp, asUserSpace);
+    expect(roundTrip).not.toEqual(direct);
+    // Measured against the fake /Rotate 90 viewport: the caller meant 600,100 and the old path
+    // painted at 700,600 — a 400pt vertical displacement, which is the off-content blackout C1 measured.
+    expect(direct).toEqual({ x: 600, y: 100, width: 120, height: 40 });
+    expect(roundTrip.x).toBe(700);
+    expect(roundTrip.y).toBe(600);
+  });
+});
+
+describe('paintVisibleBlackout', () => {
+  it('fills at the render scale with a bleed on every side', () => {
+    const calls: number[][] = [];
+    const ctx = { fillStyle: '', fillRect: (...a: number[]) => calls.push(a) };
+    paintVisibleBlackout(ctx, { x: 100, y: 40, width: 200, height: 30 }, 2);
+    expect(ctx.fillStyle).toBe('#000000');
+    expect(calls[0]).toEqual([199, 79, 402, 62]);
   });
 });
 

@@ -742,7 +742,12 @@ describe('pdfService', () => {
       ]);
       expect(resultBlob).toBeInstanceOf(Blob);
       expect(resultBlob.type).toBe('application/pdf');
-      expect(convertToViewportRectangle).toHaveBeenCalled();
+      // A caller-supplied box is already in visible space, so it must NOT be routed through
+      // convertToViewportRectangle: that applies the page /Rotate a second time and was measured
+      // putting the blackout 400pt away on a /Rotate 90 page (C1). The visible box maps by the
+      // render scale alone — tests/redactGeometry.test.ts pins the arithmetic, and
+      // tests/features/security.test.ts "4d-ii" measures coverage=1.000 on a real rotated page.
+      expect(convertToViewportRectangle).not.toHaveBeenCalled();
 
       const resDoc = await PDFDocument.load(await resultBlob.arrayBuffer());
       expect(resDoc.getPageCount()).toBe(2);

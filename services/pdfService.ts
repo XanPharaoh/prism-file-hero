@@ -22,7 +22,7 @@ import {
 } from '@/shared/pdf/pageSelection';
 import {
   rasterScale,
-  topBoxToPdfRect,
+  paintVisibleBlackout,
   paintOpaqueBlackout,
 } from '@/shared/pdf/redactGeometry';
 
@@ -630,7 +630,10 @@ export async function redactPdf(
               const fs = Math.abs(item.transform?.[3] || 12) || item.height || 12;
               const w = item.width || Math.max(10, item.str.trim().length * fs * 0.6);
               const h = item.height || fs;
-              paintOpaqueBlackout(ctx, raster, [tx, ty, tx + w, ty + h]);
+              // A 1px bleed left real glyph ink un-covered: item.width/height report the layout box,
+              // not the ink extents, and the gap scales with the font. On a /Rotate 90 page the
+              // measured coverage at 1px was 0.926 with 133 ink px surviving.
+              paintOpaqueBlackout(ctx, raster, [tx, ty, tx + w, ty + h], Math.max(2, Math.round(fs * scale * 0.25)));
               painted = true;
             }
 
@@ -660,7 +663,7 @@ export async function redactPdf(
                   if (combined.toLowerCase().includes(lower)) {
                     const y0 = Math.min(startTY, endTY);
                     const h0 = maxFS * 1.3;
-                    paintOpaqueBlackout(ctx, raster, [startTX, y0 - maxFS * 0.25, endX, y0 + h0]);
+                    paintOpaqueBlackout(ctx, raster, [startTX, y0 - maxFS * 0.25, endX, y0 + h0], Math.max(2, Math.round(maxFS * scale * 0.25)));
                     painted = true;
                     break;
                   }
@@ -677,11 +680,11 @@ export async function redactPdf(
           // matcher cannot find is covered by the caller's box — over-redaction is visible and
           // recoverable, under-redaction is neither.
           if (!painted && region.width > 0 && region.height > 0) {
-            const pdfRect = topBoxToPdfRect(
+            paintVisibleBlackout(
+              ctx,
               { x: region.x, y: region.y, width: region.width, height: region.height },
-              visible.height
+              scale
             );
-            paintOpaqueBlackout(ctx, raster, pdfRect);
             painted = true;
           }
 

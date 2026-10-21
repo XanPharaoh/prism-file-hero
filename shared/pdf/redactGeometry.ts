@@ -33,21 +33,38 @@ export function rasterScale(
 }
 
 /**
- * Convert a TOP-origin box (x,y = distance from the top-left of the visible page,
- * as a preview overlay or AI box uses) into the same PDF-space rectangle the text
- * items use, for a page of height `pageHeight`. PDF is bottom-origin, so:
- *   pdfY0 = pageHeight - y - height   (bottom edge)
- *   pdfY1 = pageHeight - y            (top edge)
+ * Map a caller-supplied box — already measured in TOP-origin points on the *visible*
+ * page — straight onto raster pixels.
+ *
+ * This is deliberately NOT the inverse of `pdfRectToRaster`. A visible box has already
+ * been through the page's `/Rotate`: the user measured what the viewport draws. Converting
+ * it back into PDF user space and then through `convertToViewportRectangle` applies the
+ * rotation a second time, so on a `/Rotate 90` page the blackout lands somewhere else and
+ * the redaction silently fails to cover the content it was pointed at. Multiplying by the
+ * render scale is rotation-agnostic because the visible page *is* what was rendered.
  */
-export function topBoxToPdfRect(
+export function visibleBoxToRasterRect(
   box: { x: number; y: number; width: number; height: number },
-  pageHeight: number
-): [number, number, number, number] {
-  const x0 = box.x;
-  const x1 = box.x + box.width;
-  const yBottom = pageHeight - box.y - box.height;
-  const yTop = pageHeight - box.y;
-  return [x0, yBottom, x1, yTop];
+  scale: number
+): { x: number; y: number; width: number; height: number } {
+  return {
+    x: box.x * scale,
+    y: box.y * scale,
+    width: box.width * scale,
+    height: box.height * scale,
+  };
+}
+
+/** Paint an opaque black rectangle over a caller's visible box at the render scale. */
+export function paintVisibleBlackout(
+  ctx: { fillStyle: unknown; fillRect: (x: number, y: number, w: number, h: number) => void },
+  box: { x: number; y: number; width: number; height: number },
+  scale: number,
+  bleed = 1
+): void {
+  const r = visibleBoxToRasterRect(box, scale);
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(r.x - bleed, r.y - bleed, r.width + bleed * 2, r.height + bleed * 2);
 }
 
 /**

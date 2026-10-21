@@ -628,11 +628,16 @@ describe('4. redact — "Smart detection and permanent removal of sensitive PII 
     expect(m.ink.anyVisibleInk).toBe(false);
   }, 300000);
 
-  // KNOWN UNFIXED DEFECT, pinned with `it.fails` so the suite stays honest and green: redaction
-  // geometry ignores page /Rotate. topBoxToPdfRect (services/pdfService.ts) and
-  // shared/pdf/redactGeometry.ts map the caller's visible rectangle without un-rotating it, so on a
-  // /Rotate 90 page the blackout lands off the content. Remove `.fails` when rotation is handled.
-  it.fails('4d-ii: page whose /Rotate is 90 — text-match path and caller-box path', async () => {
+  // C1, fixed. Two separate defects were measured on this /Rotate 90 fixture and both are gone:
+  //  (1) the caller-box path round-tripped a *visible* box through PDF user space and then the
+  //      viewport, applying /Rotate twice — coverage 0.000, 1,790 ink px surviving;
+  //  (2) the text-match path painted the layout box with a 1px bleed, which left 133 ink px of glyph
+  //      ink uncovered (coverage 0.926) because item.width/height are layout extents, not ink.
+  // Now: box path maps by render scale alone (shared/pdf/redactGeometry.ts), text path bleeds
+  // proportionally to font size, and both measure coverage=1.000 / visible_ink_left=0 while the
+  // non-target token keeps all 1,082 of its pixels. Unit-level proof of the mapping is in
+  // tests/redactGeometry.test.ts.
+  it('4d-ii: page whose /Rotate is 90 — text-match path and caller-box path', async () => {
     const m: any = {};
     try {
       const rb = await rotatedPdf();
