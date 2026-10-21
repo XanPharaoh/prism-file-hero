@@ -148,18 +148,21 @@ jobs:
             sleep 2
           done
           curl -sf http://127.0.0.1:8787/api/health >/dev/null || { tail -40 /tmp/wrangler.log; exit 1; }
-          # Only the headless shell: the full chromium asset redirects to
-          # playwright.download.prss.microsoft.com, which failed DNS on this runner twice in a row.
-          # check:release runs headless, so the shell is all it needs.
-          #
-          # Invoke the repo's own playwright binary, NOT `npx playwright`: package.json pins
-          # playwright@1.62.1 and @playwright/test@1.58.2 side by side, and npx resolved the older one —
-          # it downloaded browser build 1208 while release-artifact-check.mjs (1.62.1) launches 1234,
-          # which is the "Executable doesn't exist" failure this replaces.
-          ./node_modules/.bin/playwright install --with-deps chromium-headless-shell
+          # The gate launches headless, so it needs a browser — but not a downloaded one. Playwright's
+          # primary CDN fetch failed on this runner and its documented fallback host
+          # (playwright.download.prss.microsoft.com) does not resolve anywhere, which killed three
+          # consecutive runs with ENOTFOUND. GitHub's Ubuntu runners ship Google Chrome, so the gate
+          # drives that and downloads nothing.
+          # Trade-off, stated plainly: the gate then runs on the runner's Chrome build rather than the
+          # revision playwright 1.62.1 pins. The assertions are coarse (asset HTTP status, SPA routes,
+          # no 4xx/5xx during a real page load); check:release prints the exact browser it drove.
+          if ! command -v google-chrome >/dev/null 2>&1 && ! command -v google-chrome-stable >/dev/null 2>&1; then
+            echo "::error::No system Google Chrome on this runner; refusing to skip the artifact boot gate."
+            exit 1
+          fi
           npm run check:release
         env:
-          PRISM_CHROMIUM_CHANNEL: chromium-headless-shell
+          PRISM_CHROMIUM_CHANNEL: chrome
 
       - uses: actions/upload-artifact@v4
         with:

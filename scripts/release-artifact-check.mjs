@@ -51,6 +51,7 @@ process.on('SIGINT', () => { stop(); process.exit(130); });
 // only thing installed, because the full Chrome-for-Testing asset redirects to a host the GitHub
 // runners could not resolve (playwright.download.prss.microsoft.com ENOTFOUND, twice).
 const browser = await chromium.launch(process.env.PRISM_CHROMIUM_CHANNEL ? { channel: process.env.PRISM_CHROMIUM_CHANNEL } : {});
+console.log(`browser: ${browser.version()} (channel: ${process.env.PRISM_CHROMIUM_CHANNEL ?? 'playwright-managed chromium'})\n`);
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
 const page = await ctx.newPage();
 const netFail = [];
