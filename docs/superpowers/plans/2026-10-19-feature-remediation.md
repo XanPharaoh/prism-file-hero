@@ -121,6 +121,13 @@ uniform boxes; image pixels unchanged; text-layer loss disclosed in the result n
 convert through the rotated viewport and back. Remove the `it.fails` marker in
 `tests/features/security.test.ts` as the completion gate.
 
+> **DONE 2026-10-21 (`28f3183`).** The marker is removed and the test passes. Two defects, not one:
+> the visible-box double rotation (fixed by mapping a visible box by render scale alone —
+> `topBoxToPdfRect` deleted, not left beside its replacement) and a 1px bleed on the text-match path,
+> which measured coverage 0.926 / 133 glyph px surviving because `item.width/height` are layout
+> extents. Now both paths measure coverage=1.000, visible_ink_left=0px, and the non-target token keeps
+> 1082/1082 px. The old routing assertion in `tests/pdfService.test.ts` was inverted to pin the fix.
+
 **C2 `protect` is weaker than advertised.** RC4-128, every permission bit open (`/P -20`), user
 password == owner password, and AES-256 input silently downgraded. Fix: AES-256 where available,
 sane default permissions (no modify/assemble, copy controlled by option), distinct user/owner, refuse
@@ -139,6 +146,18 @@ Amount from a wrong Balance and marks it reconciled; `site/financial.html:44` pr
 export a ledger that doesn't reconcile". Fix all three: real status escalation, no amount
 re-derivation from an unproven balance, and export refusal (with an explicit, separate "export draft
 anyway" user action). Test: the +R9,999 tamper now yields no workbook.
+
+> **C4 premise correction, measured 2026-10-21.** The item above treats the dead ternary as the bug.
+> It is not the main bug: `grep -rn "ledgerGuard" src services` returns only the definition — the
+> guard is **never called by anything**. So the export path (four call sites:
+> `src/components/views/ProcessingView.tsx:70,994`, `src/registry/toolRegistry.ts:279,1054`, all of
+> which call `getExcelBlob` directly) has never consulted ledger health at all, in any state. Fixing
+> the ternary alone would change nothing a user can observe. The work is therefore: escalate correctly,
+> stop re-deriving Amount from an unproven Balance, and put a real gate in front of the four
+> `getExcelBlob` finance call sites with the separate override — or stop saying the product refuses to
+> export an unreconciled ledger. C4 is NOT complete and C1-style "flip the marker" verification does not
+> exist for it; its test must be written against the HTTP/UI surface, not the helper.
+
 
 ### D — OCR, extraction, AI
 
