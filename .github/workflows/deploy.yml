@@ -151,7 +151,12 @@ jobs:
           # Only the headless shell: the full chromium asset redirects to
           # playwright.download.prss.microsoft.com, which failed DNS on this runner twice in a row.
           # check:release runs headless, so the shell is all it needs.
-          npx playwright install --with-deps chromium-headless-shell
+          #
+          # Invoke the repo's own playwright binary, NOT `npx playwright`: package.json pins
+          # playwright@1.62.1 and @playwright/test@1.58.2 side by side, and npx resolved the older one —
+          # it downloaded browser build 1208 while release-artifact-check.mjs (1.62.1) launches 1234,
+          # which is the "Executable doesn't exist" failure this replaces.
+          ./node_modules/.bin/playwright install --with-deps chromium-headless-shell
           npm run check:release
         env:
           PRISM_CHROMIUM_CHANNEL: chromium-headless-shell
