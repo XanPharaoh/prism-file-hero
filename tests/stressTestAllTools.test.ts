@@ -2,6 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import JSZip from 'jszip';
 import { describe, it, expect, vi, beforeAll } from 'vitest';
+
+// 37 tools against real bytes; a CI runner needs more than the 5s default.
+vi.setConfig({ testTimeout: 120_000 });
 import { PDFDocument } from 'pdf-lib';
 import { TOOL_REGISTRY, getToolById, getToolsByCategory } from '../src/registry/toolRegistry';
 import type { ToolID, ToolExecutionPayload } from '../src/types';

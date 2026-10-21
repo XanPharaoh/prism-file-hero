@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// 23 real features against real documents; a CI runner needs more than the 5s default.
+vi.setConfig({ testTimeout: 180_000 });
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

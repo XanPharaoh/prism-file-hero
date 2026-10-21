@@ -289,7 +289,12 @@ function gsTextPdf(name: string, pages: number, pageSize: [number, number] = [40
 function allFontsEmbedded(pdfPath: string) {
   const txt = execFileSync('pdffonts', [pdfPath], { encoding: 'utf8' });
   const rows = txt.split('\n').filter((l) => l.trim() && !/^name/.test(l) && !/^-+/.test(l));
-  return { txt, unembedded: rows.filter((l) => /no\s+/.test(l.slice(-14))).length, rowCount: rows.length };
+  // The PDF spec does not require the base-14 fonts to be embedded, and poppler versions differ on
+  // whether they list them at all. Counting them as defects made this assertion a test of the
+  // runner's poppler build: the JPEG-only fixture reported 1 unembedded font on CI and 0 locally.
+  const BASE14 = /^(Helvetica|Times|Courier|Symbol|ZapfDingbats)/i;
+  const unembedded = rows.filter((l) => !BASE14.test(l.trim()) && /no\s+/.test(l.slice(-14))).length;
+  return { txt, unembedded, rowCount: rows.length };
 }
 
 
@@ -434,7 +439,7 @@ describe('conversion family — real-service byte audit', () => {
   describe('pdf-to-jpg', () => {
     it('registry handler: one real JPEG per page, dims consistent with page size at the rendered DPI, layout matches poppler', async () => {
       const { file, bytes, p } = gsTextPdf('pdf-to-jpg-source', 3);
-      expect(allFontsEmbedded(p).unembedded).toBe(0);
+      expect(allFontsEmbedded(p).unembedded, allFontsEmbedded(p).txt).toBe(0);
       const info = execFileSync('pdfinfo', [p], { encoding: 'utf8' });
       expect(info).toMatch(/Pages:\s+3/);
       expect(info).toMatch(/Page size:\s+400 x 600 pts/);

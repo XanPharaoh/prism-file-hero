@@ -32,14 +32,14 @@ export default function TransactionRow({ tx, reconError, onEdit }: { tx: any; re
       <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{dateVal}</td>
       <td className="px-4 py-2.5 text-slate-800 max-w-[240px] truncate" title={displayDesc}>{displayDesc}</td>
       <td className={`px-4 py-2.5 text-right font-mono tabular-nums ${amountColor}`}>
-        {numAmount !== null ? numAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (rawAmount ?? '')}
+        {numAmount !== null ? numAmount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (rawAmount ?? '')}
       </td>
       <td className="px-4 py-2.5 text-right font-mono tabular-nums text-slate-600">
-        {chargesVal != null && chargesVal !== '' ? Number(chargesVal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
+        {chargesVal != null && chargesVal !== '' ? Number(chargesVal).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
       </td>
       <td className="px-4 py-2.5 text-right font-mono tabular-nums text-slate-600">
         <span className="inline-flex items-center gap-1.5">
-          {balanceVal != null && balanceVal !== '' ? Number(balanceVal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
+          {balanceVal != null && balanceVal !== '' ? Number(balanceVal).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
           {hasReconError && <span title={reconError} className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-100 text-rose-600 text-[9px] font-black cursor-help flex-shrink-0">!</span>}
         </span>
       </td>

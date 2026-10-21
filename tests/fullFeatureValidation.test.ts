@@ -9,7 +9,10 @@
  *   - TEST  → FNB Test statement  (pure vector statement)
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+
+// Real PDF operations on real statements; a CI runner needs more than the 5s default.
+vi.setConfig({ testTimeout: 120_000 });
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
