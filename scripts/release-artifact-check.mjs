@@ -47,7 +47,10 @@ process.on('SIGINT', () => { stop(); process.exit(130); });
   console.log(`Pages runtime serving ./deploy on ${PAGES}\n`);
 }
 
-const browser = await chromium.launch();
+// The check launches headless, so the chromium headless shell is sufficient — and on CI it is the
+// only thing installed, because the full Chrome-for-Testing asset redirects to a host the GitHub
+// runners could not resolve (playwright.download.prss.microsoft.com ENOTFOUND, twice).
+const browser = await chromium.launch(process.env.PRISM_CHROMIUM_CHANNEL ? { channel: process.env.PRISM_CHROMIUM_CHANNEL } : {});
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
 const page = await ctx.newPage();
 const netFail = [];
