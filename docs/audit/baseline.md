@@ -1855,3 +1855,45 @@ Push outcome: `a608c0b..87a0e79 main -> main` accepted on the fourth attempt; 15
 and `Deploy Production (Worker + Pages)` run `39428069550` picked up `87a0e79`. The previous deploy
 attempt in this repository's history (2026-06-29, run `28357175269`) ended in **failure**, so the
 deploy is treated as unproven until that run reports its result and production is probed.
+
+## First successful CI production deploy — 2026-10-21, run `39606830897` on `d03e61c`
+
+`Build and verify the artifact` **success**, `Deploy Worker + Pages` **success**. Probed afterwards,
+all measurements taken against the live deployment, not inferred from the workflow's green tick:
+
+| Probe | Result |
+| :-- | :-- |
+| `https://prismfilehero.com/` | 200, 15,383 B |
+| `https://prismfilehero.com/app/merge-pdf` | **200**, 2,107 B app shell — this was 404 for three months |
+| live app title | `Free Online Merge PDF Tool \| Prism File Hero`, JSON-LD HowTo present |
+| Worker health `prism-worker…workers.dev/api/health` | 200 `{"status":"ok"}` |
+| `GET /api/usage` with no token | **401** `{"error":"Unauthorized"}` |
+| `GET /api/usage` with a garbage token | **401** `{"error":"Invalid token"}` |
+| `POST /api/paypal/webhook` unsigned | **401** `{"error":"invalid signature"}` |
+| CORS preflight `Origin: https://prismfilehero.com` | 204 + `access-control-allow-origin`/headers/methods |
+| `https://clerk.prismfilehero.com/.well-known/jwks.json` | 200 |
+
+So the routes `deploy.yml`'s own comment says production never had (`/api/billing/*`,
+`/api/paypal/webhook`) are now live *and* rejecting unauthenticated callers.
+
+**Not claimed:** the *positive* authenticated path. `scripts/prod-auth-check.mjs` needs a live Clerk
+session token minted from a signed-in browser tab (`PROD_CLERK_TOKEN`), which only the owner can
+supply — so "the deployed Worker accepts a token signed by the LIVE Clerk key and reports the token's
+own `sub`" remains **unverified in production**. Issuer/expiry rejection is proven only against the
+local Worker (`check:worker` §7, 20/20).
+
+Two facts worth keeping, because they explain why this never deployed before:
+
+1. **Apex `/api/*` is 404 by design, not a defect.** `worker/wrangler.toml` declares no `routes` and
+   no `custom_domain` for production; the app is built to call the `workers.dev` origin
+   (`services/apiConfig.ts:18` PROD_DEFAULT), and CORS is what makes that legitimate. A curl of
+   `https://prismfilehero.com/api/health` returning the Pages 404 page is expected.
+2. **`package.json` pins two Playwright versions** — `playwright@1.62.1` and `@playwright/test@1.58.2`.
+   `npx playwright install` resolved the older CLI and downloaded browser build 1208, while
+   `release-artifact-check.mjs` (1.62.1) launches build 1234: "Executable doesn't exist". Behind that,
+   Playwright's documented fallback host `playwright.download.prss.microsoft.com` does not resolve
+   *anywhere* (verified locally: `getent` fails while `cdn.playwright.dev` and the
+   Chrome-for-Testing asset it redirects to both answer 200). CI therefore drives the runner's own
+   Google Chrome (`PRISM_CHROMIUM_CHANNEL=chrome`) and downloads no browser; the step fails loudly if
+   that binary is ever missing rather than skipping the gate. The duplicate pin is still in
+   `package.json` and should be collapsed.
