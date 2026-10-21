@@ -9,7 +9,7 @@
  * real client rule stores in ~/.fiscal-fox are never touched.
  */
 import { describe, it, expect, afterAll } from 'vitest';
-import { promises as fs } from 'node:fs';
+import { promises as fs, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -26,6 +26,9 @@ const CLIENT_A = `zz-vitest-a-${Date.now()}`;
 const CLIENT_B = `zz-vitest-b-${Date.now()}`;
 const RULES_DIR = join(homedir(), '.fiscal-fox', 'client-rules');
 const MAYA_WORKBOOK = "/mnt/hdd/Write-ups Plugin/Sheets/Maya's Educare 2027.xlsx";
+// That workbook lives outside the repository, on the owner's machine only. The two tests that
+// mine it are skipped (with this reason) where it is absent, instead of failing a clean checkout.
+const hasMayaWorkbook = existsSync(MAYA_WORKBOOK);
 
 afterAll(async () => {
   await fs.rm(join(RULES_DIR, CLIENT_A), { recursive: true, force: true });
@@ -59,7 +62,7 @@ describe('client rules engine (Wave 2)', () => {
     expect(leaked).toBe(false);
   });
 
-  it(
+  it.skipIf(!hasMayaWorkbook)(
     'mines workbook rules that upgrade the starter template (Maya fixture)',
     async () => {
       const merged = await bootstrapFromWorkbook(CLIENT_A, "Maya's Educare", MAYA_WORKBOOK);
@@ -74,7 +77,7 @@ describe('client rules engine (Wave 2)', () => {
     180_000,
   );
 
-  it(
+  it.skipIf(!hasMayaWorkbook)(
     'preserves accountant-crafted manual rules across a workbook re-bootstrap',
     async () => {
       const before = await loadClientRules(CLIENT_A);

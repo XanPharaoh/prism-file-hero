@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import {
   mergePdfs,
   splitPdf,
@@ -37,7 +38,12 @@ const FIXTURES_DIR = path.resolve(__dirname, 'fixtures/statements');
 // This suite deletes its output folder before writing, so it owns a leaf of its own: fullFeatureValidation
 // writes VALIDATION_REPORT/ under the same parent, and deleting the parent pulled the ground out from
 // under that suite when both ran in the same pool.
-const OUTPUT_BASE = '/home/philander/Downloads/Prism_Feature_Outputs/FEATURE_OUTPUTS';
+// Human-facing on the owner's machine; a clean checkout (CI) writes to the temp dir instead of
+// failing on a home directory it does not have.
+const OUTPUT_BASE = process.env.PRISM_FEATURE_OUTPUT_DIR
+  ?? (fs.existsSync('/home/philander/Downloads')
+    ? '/home/philander/Downloads/Prism_Feature_Outputs/FEATURE_OUTPUTS'
+    : path.join(os.tmpdir(), 'Prism_Feature_Outputs', 'FEATURE_OUTPUTS'));
 
 function loadFixtureAsFile(filename: string): File {
   const filePath = path.join(FIXTURES_DIR, filename);

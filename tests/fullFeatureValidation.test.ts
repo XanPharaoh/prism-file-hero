@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import * as pdfjsLib from 'pdfjs-dist';
 import {
   mergePdfs,
@@ -45,7 +46,10 @@ import { processDocumentExcel } from '../services/documentService';
 import { getExcelBlob } from '../services/excelService';
 
 const FIXTURES = path.resolve(__dirname, 'fixtures/statements');
-const REPORT_DIR = '/home/philander/Downloads/Prism_Feature_Outputs/VALIDATION_REPORT';
+const REPORT_DIR = process.env.PRISM_VALIDATION_REPORT_DIR
+  ?? (fs.existsSync('/home/philander/Downloads')
+    ? '/home/philander/Downloads/Prism_Feature_Outputs/VALIDATION_REPORT'
+    : path.join(os.tmpdir(), 'Prism_Feature_Outputs', 'VALIDATION_REPORT'));
 
 function fixture(name: string): File {
   const buf = fs.readFileSync(path.join(FIXTURES, name));

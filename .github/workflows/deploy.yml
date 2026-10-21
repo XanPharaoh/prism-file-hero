@@ -99,6 +99,12 @@ jobs:
       - name: Typecheck the Worker
         run: npm run typecheck --prefix worker
 
+      # The measurement suite shells out to poppler, Ghostscript and ImageMagick to verify the bytes
+      # these tools actually produce. Without them pdfimages/pdftotext/pdftoppm/gs/identify die with
+      # ENOENT and ~40 output tests fail because of the runner, not the code.
+      - name: Install measurement tools
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils ghostscript imagemagick
+
       - name: Unit and integration tests
         run: npm test
 
