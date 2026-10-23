@@ -1,4 +1,5 @@
 import type { ToolID, ToolCategory, ToolHandler, ToolExecutionPayload, ToolResult } from '../types';
+import { openForRead } from '../../services/pdf/intake';
 import {
   mergePdfs, splitPdf, compressPdf, convertPdfToImages, getPageCount,
   convertImagesToPdf, protectPdf, redactPdf, watermarkPdf,
@@ -388,11 +389,13 @@ export const TOOL_REGISTRY: ToolHandler[] = [
         ? options.redactKeywords.split(/[,;\n]+/).map((k: string) => k.trim()).filter((k: string) => k.length > 1)
         : [];
 
+      const opened = await openForRead(new Uint8Array(await files[0].arrayBuffer()), { operation: 'Redact PDF' });
+      // The outer try exists so release is a guarantee, not a caller's memory: the scan below has its
+      // own try/catch at the "Fall through to AI detection" boundary, and everything after it runs here.
       try {
-        const pdfjsLib = await import('pdfjs-dist');
-        const arrayBuf = await files[0].arrayBuffer();
-        const pdfjsDoc = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
-        const pageCount = pdfjsDoc.numPages;
+      try {
+        const pdfjsDoc = opened.pdf;
+        const pageCount = opened.pageCount;
 
         // Precise regexes that do NOT accidentally match resume date ranges (e.g. 2018 - 2022)
         const piiRegexes = [
@@ -463,23 +466,21 @@ export const TOOL_REGISTRY: ToolHandler[] = [
       }
 
       onProgress?.(70);
-      const { PDFDocument } = await import('pdf-lib');
-      const arrayBuf2 = await files[0].arrayBuffer();
-      const pdfForDims = await PDFDocument.load(arrayBuf2, { ignoreEncryption: true });
-      const pdfPages = pdfForDims.getPages();
-
-      const absoluteRegions = piiRegions.map((r) => {
-        const pageIdx = Math.min(r.page - 1, pdfPages.length - 1);
-        const { width, height } = pdfPages[pageIdx].getSize();
-        return {
+      // Page frames come from the document already opened for the scan. A second pdf-lib load purely
+      // to read `getSize()` was removed: it duplicated the work and invited `ignoreEncryption: true`.
+      const absoluteRegions: Array<{ page: number; text: string; x: number; y: number; width: number; height: number }> = [];
+      for (const r of piiRegions) {
+        const pageIdx = Math.min(Math.max(r.page, 1), opened.pageCount);
+        const { width, height } = await opened.frame(pageIdx);
+        absoluteRegions.push({
           page: r.page,
           x: (r.x / 100) * width,
           y: (r.y / 100) * height,
           width: (r.width / 100) * width,
           height: (r.height / 100) * height,
           text: r.text,
-        };
-      });
+        });
+      }
 
       const redactedBlob = await redactPdf(files[0], absoluteRegions, { signal });
       return {
@@ -490,6 +491,9 @@ export const TOOL_REGISTRY: ToolHandler[] = [
         // NOT retain its original valid signature. This caveat is surfaced to the UI.
         data: 'Rasterized redaction: searchable text and form fields are removed; any original digital signature is no longer valid.',
       };
+      } finally {
+        await opened.release();
+      }
     },
   },
   {

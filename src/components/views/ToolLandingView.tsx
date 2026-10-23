@@ -156,7 +156,19 @@ export const ToolLandingView: React.FC<ToolLandingViewProps> = (props) => {
     // The workspace bills AI work against totalSelectedPages, so an upload that enters from
     // this page has to run the same intake as the workspace dropzone: a raw addFiles() left
     // the batch showing 0 pages and under-reported the usage the server charges for.
-    const intake = await intakeFiles(tool, files, useAppStore.getState().batch.length);
+    // Intake now reports an unreadable or password-locked document instead of counting it as 0 pages.
+    // This entry point chooses to surface that as an error toast and stop, rather than pretending the
+    // file entered the batch.
+    let intake: Awaited<ReturnType<typeof intakeFiles>>;
+    try {
+      intake = await intakeFiles(tool, files, useAppStore.getState().batch.length);
+    } catch (error) {
+      useAppStore.getState().addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'That file could not be read.',
+      });
+      return;
+    }
     const state = useAppStore.getState();
     intake.warnings.forEach((message) => state.addToast({ type: 'warning', message }));
     if (!intake.accepted.length) return;

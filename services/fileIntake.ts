@@ -1,17 +1,22 @@
 import type { ToolHandler } from '../src/types';
+import { openForRead } from './pdf/intake';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
-/** Page count of a PDF, 0 for anything pdfjs cannot open or for non-PDF input. */
+/**
+ * Page count of a PDF. Non-PDF input is 0 by type; a PDF that cannot be opened is reported as such
+ * rather than counted as 0 — "0 pages" must mean the document has no pages, or the quota gate bills
+ * the wrong number and the UI shows an unreadable file as an empty one.
+ */
 export async function countPdfPages(file: File): Promise<number> {
   if (file.type !== 'application/pdf') return 0;
+  const opened = await openForRead(new Uint8Array(await file.arrayBuffer()), {
+    operation: `Reading ${file.name}`,
+  });
   try {
-    const pdfjsLib = await import('pdfjs-dist');
-    const arrayBuf = await file.arrayBuffer();
-    const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
-    return pdfDoc.numPages;
-  } catch {
-    return 0;
+    return opened.pageCount;
+  } finally {
+    await opened.release();
   }
 }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { pdfjsLib } from '../../services/pdfjsClient';
+import { openForRead, type OpenedForRead } from '../../services/pdf/intake';
 import { Loader2, ArrowLeft, ArrowRight, Layers, CheckCircle } from './ui/Icon';
 
 export interface PDFPageGridProps {
@@ -55,11 +55,13 @@ export const PDFPageGrid: React.FC<PDFPageGridProps> = ({
     setThumbnails({});
 
     (async () => {
+      let opened: OpenedForRead | null = null;
       try {
         const arrayBuf = await file.arrayBuffer();
         if (isCancelled || currentTaskId !== renderTaskRef.current) return;
 
-        const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+        opened = await openForRead(new Uint8Array(arrayBuf), { operation: 'Loading page previews' });
+        const pdfDoc = opened.pdf;
         if (isCancelled || currentTaskId !== renderTaskRef.current) return;
 
         const count = pdfDoc.numPages;
@@ -103,6 +105,8 @@ export const PDFPageGrid: React.FC<PDFPageGridProps> = ({
           setIsLoadingDoc(false);
           setDocError(err.message || 'Failed to load PDF pages');
         }
+      } finally {
+        await opened?.release();
       }
     })();
 

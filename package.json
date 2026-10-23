@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check:counts": "node scripts/test-count-check.mjs",
+    "check:load-seam": "node scripts/load-seam-check.mjs",
     "vendor:ocr": "node scripts/vendor-ocr-assets.mjs",
     "vendor:ocr:update": "node scripts/vendor-ocr-assets.mjs --update",
     "check:backend": "node scripts/backend-integration-check.mjs",

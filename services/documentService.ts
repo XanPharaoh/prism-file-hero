@@ -29,7 +29,7 @@ import {
     extractSpatialAlignment,
     type TableAlignmentResult,
 } from './spatialTableExtractor';
-import { pdfjsLib as pdfjs } from './pdfjsClient';
+import { openForRead } from './pdf/intake';
 
 export interface DocumentServiceResult {
   rows: Record<string, any>[];
@@ -72,27 +72,30 @@ export interface DocumentServiceResult {
  * render blank in a browser canvas while their text layer remains available.
  */
 async function extractNativePdfText(file: File, maxPages = 3): Promise<{ fullText: string; textItemCount: number }> {
-    // PDF.js may transfer its input to a worker, so retain no shared File buffer.
-    const bytes = new Uint8Array(new Uint8Array(await file.arrayBuffer()));
-    const pdf = await pdfjs.getDocument({ data: bytes }).promise;
-    const pageCount = Math.min(pdf.numPages, maxPages);
-    const parts: string[] = [];
-    let textItemCount = 0;
+    const opened = await openForRead(new Uint8Array(await file.arrayBuffer()), { operation: 'Reading this PDF' });
+    try {
+        const pdf = opened.pdf;
+        const pageCount = Math.min(pdf.numPages, maxPages);
+        const parts: string[] = [];
+        let textItemCount = 0;
 
-    for (let p = 1; p <= pageCount; p++) {
-        try {
-            const page = await pdf.getPage(p);
-            const content = await page.getTextContent();
-            const items = content.items.filter((i: any) => i.str && String(i.str).trim());
-            textItemCount += items.length;
-            parts.push(items.map((i: any) => i.str).join(' '));
-        } catch (error) {
-            // A damaged page must not hide native text from later pages.
-            console.warn(`[DocumentService] Native text extraction failed on page ${p}:`, error);
+        for (let p = 1; p <= pageCount; p++) {
+            try {
+                const page = await pdf.getPage(p);
+                const content = await page.getTextContent();
+                const items = content.items.filter((i: any) => i.str && String(i.str).trim());
+                textItemCount += items.length;
+                parts.push(items.map((i: any) => i.str).join(' '));
+            } catch (error) {
+                // A damaged page must not hide native text from later pages.
+                console.warn(`[DocumentService] Native text extraction failed on page ${p}:`, error);
+            }
         }
-    }
 
-    return { fullText: parts.join('\n'), textItemCount };
+        return { fullText: parts.join('\n'), textItemCount };
+    } finally {
+        await opened.release();
+    }
 }
 
 /**

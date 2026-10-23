@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { ToolLandingView } from '../src/components/views/ToolLandingView';
 import { useAppStore } from '../src/store/appStore';
+import { PDFDocument } from 'pdf-lib';
 
 describe('ToolLandingView SEO and Live Runner', () => {
   beforeEach(() => {
@@ -117,7 +118,11 @@ describe('ToolLandingView SEO and Live Runner', () => {
     );
 
     const dropzone = screen.getByLabelText(/Upload/i);
-    const testFile = new File(['%PDF-1.4 dummy content'], 'test.pdf', { type: 'application/pdf' });
+    // Intake opens the document for real now, so the fixture must be a real PDF: an unreadable
+    // placeholder is refused with an error toast instead of entering the batch as "0 pages".
+    const fixture = await PDFDocument.create();
+    fixture.addPage([200, 200]);
+    const testFile = new File([new Uint8Array(await fixture.save())], 'test.pdf', { type: 'application/pdf' });
 
     fireEvent.drop(dropzone, {
       dataTransfer: {
