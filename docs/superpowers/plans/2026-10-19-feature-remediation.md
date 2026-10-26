@@ -158,6 +158,16 @@ anyway" user action). Test: the +R9,999 tamper now yields no workbook.
 > export an unreconciled ledger. C4 is NOT complete and C1-style "flip the marker" verification does not
 > exist for it; its test must be written against the HTTP/UI surface, not the helper.
 
+> **DONE 2026-10-23 (`b3d3cab`).** Export now consults ledger health: `documentService` computes it
+> with `ledgerGuard` (only when an opening balance is known, never against a fabricated zero),
+> `applyReviewGate` turns a BLOCKED ledger into review reasons, and `getExcelBlob` — the seam all four
+> call sites cross — refuses a final export with `LedgerExportRefusedError` unless
+> `metadata.exportMode === 'draft'`, which the UI already labels `UNVERIFIED_DRAFT`. Strategy 2 no
+> longer marks a balance-derived amount as reconciled. Fixing that exposed a real parsing gap the
+> derivation had masked: `Fees: "15.60*"` (footnote marker) was unparseable, dropping the fee from the
+> identity; `centsIn` strips the marker. `tests/features/ledger-export-gate.test.ts` 8/8, including the
+> +R9,999 tamper producing no workbook. C5 is still referenced but never defined.
+
 
 ### D — OCR, extraction, AI
 
