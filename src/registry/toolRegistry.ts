@@ -277,7 +277,12 @@ export const TOOL_REGISTRY: ToolHandler[] = [
       onProgress?.(90);
       // Keep the extractor's complete source schema in the workbook. The
       // normalized rows above are strictly for the cross-bank review UI.
-      const blob = await getExcelBlob(result.rows, result?.metadata);
+      // A draft export is the only way past a ledger that does not reconcile, and it must be asked for
+      // explicitly; the workbook is labelled unverified by excelService when exportMode is 'draft'.
+      const exportMeta = options?.exportDraftAnyway
+        ? { ...result?.metadata, exportMode: 'draft' as const }
+        : result?.metadata;
+      const blob = await getExcelBlob(result.rows, exportMeta);
       if (!blob) throw new Error('Failed to generate Excel data.');
 
       return {
@@ -1053,9 +1058,12 @@ export const TOOL_REGISTRY: ToolHandler[] = [
     allowedFileTypes: ['application/pdf'],
     maxFiles: 1,
     supportsBatchProcessing: false,
-    handler: async ({ files }: ToolExecutionPayload): Promise<ToolResult> => {
+    handler: async ({ files, options }: ToolExecutionPayload): Promise<ToolResult> => {
       const result = await extractInvestmentStatement(files[0]);
-      const blob = await getExcelBlob(result.rows, result.metadata);
+      const exportMeta = options?.exportDraftAnyway
+        ? { ...result.metadata, exportMode: 'draft' as const }
+        : result.metadata;
+      const blob = await getExcelBlob(result.rows, exportMeta);
       return {
         blob,
         filename: `${files[0].name.replace(/\.pdf$/i, '')}_Portfolio.xlsx`,

@@ -1,5 +1,23 @@
 import { Workbook } from 'exceljs';
 
+/**
+ * A ledger that does not reconcile must not become a workbook by default. The explicit escape is
+ * metadata.exportMode === 'draft', which every UI path labels UNVERIFIED_DRAFT; nothing reaches a
+ * "final" export through this seam while ledger health says otherwise.
+ */
+export class LedgerExportRefusedError extends Error {
+  constructor(health: { issues?: string[]; badRows?: number } | undefined) {
+    const detail = (health?.issues ?? []).slice(0, 3).join(' ');
+    super(
+      'Export refused: this ledger does not reconcile from opening to closing balance.' +
+      (health?.badRows ? ` ${health.badRows} row(s) failed the balance identity.` : '') +
+      (detail ? ` ${detail}` : '') +
+      ' Fix the rows, or export an explicitly labelled unverified draft.'
+    );
+    this.name = 'LedgerExportRefusedError';
+  }
+}
+
 function detectNumberFormatSample(tokens: string[]): { decimal: string, grouping: string } {
   let commaDecimal = 0;
   let dotDecimal = 0;
@@ -51,6 +69,9 @@ function tryParseNumberLocale(raw: string, format: { decimal: string, grouping: 
 }
 
 export async function getExcelBlob(rows: any[], metadata?: any): Promise<Blob> {
+  if (metadata?.ledgerHealth?.isValid === false && metadata?.exportMode !== 'draft') {
+    throw new LedgerExportRefusedError(metadata.ledgerHealth);
+  }
   const wb = new Workbook();
 
   if (!rows || rows.length === 0) {

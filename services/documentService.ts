@@ -18,6 +18,7 @@ import { detectBank as registryDetectBank, getBankRegion, getFinanceLocaleForCou
 import { ocrPdfToTextItems } from './ocrService';
 import { extractDocument, type ExtractionOptions } from './extractionPipeline';
 import { reconcileRows, type ReconciliationResult } from './reconciliationService';
+import { ledgerGuard } from './ledgerGuard';
 import { toCents, parseMoneyDetailed, parseDate } from '@/shared/finance/locale';
 import { calculateConfidence } from './confidenceScoring';
 import { validatePDF, hasCompressionIssues } from './pdfValidator';
@@ -297,8 +298,12 @@ export function applyReviewGate(result: DocumentServiceResult): DocumentServiceR
 
     // A ledger that does not reconcile must carry the phrase ProcessingView uses to
     // disable "pass review" — the whole point of the gate is refusing a wrong total.
-    if (isBankStatement && m.reconciles === false && ledgerInvalid) {
+    if (isBankStatement && ledgerInvalid) {
         addReason('Rows do not reconcile from opening to closing balance. Fix or confirm before export.');
+        const issues = Array.isArray(m.ledgerHealth?.issues) ? m.ledgerHealth.issues : [];
+        for (const issue of issues.slice(0, 3)) {
+            if (issue && typeof issue === 'string') addReason(`Ledger check: ${issue}`);
+        }
     }
     // Missing / unparseable / foreign / conflicting amounts must NOT be coerced to zero to
     // pass. The gate uses the SAME strict, integer-cent parser as the finance engine, and
@@ -1030,6 +1035,15 @@ export async function processDocumentExcel(file: File, options: any): Promise<Do
                 extractionResult.metadata.documentType
             );
 
+            // The flow check needs a real opening balance; with none, row-level reconciliation is all
+            // that can be claimed, so the guard is not run against a fabricated zero.
+            const openingForLedgerGuard =
+                (extractionResult.metadata as any).openingBalance ?? options?.openingBalance;
+            const guard = openingForLedgerGuard != null
+                ? ledgerGuard(reconciliationResult.rows, String(openingForLedgerGuard))
+                : undefined;
+            const ledgerValid = reconciliationResult.isValid && (!guard || guard.status !== 'BLOCKED');
+
             // Phase 5: Calculate confidence metrics
             const confidenceMetrics = calculateConfidence(extractionResult);
 
@@ -1047,11 +1061,14 @@ export async function processDocumentExcel(file: File, options: any): Promise<Do
                     documentType: extractionResult.metadata.documentType,
                     extractionMethod: extractionResult.metadata.extractionMethod,
                     ledgerHealth: {
-                        isValid: reconciliationResult.isValid,
+                        isValid: ledgerValid,
+                        status: guard?.status ?? (reconciliationResult.isValid ? 'OK' : 'BLOCKED'),
+                        issues: guard?.issues ?? [],
+                        badRows: guard?.badRows ?? reconciliationResult.errorCount,
                         errorCount: reconciliationResult.errorCount,
                         warnings: reconciliationResult.warnings,
                     },
-                    reconciles: reconciliationResult.isValid,
+                    reconciles: ledgerValid,
                     confidenceMetrics: {
                         overall: confidenceMetrics.overall,
                         textExtraction: confidenceMetrics.textExtraction,

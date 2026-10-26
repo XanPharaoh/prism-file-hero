@@ -129,7 +129,11 @@ export function reconcileRows(
 function centsIn(row: any, key: string): number {
   const v = key ? row?.[key] : undefined;
   if (v === undefined || v === null || `${v}`.trim() === '') return 0;
-  return toCents(v, { locale: 'en-ZA' }) ?? 0;
+  // Statements footnote amounts (e.g. "15.60*"). The marker is not part of the value, and treating
+  // the whole cell as unparseable left the fee out of the identity, which is what forced the old
+  // circular derivation to rescue legitimate rows.
+  const normalised = `${v}`.replace(/\*/g, '');
+  return toCents(normalised, { locale: 'en-ZA' }) ?? 0;
 }
 function nearlyCents(a: number, b: number, tol = 1): boolean {
   return Math.abs(a - b) <= tol; // 1-cent tolerance absorbs prior HALF-UP rounding, no float drift
@@ -197,11 +201,17 @@ function reconcileBankStatement(rows: any[], openingBalanceStr: string): Reconci
       if (netC !== null && nearlyCents(runningC + netC, statedC)) isReconciled = true;
     }
 
-    // Strategy 2: Derive from balance difference (fallback)
+    // Strategy 2: the balance movement can still describe the row, but deriving the amount FROM that
+    // movement makes the check circular: the row becomes "reconciled" by definition, which is how a
+    // tampered amount disappeared. The derived value is kept for display only and never counts as
+    // reconciliation.
     if (!isReconciled || netC === null) {
       netC = statedC - runningC;
-      isReconciled = true;
+      isReconciled = false;
       const derivedDollars = netC / 100;
+      reconciled._math_error =
+        `Amount not independently reconciled: derived ${derivedDollars.toFixed(2)} from the balance ` +
+        'movement instead of matching a stated amount.';
       if (debitC > 0 && creditC === 0 && derivedDollars > 0) {
         reconciled._math_error = `Debit row but balance increased by ${derivedDollars.toFixed(2)}`;
       }

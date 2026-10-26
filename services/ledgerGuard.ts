@@ -44,21 +44,13 @@ export function ledgerGuard(rows: ReconciledRow[], openingBalanceStr: string): L
         issues.push(`Per-line balance identity failed on ${badRows} row(s).`);
     }
 
-    // WARN instead of BLOCKED if issues are minor
+    // A ledger that does not balance is BLOCKED, never warned about: the product's promise is that it
+    // will not export a total it cannot re-derive. WARN is for issues that are not reconciliation
+    // failures. A ratio threshold would let a large statement hide bad rows in its bulk.
     let status: 'OK' | 'WARN' | 'BLOCKED' = 'OK';
     if (issues.length > 0) {
         const hasFlowIssue = issues.some(i => i.includes('Flow conservation'));
-        const hasBadRows = badRows > 0;
-        status = (hasFlowIssue || hasBadRows) ? 'WARN' : 'WARN';
-
-        // Only BLOCK if more than 30% of rows failed
-        const transactionalRows = rows.filter(r => {
-            const k = classifyRow(r);
-            return k !== TransactionKind.OPENING && k !== TransactionKind.CLOSING && k !== TransactionKind.INFO;
-        }).length;
-        if (transactionalRows > 0 && (badRows / transactionalRows) > 0.3) {
-            status = 'BLOCKED';
-        }
+        status = hasFlowIssue || badRows > 0 ? 'BLOCKED' : 'WARN';
     }
 
     return { status, issues, badRows };
