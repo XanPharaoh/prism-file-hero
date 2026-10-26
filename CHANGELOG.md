@@ -58,6 +58,73 @@ shape, not the React UI around them. Still unaddressed: C3 (PDF decryption behin
 D4 (`portfolio-statements` multi-file), D6 (document history), and the six cloud tools that have never
 produced a verified provider response.
 
+## 2026-10-26 — three claims the product was not entitled to make
+
+Working through the remediation plan surfaced defects that were not on it, each found by measuring
+instead of trusting a green tick.
+
+### Fixed — a locked PDF could no longer be reported as compressed
+
+- `compressPdf`'s rasterise pass opened the document with a bare pdf.js call inside a `try/catch` that
+  logged any failure and fell through to returning the input unchanged. For a password-protected PDF
+  the tool therefore **succeeded** and handed back the locked original byte-for-byte, while the
+  embedded-image pass beside it correctly re-threw the encrypted refusal. Both passes now open through
+  the intake guard (`services/pdf/intake.ts`), so the answer is "this needs the password" — and the
+  lossless fallback re-throws an encrypted refusal rather than swallowing it. `convertPdfToDocx` had
+  the same bare open and is routed through the guard too, so the UI reports the password problem
+  instead of a pdf.js `PasswordException`.
+- Found test-first: the new case in `tests/features/page-ops.test.ts` failed against the old code with
+  `compressPdf(mode=rasterize) returned 2926 bytes instead of refusing`. Compress block 7/7,
+  security family 13 passed / 1 skipped, `npx tsc --noEmit` clean.
+
+### Fixed — Protect PDF copy claimed enforcement that the file does not contain
+
+- `site/features/protect-pdf.html` and `site/assets/features.data.js` advertised "separate permissions
+  for opening, editing and printing", "Granular permissions: copy, print, modify, annotate" and
+  "Standard AES encryption". Measured on our own output with Poppler:
+  `Encrypted: yes (print:yes copy:yes change:yes addNotes:yes algorithm:RC4)` — every operation stays
+  allowed once the file is open, and the cipher is PDF 1.4 RC4 128-bit.
+  `@pdfsmaller/pdf-encrypt-lite@1.0.2` exposes `encryptPDF(bytes, userPassword, ownerPassword?)` with
+  **no permission parameter at all** (`dist/index.d.ts`), and it hard-codes
+  `permissions = 0xFFFFFFFC` (`dist/pdf-encrypt.js:276`), which also feeds the key derivation — so the
+  bits cannot be corrected after the fact. The copy now states what is true: an opening lock, not a
+  permissions editor. Real per-operation restrictions would mean replacing the encryption engine, which
+  is a decision for the owner, not a silent swap.
+- `tests/features/security.test.ts` gained a claim-parity case in the protect family: it reads the
+  measured `Encrypted` flags and the `/Encrypt` dictionary from the file we emit, then fails if the
+  shipped page or lede claims separate permissions, granular permissions, a restriction on
+  print/copy/edit/annotate, or AES. Verified red first (`[ "a separate-permissions claim",
+  "a granular-permissions claim", "an AES cipher claim" ]`), then green after the copy changed.
+
+### Added — the site cannot ship a stale asset URL again
+
+- The pages fingerprint their local assets (`asset.js?v=<sha256[0..10]>`) so a changed file gets a new
+  URL and a browser cannot reuse the cached copy. That had silently stopped being true: the
+  fingerprints were written on 2026-10-14, `site/assets/tool.js` was edited on 2026-10-19
+  (`b021786`, `1aabd38`), and nothing regenerated the pages — so every page advertised
+  `tool.js?v=782ff87117` for a file hashing `c93318e537`, and returning visitors could still be
+  executing the engine from *before* the encrypted-rebuild refusal and the flatten appearance-bake.
+- `npm run check:asset-integrity` (`scripts/asset-fingerprint-check.mjs`) now walks every page,
+  hashes what each reference points at, and fails on a stale `?v=`, a reference that satisfies neither
+  fingerprint nor `integrity`, or a URL with no file behind it. Vendor bundles are checked by their SRI
+  instead (three of them, all matching). Measured: 50 pages, 243 fingerprinted and 200 SRI-pinned
+  references, PASS; the gate was also run against a deliberately stale page to prove it catches the
+  class rather than passing by construction. Pages and hand-written shells regenerated
+  (`site/tools/generate-features.mjs`, `site/tools/asset-version.mjs`) — 51 files, one URL per asset
+  (`features.data.js?v=b938766eab` across all 50 references) — and the gate is a step in
+  `.github/workflows/deploy.yml` before the artifact is published.
+
+### Recorded — two plan entries were stale, and one audit report could not be trusted
+
+- **D3 was already closed.** `toolRegistry.ts:151-161` refuses the cloud-AI escalation without
+  `options.allowAIFallback`, says the cost in the message, and `tests/features/ai-consent.test.ts`
+  proves all three states. The plan still described it as open; it now carries a status block.
+- A subagent tasked with auditing plan-vs-reality cited `docs/audit/claim-parity.md` (112 claims, 14
+  false) and a fixed-size canvas shim in `tests/setup.ts`. Neither exists — `docs/audit/` holds two
+  files, and `tests/setup.ts:71-96` has backed jsdom's canvas with real `@napi-rs/canvas` since long
+  before that report. Everything below was therefore re-verified by hand before being acted on or
+  written down; the E4 sweep remains genuinely un-built.
+
 ## 2026-10-20 — feature remediation, free-model gateway, and the first CI production deploy
 
 This release goes to production through `.github/workflows/deploy.yml` on push to `main`. Before

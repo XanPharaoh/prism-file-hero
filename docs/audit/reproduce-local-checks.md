@@ -76,6 +76,7 @@ npm run check:worker             # 13 — Worker routes over HTTP (needs §1,§2
 npm run check:checkout           # 19 — both PayPal browser return flows (see the note under §4)
 npm run check:conversions        # real office→pdf; AUTO-builds prism-lo; FAILS LOUD if no Docker
 npm run check:offline-ocr        # BOTH OCR halves with all non-local network blocked; 0 external requests
+npm run check:asset-integrity    # every page's ?v= / SRI matches the bytes it points at (50 pages)
 npm run browser:evidence         # static-site redact+merge, saves evidence/
 npm run check:app                # built Vite app → real browser download (needs npm run build + vite preview)
 npm test                         # 976 passed / 6 skipped across 96 files (measured 2026-10-26; `npm run
