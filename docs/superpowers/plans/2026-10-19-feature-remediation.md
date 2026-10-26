@@ -237,10 +237,21 @@ fallback only. Gate: `check:offline-ocr` must report `externalRequestsAllowed: 0
 image bytes and overlay the invisible text layer; if re-render is unavoidable, do it at the source
 resolution and say so. Test: embedded image bytes/hash equal the source, page count and size preserved.
 
-**D3 `pdf-to-excel` on a scan silently spends paid AI.** A 0-row digital attempt escalates to
+**D3 `pdf-to-excel` on a scan silently spends paid AI.** — **CLOSED, with the test the entry asked for.**
+A 0-row digital attempt escalates to
 `processWithAI` at one credit per page (`src/registry/toolRegistry.ts:141-166`). Fix: state the cost
 and require an explicit confirm before the provider call, gated by entitlement as elsewhere.
 Test: no AI reservation is created without that confirmation.
+
+> **D3 status, verified 2026-10-26.** `toolRegistry.ts:151-161` now refuses unless
+> `options.allowAIFallback`, and the refusal says the cost out loud ("costs one credit per page … Turn
+> on 'Read with cloud AI' under the options"). The option is a real checkbox in the app
+> (`src/components/views/ProcessingView.tsx:499`, default `false` in `src/store/appStore.ts:384`), not a
+> hidden flag. `tests/features/ai-consent.test.ts` (3 tests) asserts the gate by mocking
+> `processWithAI` and checking whether it is reached at all: unset → provider never called and the
+> message matches `no readable text layer` / `one credit per page` / `cloud AI`; explicitly off → same;
+> explicitly on → called exactly once with `pdf-to-excel`. It passed inside today's full
+> `check:counts` run (96 files / 982 tests, 0 failed). The entry above was stale, not open.
 
 **D4 `portfolio-statements` cannot aggregate.** `maxFiles: 1` and no batch path, though it promises a
 multi-statement view; holdings math itself is correct (units×price = value, Σ = reported total).
