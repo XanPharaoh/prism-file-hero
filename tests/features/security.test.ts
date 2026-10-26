@@ -341,6 +341,33 @@ describe('1. protect — "Encrypt files with a password."', () => {
     expect(m.withPw && m.withPw.text.includes(tok(1))).toBe(true);
   }, 240000);
 
+  it('advertises only what the emitted file actually enforces', async () => {
+    const m: any = (globalThis as any).__protect;
+    expect(m && m.infoPw, 'the protect measurement above must have run').toBeTruthy();
+    const flags: string = m.infoPw.Encrypted || '';
+    const dict: string = encryptDict(m.p);
+    // Every operation poppler reports as allowed is one the copy must not claim to restrict.
+    const granted = ['print', 'copy', 'change', 'addNotes'].filter((op) => new RegExp(`${op}:yes`).test(flags));
+    const cipher = /\bAES\b/.test(flags) ? 'AES' : /RC4/.test(flags) ? 'RC4' : 'unknown';
+    const repoRoot = nodePath.resolve(__dirname, '../..');
+    const page = fsSync.readFileSync(nodePath.join(repoRoot, 'site/features/protect-pdf.html'), 'utf8');
+    const dataJs = fsSync.readFileSync(nodePath.join(repoRoot, 'site/assets/features.data.js'), 'utf8');
+    const lede = (dataJs.match(/slug: "protect-pdf"[\s\S]{0,500}?lede: "([^"]+)"/) || [])[1] || '';
+    const advertised = `${page}\n${lede}`;
+    const forbidden: [string, RegExp][] = [
+      ['a separate-permissions claim', /separate permissions/i],
+      ['a granular-permissions claim', /granular permissions/i],
+      ['a permission-restriction claim', /\b(prevent|block|restrict|disable)\b[^.]{0,40}\b(print|copy|edit|modif|annotat)/i],
+      ['an AES cipher claim', /\bAES(-?256)?\b[^.]{0,30}encryption|standard AES encryption/i],
+    ];
+    const offending = forbidden.filter(([, re]) => re.test(advertised)).map(([label]) => label);
+    record('protect', 'claim parity: does the copy promise what the file enforces?',
+      `pdfinfo Encrypted="${flags}" | /Encrypt dict=${dict.slice(0, 160)} | cipher=${cipher} operations_still_allowed=[${granted.join(',')}] | ` +
+      `offending_claims=[${offending.join(',') || 'none'}] | lede="${lede}"`,
+      offending.length === 0 && cipher === 'RC4' && granted.length === 4 ? 'PASS' : 'FALSE');
+    expect(offending, `copy claims restrictions the file does not enforce: ${offending.join(', ')}`).toEqual([]);
+  }, 240000);
+
   it('protect on ALREADY-encrypted input refuses instead of emptying the document', async () => {
     const m: any = {};
     for (const [tag, f] of [['sbsa', SRC.sbsa], ['test', SRC.test], ['sample', SRC.sample]] as any) {

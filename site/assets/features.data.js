@@ -117,8 +117,8 @@
 
     // Security
     { slug: "protect-pdf", name: "Protect PDF", family: "Security", tag: "Encrypt the file with a password.",
-      lede: "Lock a PDF behind a password, with separate permissions for opening, editing and printing.",
-      how: ["Standard AES encryption.", "Granular permissions: copy, print, modify, annotate."],
+      lede: "Lock a PDF behind a password so it cannot be opened without one.",
+      how: ["Encrypts the document so no reader can open it without the password you set.", "PDF 1.4 RC4 128-bit for the broadest reader compatibility.", "An opening lock, not a permissions editor: printing, copying and editing stay available once it is open."],
       runs: ["desktop", "offline"], demo: null, related: ["unlock-pdf", "redact-pdf"] },
     { slug: "unlock-pdf", name: "Unlock PDF", family: "Security", tag: "Remove password and editing locks.",
       lede: "Take the restrictions off a file you own. Removes passwords and permission locks you hold the key to.",
