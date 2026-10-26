@@ -53,3 +53,7 @@ supabase/.local/
 
 # assembled release artifact (node scripts/build-release.mjs)
 /deploy/
+
+# App OCR bundle (node scripts/vendor-ocr-assets.mjs --app): ~11.7 MB copied out of the installed
+# tesseract packages. Reproducible from node_modules, hashed in shared/ocr/app-assets.lock.json.
+/public/ocr/

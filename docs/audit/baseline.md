@@ -1897,3 +1897,65 @@ Two facts worth keeping, because they explain why this never deployed before:
    Google Chrome (`PRISM_CHROMIUM_CHANNEL=chrome`) and downloads no browser; the step fails loudly if
    that binary is ever missing rather than skipping the gate. The duplicate pin is still in
    `package.json` and should be collapsed.
+
+## D1 closed for the app, and two records corrected — 2026-10-26
+
+### What was wrong
+
+1. **The shipped defect.** `services/ocrService.ts` called `Tesseract.recognize(canvas, 'eng', …)` and
+   `Tesseract.createWorker('eng')` with no `workerPath`/`corePath`/`langPath` at all three entry points
+   (lines 310, 414, 604). tesseract.js therefore resolved the worker, the WASM core and
+   `eng.traineddata` from jsdelivr, so the app's OCR needed the network even though the repository
+   already held the files. `shared/ocr/assets.ts` existed to prevent exactly this and was referenced by
+   nothing but its own test.
+2. **A false premise in the remediation plan.** The 2026-10-23 status claimed that pointing the app at
+   the site's 5.1.1 assets "would break the worker protocol". Measured before acting:
+   `site/assets/vendor/tesseract.min.js` and `node_modules/tesseract.js/dist/tesseract.min.js` are
+   byte-identical (`000c27d9…`), i.e. the live site has been running the **7.0.0** glue against the
+   **5.1.1** worker and cores all along. Driving the app's own call shape through that combination in
+   headless Chromium with every non-local request aborted recovered the text with the full nested
+   structure (`blocks=1 paragraphs=1 lines=2 words=["OFFLINE-OCR-4242"] bbox={43,104,638,151}
+   externalBlocked=0`). The premise was wrong; the plan now says so.
+3. **The test harness was hiding the same defect.** `tests/features/ocr-extraction.test.ts` deletes
+   `document` while importing the OCR graph so tesseract.js takes its Node code path — where
+   `worker-script/node/getCore.js` `require`s the core locally, but an unset `langPath` still falls back
+   to `cdn.jsdelivr.net/npm/@tesseract.js-data`. The app's own feature suite had therefore been passing
+   by downloading the 2.95 MB language model.
+
+### What was done
+
+`scripts/lib/app-ocr-assets.mjs` copies `worker.min.js` and the three `-lstm` cores out of the
+installed packages into `public/ocr/` (14.77 MB, no network) and pins their SHA-256 in the tracked
+`shared/ocr/app-assets.lock.json`, exiting non-zero on version drift or a hash mismatch. `vite.config.ts`
+calls it in its config factory, so dev, `vite build`, `--mode staging`, `dist-desktop`, Capacitor and CI
+cannot reach a build without the bundle. `appOcrWorkerOptions({ isBrowser, baseUrl })` returns the three
+same-origin URLs in a browser and `{ langPath: 'public/ocr/langdata' }` under Node; `ocrService.ts`
+picks with tesseract.js's own predicate (`typeof document === 'object'`).
+
+### Measurements after the change (all run on this tree)
+
+| Gate | Result |
+| :-- | :-- |
+| `npx tsc --noEmit` | clean, exit 0 |
+| `npm run check:counts` | **96 files, 982 tests, 0 failed, 6 skipped**, "PASS every test file on disk reported results" |
+| `npm run check:offline-ocr` | `site: ran=true text=true \| app: text=true structure=true glueHashMatch=true`, `externalBlocked=0 localAllowed=37` |
+| `tests/features/ocr-extraction.test.ts` | 18/18, including the real-scan OCR, language model read from disk |
+| `npm run release:build` | 154 files / 49.1 MB; app half 21.9 MB; `deploy/app/ocr/**` present |
+| `npm run check:release` | **23 passed, 0 failed**, including §6b: the three `/app/ocr/*` files return as themselves, not as the SPA document |
+
+### Two process findings worth keeping
+
+- **The counts gate caught a regression the plain run did not show.** An `npx vitest run` at 13:15
+  reported `63 passed \| 1 skipped (64)` with `32 errors` — 32 files never got a worker because a
+  concurrent `cargo test` on the same `fuseblk` volume (`/mnt/hdd/Prism/Fiscal Fox beta/…`) saturated IO.
+  A truncated suite looks green in a summary line. `check:counts` runs the same suite with the json
+  reporter and reconciles against the files on disk, which is what surfaced the 5 real OCR failures.
+  Exit codes also lie through a pipe: `… 2>&1 \| tail` reported success for a failing gate until
+  `set -o pipefail` was used.
+- **`--poolOptions.forks.singleFork` is not a CLI flag** in vitest 4.0.18 (`CACError: Unknown option`);
+  `--pool=forks` alone is enough to run one file in one worker.
+
+### Still not claimed
+
+D1's gate drives the bundle and the call shape, not the React UI that wraps them. The artifact size
+increase (14.77 MB) is the cost of the offline claim and is now visible in `check:release` output.

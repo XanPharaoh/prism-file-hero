@@ -53,11 +53,19 @@ Migrations (applied in order): `…0626 rpc_functions` → `…0806 unify_usage_
 
 ## 3. OCR assets (offline bundle)
 ```
-npm run vendor:ocr           # verifies present files against the SHA-256 lock (no network if cached)
-npm run vendor:ocr:update    # re-download pinned assets + regenerate the lock (needs network once)
+npm run vendor:ocr           # site set: verifies present files against the SHA-256 lock (no network if cached)
+npm run vendor:ocr:update    # site set: re-download pinned assets + regenerate the lock (needs network once)
+node scripts/vendor-ocr-assets.mjs --app            # app set: verify/copy public/ocr from node_modules
+node scripts/vendor-ocr-assets.mjs --app --update   # app set: re-pin after an intentional tesseract bump
 ```
-Output: `site/assets/vendor/tesseract/**` + `ocr-assets.lock.json` (committed). A mismatch is a hard
+Site output: `site/assets/vendor/tesseract/**` + `ocr-assets.lock.json` (committed). A mismatch is a hard
 fail. The site loader (`site/assets/tool.js` `OCR_OPTS`) points at these same-origin files.
+
+App output: `public/ocr/**` (gitignored) — the worker and the three `-lstm` WASM cores copied out of the
+INSTALLED `tesseract.js`/`tesseract.js-core`, plus the site's `eng.traineddata.gz`. Hashes are pinned in
+the tracked `shared/ocr/app-assets.lock.json`. `vite.config.ts` provisions it on every run, so no build
+path (dev, `dist`, `dist-desktop`, artifact, Android) can be assembled without it; `services/ocrService.ts`
+resolves `/ocr/` (dev) or `/app/ocr/` (artifact) from it. Nothing here needs network.
 
 ## 4. Run the checks
 ```
@@ -67,10 +75,11 @@ npm run check:paypal-entitlement # 32 — PayPal access policy/idempotency/repla
 npm run check:worker             # 13 — Worker routes over HTTP (needs §1,§2 + a local JWKS stand-in)
 npm run check:checkout           # 19 — both PayPal browser return flows (see the note under §4)
 npm run check:conversions        # real office→pdf; AUTO-builds prism-lo; FAILS LOUD if no Docker
-npm run check:offline-ocr        # site OCR with all non-local network blocked; 0 external requests
+npm run check:offline-ocr        # BOTH OCR halves with all non-local network blocked; 0 external requests
 npm run browser:evidence         # static-site redact+merge, saves evidence/
 npm run check:app                # built Vite app → real browser download (needs npm run build + vite preview)
-npm test                         # 733 passed / 5 skipped (the skips, below, are intentional)
+npm test                         # 976 passed / 6 skipped across 96 files (measured 2026-10-26; `npm run
+                                 # check:counts` re-derives this per file and fails on any zero-test file)
 ```
 For `check:worker` / `check:app`, start the helpers first:
 ```

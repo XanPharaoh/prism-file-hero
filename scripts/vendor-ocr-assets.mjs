@@ -19,7 +19,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
+import { provisionAppOcrAssets } from './lib/app-ocr-assets.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = join(ROOT, 'site/assets/vendor/tesseract');
@@ -77,4 +78,10 @@ async function main() {
   console.log(update ? '\nLockfile updated. Review hashes before committing.' : '\nAll OCR assets present and verified.');
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (!process.argv.includes('--app')) main().catch((e) => { console.error(e); process.exit(1); });
+
+
+// `--app` provisions the application's bundle (public/ocr) from the installed packages instead of
+// downloading the site's set. The implementation lives in scripts/lib/app-ocr-assets.mjs because
+// vite.config.ts calls it too, so no build path can be reached without the bundles.
+if (process.argv.includes('--app')) provisionAppOcrAssets({ root: ROOT, update: process.argv.includes('--update') });

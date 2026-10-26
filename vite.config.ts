@@ -2,9 +2,16 @@ import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { provisionAppOcrAssets } from './scripts/lib/app-ocr-assets.mjs';
 
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, '.', '');
+  // The app's OCR worker, WASM cores and language model are served out of public/ocr, so they must
+  // exist before vite copies publicDir (build) or starts answering /ocr/ requests (dev). Provisioning
+  // here rather than in npm scripts covers every route to a build: release, staging, desktop,
+  // Android, and a bare `npx vite build`. See scripts/lib/app-ocr-assets.mjs for what it copies and
+  // why the sources are the installed packages instead of a CDN.
+  provisionAppOcrAssets({ root: __dirname, quiet: true });
   return {
     clearScreen: false,
     // The release artifact mounts the app at /app next to the static marketing site, so any build

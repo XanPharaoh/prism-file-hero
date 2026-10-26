@@ -14,6 +14,7 @@ import { discoverColumnBoundaries, assignCells, mergeMultiLineRows } from './spa
 import { ocrRectToNormalized } from './pdfCoordinateAdapter';
 import { parseMatrixWithLLM } from './semanticCellParser';
 import { detectBank } from './bankRegistry';
+import { appOcrWorkerOptions } from '../shared/ocr/assets';
 import {
   convertTymeBankToExcelRows,
   extractTymeBankStatementFromText,
@@ -61,6 +62,22 @@ export function isCanvasBlank(canvas: HTMLCanvasElement): boolean {
 
 export const BLANK_PDF_USER_MESSAGE =
   'All pages appear to be blank or have unsupported compression. Please try re-saving the PDF or uploading a different file.';
+
+/**
+ * Same-origin bundles from `public/ocr` (provisioned by `vite.config.ts` through
+ * `scripts/lib/app-ocr-assets.mjs`). Without these paths tesseract.js resolves the worker, WASM core
+ * and language model from jsdelivr, so the app's OCR needed the network even though the files were
+ * already in the repo (D1).
+ *
+ * The environment test is tesseract.js's own (`typeof document === 'object'`,
+ * src/utils/resolvePaths.js:3), matched rather than invented: the Node feature harness loads this
+ * module with `document` absent so tesseract takes its Node code path, where a URL would be read as
+ * a filesystem path and fail. See `shared/ocr/assets.ts` for what each runtime is handed.
+ */
+const ocrOpts = appOcrWorkerOptions({
+  isBrowser: typeof document === 'object',
+  baseUrl: import.meta.env?.BASE_URL ?? '/',
+});
 
 /** Minimal Tesseract page shape used by the spatial-bridge fallback chain. */
 export interface TesseractBBox {
@@ -307,7 +324,7 @@ export async function ocrPdfToTextItems(file: File, maxPages = 10): Promise<Text
       renderErrorPages++;
     }
 
-    const { data } = await Tesseract.recognize(canvas, 'eng', {});
+    const { data } = await Tesseract.recognize(canvas, 'eng', ocrOpts);
 
     for (const block of data.blocks || []) {
       for (const paragraph of block.paragraphs || []) {
@@ -412,6 +429,7 @@ export async function extractWithOCR(
       maxPageWidth = 1;
 
       const { data } = await Tesseract.recognize(canvas, 'eng', {
+        ...ocrOpts,
         logger: m => console.log(`OCR Page ${image.pageNumber}:`, m.status)
       });
 
@@ -601,7 +619,9 @@ export async function buildSearchablePdf(
   const { createSearchablePdf } = await import('./pdfService');
   const bytes = new Uint8Array(await file.arrayBuffer());
   const doc = await pdfjs.getDocument({ data: bytes.slice(0), password: opts.password }).promise;
-  const worker: any = await Tesseract.createWorker('eng');
+  // oem 1 (LSTM_ONLY) is also tesseract.js's default; naming it keeps the promise that the worker
+  // asks for the `-lstm` core variants, which is all `public/ocr/core` ships.
+  const worker: any = await Tesseract.createWorker('eng', 1, ocrOpts);
   const pages: SearchablePage[] = [];
   const maxPages = opts.maxPages ?? doc.numPages;
   try {

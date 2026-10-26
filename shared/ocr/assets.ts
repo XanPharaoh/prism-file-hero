@@ -57,6 +57,44 @@ export function resolveOcrAssetPaths(localBase: string, offline = true): OcrAsse
   };
 }
 
+/**
+ * Where the APP's own copy of the bundles lives. In a browser it is served from a directory inside
+ * the app's static output — `public/ocr` — so dev (`/ocr/`), the release artifact (`/app/ocr/`),
+ * the desktop webview and the Android package all resolve the same name. Under Node the same files
+ * are read straight off that directory. Both are generated from the installed packages by
+ * `scripts/lib/app-ocr-assets.mjs`; the app's glue and its worker/core then cannot drift apart, and
+ * no download is needed to build or to test.
+ */
+export const APP_OCR_ASSET_DIR = 'ocr';
+export const APP_OCR_LOCAL_DIR = 'public/ocr';
+
+/** `import.meta.env.BASE_URL` is '/' under `vite` and '/app/' under `vite build`. */
+export function appOcrAssetBase(baseUrl = '/'): string {
+  return `${baseUrl.replace(/\/+$/, '')}/${APP_OCR_ASSET_DIR}/`;
+}
+
+export interface OcrWorkerOptions { workerPath?: string; corePath?: string; langPath?: string }
+
+/**
+ * Options handed to `Tesseract.createWorker`/`Tesseract.recognize` so no part of OCR resolves to a
+ * CDN, in either runtime. `isBrowser` is deliberately the caller's problem: tesseract.js picks its
+ * own code path from `typeof document === 'object'` at import (src/utils/resolvePaths.js:3), and a
+ * Node harness that hides `document` must be handed filesystem paths, not URLs.
+ *
+ * Under Node only the language model needs saying: `spawnWorker` builds the worker out of the
+ * package and `worker-script/node/getCore.js` `require`s the core from node_modules, so a
+ * `workerPath`/`corePath` there would be read as a path and fail, while an unset `langPath` falls
+ * back to `cdn.jsdelivr.net/npm/@tesseract.js-data`.
+ */
+export function appOcrWorkerOptions(
+  { isBrowser = true, baseUrl = '/', localDir = APP_OCR_LOCAL_DIR }: { isBrowser?: boolean; baseUrl?: string; localDir?: string } = {}
+): OcrWorkerOptions {
+  const p = resolveOcrAssetPaths(isBrowser ? appOcrAssetBase(baseUrl) : localDir, true);
+  return isBrowser
+    ? { workerPath: p.workerPath, corePath: p.corePath, langPath: p.langPath }
+    : { langPath: p.langPath };
+}
+
 /** True only when every required file is present at the resolved base (build/CI assertion). */
 export function missingOcrAssets(resolved: OcrAssetPaths, present: (url: string) => boolean): string[] {
   const candidates = [resolved.workerPath, `${resolved.corePath}/tesseract-core-simd.wasm.js`, resolved.traineddataUrl('eng')];

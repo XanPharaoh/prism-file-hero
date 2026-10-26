@@ -116,6 +116,18 @@ for (const missing of ['/app/assets/does-not-exist.js', '/app/assets/does-not-ex
   ok(`missing file ${missing} returns an error, not the app document`, r.status === 404 && !isAppDoc, `status=${r.status} appDoc=${isAppDoc}`);
 }
 
+// 6b. The app's offline OCR bundle ships inside the artifact. `services/ocrService.ts` asks
+//     tesseract.js for /app/ocr/*; if those files are absent the app's "runs on your device" claim
+//     is false in production, and a SPA fallback would quietly answer with the app document.
+for (const [asset, kind] of [['/app/ocr/tesseract-worker.min.js', 'javascript'],
+                             ['/app/ocr/core/tesseract-core-simd-lstm.wasm.js', 'javascript'],
+                             ['/app/ocr/langdata/eng.traineddata.gz', 'gzip']]) {
+  const r = await fetch(`${PAGES}${asset}`);
+  const type = r.headers.get('content-type') || '';
+  ok(`${asset} ships in the artifact as ${kind}`, r.status === 200 && !/text\/html/.test(type), `status=${r.status} type=${type}`);
+  await r.body?.cancel?.();
+}
+
 // 7. The router travels inside the artifact (a deploy/functions directory is resolved relative to
 //    the CLI's working directory and silently disappears from a repo-root `pages deploy deploy`).
 const routerSrc = existsSync('deploy/_worker.js') ? readFileSync('deploy/_worker.js', 'utf8') : '';

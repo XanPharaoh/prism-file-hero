@@ -171,7 +171,8 @@ anyway" user action). Test: the +R9,999 tamper now yields no workbook.
 
 ### D — OCR, extraction, AI
 
-**D1 "Offline" OCR is not offline.** `services/ocrService.ts:604` passes no `workerPath`/`corePath`/
+**D1 "Offline" OCR is not offline.** — **CLOSED 2026-10-26, both halves; see the second status block.**
+`services/ocrService.ts:604` passes no `workerPath`/`corePath`/
 `langPath`, so `shared/ocr/assets.ts` CDN resolution is used and `check:offline-ocr` allows 21 external
 requests while the vendored bundles go unused. Fix: use the vendored paths, keep CDN as an explicit
 fallback only. Gate: `check:offline-ocr` must report `externalRequestsAllowed: 0`.
@@ -190,6 +191,46 @@ fallback only. Gate: `check:offline-ocr` must report `externalRequestsAllowed: 0
 > today would break the worker protocol. Two honest routes: downgrade the app to 5.1.1 (its
 > `recognize(canvas, {}, {blocks,text})` call and the site's proven worker then match), or vendor the 7.x
 > worker plus its matching core (~17 MB of binaries) and update `ocr-assets.lock.json`. Not decided here.
+
+> **D1 status 2026-10-26 — closed on both halves, and the version-mismatch blocker above was wrong.**
+> Before choosing a route the claim was measured, in headless Chromium with every non-local request
+> aborted, driving `createWorker('eng', 1, opts)` + `recognize(canvas, {}, { blocks: true, text: true })`
+> — the app's own call shape. `site/assets/vendor/tesseract.min.js` is **byte-identical** to
+> `node_modules/tesseract.js/dist/tesseract.min.js` (`000c27d9…`): the site already runs the 7.0.0 glue.
+> And that glue recovers the text against the 5.1.1 worker **and** cores — `blocks=1, paragraphs=1,
+> lines=2, words=["OFFLINE-OCR-4242"], bbox={43,104,638,151}, externalBlocked=0`. A glue/worker version
+> split therefore does not break the protocol, and neither route above was needed as stated. The
+> self-consistent option was taken anyway, because it makes the split impossible rather than merely
+> tolerated: `scripts/lib/app-ocr-assets.mjs` copies the worker and the three `-lstm` core variants out
+> of the **installed** packages into `public/ocr/` (14.77 MB total, no download, no network in CI) and
+> pins their SHA-256 in the tracked `shared/ocr/app-assets.lock.json`, failing the build on version
+> drift or a hash mismatch. `createWorker`'s default `oem` is LSTM_ONLY, so `-lstm` are the only cores
+> the worker can ask for, over the `4.0.0_best_int` model the site already vendored. `vite.config.ts`
+> calls it on every run, so dev, `dist`, `dist-desktop`, the Capacitor copy and the release artifact all
+> carry the bundle — there is no route to a build that skips it, and no CDN fallback anywhere in
+> `services/ocrService.ts`.
+>
+> **Second finding, from the suite itself:** `tests/features/ocr-extraction.test.ts` loads the OCR
+> module graph with `document` deleted so tesseract.js takes its Node code path, where
+> `worker-script/node/getCore.js` `require`s the core from node_modules and an unset `langPath` falls
+> back to `cdn.jsdelivr.net/npm/@tesseract.js-data`. Handing that harness the browser URLs hung the run
+> (5 failures, `Test timed out in 300000ms`), which is how it came to light that the app's own feature
+> harness had been passing D1 by fetching the 2.95 MB language model off the CDN. `appOcrWorkerOptions`
+> now takes `isBrowser` and returns, per runtime: the three same-origin URLs in a browser, or
+> `{ langPath: 'public/ocr/langdata' }` under Node (`resolvePaths.js:3 reads `typeof document`, so the
+> predicate is tesseract's own, not invented). The harness reads the model from disk — 18/18 pass,
+> including the real-scan OCR, with no network.
+>
+> Gates, all run 2026-10-26 on this change: `check:offline-ocr` proves BOTH halves in one run under a
+> shared network abort — `site: ran=true text=true | app: text=true structure=true glueHashMatch=true`,
+> `externalBlocked=0 localAllowed=37`. `tests/ocrAssets.test.ts` (9/9) pins the resolver output (`/ocr/…`
+> dev, `/app/ocr/…` artifact, `{langPath}` under Node) and fails if any `Tesseract.recognize`/
+> `createWorker` call site stops passing `ocrOpts`. `check:release` §6b fetched the three files inside a
+> booted artifact and they came back as themselves, not as the SPA document (23 passed, 0 failed). Full
+> suite `check:counts`: 96 files, 982 tests, 0 failed, 6 skipped. `npx tsc --noEmit`: clean. Artifact
+> grew 154 files / 49.1 MB, the app half 21.9 MB — that is the price of the offline claim, recorded here
+> so nobody is surprised by it later.
+> Still open under D1: the gate drives the bundle and the call shape, not the React UI wrapping them.
 
 **D2 OCR replaces the scan with a lossy re-render** (1240×1754 grey Flate → 1682×2379 RGB JPEG ≈98 DPI,
 68,780→242,136 B). Intended: searchable PDF that preserves the document. Fix: re-embed the original
@@ -346,7 +387,7 @@ so this section is the record a reader of the repository can verify.
 | D5 (part) — free-model gateway | `e3a1dbf` | `tests/omnirouteProviderChain.test.ts` 9/9 and `docs/omniroute-e2e-probe.txt`: a real `wrangler dev` instance holding **no paid keys** answered `/api/ai` for `ocr` (2.9 s) and `pdf-summary` (8.5 s) from `north-mini-code:free`, meter settled with no PENDING, and an unlisted tool correctly reached no provider |
 
 | E6 (part) — per-file counts gate | this commit | `npm run check:counts` (`scripts/test-count-check.mjs`): one row per test file with pass/fail/skip/total/ms, plus three exits-1 conditions — a file on disk that reported nothing, a file that reported zero tests, any failed test (named by full title). First full run **94 files / 949 tests**, and it found a defect the A10 gate had missed: `compressPdf`'s new `images` mode reported no progress at all for a PDF with no embedded JPEGs, because progress was counted per image and the early return skipped the trailing 100 — caught by `localToolHandlers.stress.test.ts` asserting `progress).toContain(100)`. Also split a `pdf-to-jpg` test that no longer exercised the rasterizer it named, and stopped `generateUserOutputs.test.ts` from `rm -rf`-ing the directory `fullFeatureValidation.test.ts` writes into. Watched both detectors fire on purpose (a file importing a nonexistent module; an assertion that does not hold). Full suite after fixes: 943 passed, 0 failed, 6 skipped, tsc clean. Disk-coverage branch not reproduced on demand — stated in the script header rather than claimed here |
-Carried forward, unverified and therefore not claimed: A9, B3–B5, C1/C3/C4/C5, D1, D2, D4, D5 (part), D6, E1–E5, and E6's remaining half (unique per-run `evidence/` directories — its counting detector shipped, see the row above).
+Carried forward, unverified and therefore not claimed: A9, B3–B5, C1/C3/C4/C5, D2, D4, D5 (part), D6, E1–E5, and E6's remaining half (unique per-run `evidence/` directories — its counting detector shipped, see the row above). D1 left this list on 2026-10-26 — see its status block, `CHANGELOG.md` and `docs/audit/baseline.md`.
 
 One more thing B2 changed about how this plan should be read: several defects were logged as
 *harness* artifacts when they were really the product ordering its own calls wrongly. The

@@ -7,6 +7,57 @@ refuses instead of producing output, that is listed as a behaviour change, not h
 Numbers come from the gates named in `AGENTS.md`; the audit trail for each is
 `docs/audit/baseline.md` and `docs/superpowers/plans/2026-10-19-feature-remediation.md`.
 
+## 2026-10-26 — the app's OCR stops needing the network (remediation D1)
+
+The site's OCR has been genuinely offline since the vendored Tesseract bundle landed; the app was the
+half that still fetched its worker, WASM core and language model from jsdelivr on first run. That is
+fixed, and the claim is now enforced by a gate rather than by a docstring.
+
+### Fixed — offline OCR in the application
+
+- `services/ocrService.ts` passed no asset paths to tesseract.js at any of its three entry points, so
+  the CDN was the only source of the worker, the core and `eng.traineddata`. It now hands over
+  same-origin paths from `public/ocr`, which `vite.config.ts` provisions from the **installed**
+  `tesseract.js` / `tesseract.js-core` packages before any build or dev server starts — so the app's
+  bundled glue and its worker cannot drift apart, and provisioning needs no network. Dev gets `/ocr/`,
+  the artifact gets `/app/ocr/`, and `dist-desktop` and the Capacitor copy get the same directory
+  because it lives in `public`. SHA-256 of every file is pinned in `shared/ocr/app-assets.lock.json`;
+  version drift or a hash mismatch fails the build instead of shipping a swapped binary.
+- The app's own feature harness was part of the problem: `tests/features/ocr-extraction.test.ts` loads
+  the OCR graph with `document` absent to force tesseract.js's Node code path, where the core is
+  `require`d locally but an unset `langPath` resolves to jsdelivr — so the suite had been passing while
+  downloading the 2.95 MB language model. `appOcrWorkerOptions` now takes the runtime as an argument
+  and gives Node `{ langPath: 'public/ocr/langdata' }`, read off disk.
+- **Behaviour change:** the first OCR run on a device with no network now works, and a missing bundle
+  fails loudly at the fetch instead of falling back to a CDN. The artifact is 154 files / 49.1 MB
+  (app half 21.9 MB) — 14.77 MB of it is the worker, three `-lstm` WASM cores and the language model.
+
+### Added — verification
+
+- `check:offline-ocr` now proves both halves under one shared network abort: the real site page
+  produces a searchable PDF, and the app's exact call shape (`createWorker('eng', 1, opts)` +
+  `recognize(canvas, {}, { blocks, text })`) recovers text and the nested blocks→paragraphs→lines→words
+  tree from `public/ocr`. It asserts the glue it loads is byte-identical to the app's bundled glue.
+  Measured: `site: ran=true text=true | app: text=true structure=true glueHashMatch=true`,
+  `externalBlocked=0`.
+- `check:release` §6b fetches `/app/ocr/{tesseract-worker.min.js, core/tesseract-core-simd-lstm.wasm.js,
+  langdata/eng.traineddata.gz}` from a booted artifact and requires each to come back as itself, not as
+  the SPA document. Measured: 23 passed, 0 failed.
+- `tests/ocrAssets.test.ts` (9/9) pins the resolver for dev, artifact and Node, and fails if any
+  `Tesseract.recognize`/`createWorker` call site stops passing the paths. Full suite `check:counts`:
+  96 files, 982 tests, 0 failed, 6 skipped. `npx tsc --noEmit`: clean.
+- A stale premise in the remediation plan — that pointing the app at the site's 5.1.1 assets "would
+  break the worker protocol" — was measured and found false: the site already runs the 7.0.0 glue
+  against them. The self-consistent route was taken anyway; the correction is in
+  `docs/superpowers/plans/2026-10-19-feature-remediation.md`.
+
+### Not in this release
+
+D1's remaining gap, stated rather than glossed: the new gate drives the asset bundle and the call
+shape, not the React UI around them. Still unaddressed: C3 (PDF decryption behind the intake guards),
+D4 (`portfolio-statements` multi-file), D6 (document history), and the six cloud tools that have never
+produced a verified provider response.
+
 ## 2026-10-20 — feature remediation, free-model gateway, and the first CI production deploy
 
 This release goes to production through `.github/workflows/deploy.yml` on push to `main`. Before
