@@ -1959,3 +1959,41 @@ picks with tesseract.js's own predicate (`typeof document === 'object'`).
 
 D1's gate drives the bundle and the call shape, not the React UI that wraps them. The artifact size
 increase (14.77 MB) is the cost of the offline claim and is now visible in `check:release` output.
+
+## The push that broke CI, and why the local gate could not see it — 2026-10-26
+
+Run `40334457398` on `3215b67` **failed** at `Unit and integration tests`. Production was not
+deployed — the workflow's only job is the build-and-verify job, and the deploy job never ran, so
+prismfilehero.com still serves `d03e61c` (verified: the live Protect page still carries the old copy).
+
+**Cause.** D1 pointed the Node OCR harness at `public/ocr/langdata`. `deploy.yml` runs `npm test`
+*before* `npm run release:build`, and `vitest.config.ts` is a standalone config that does not extend
+`vite.config.ts` — so on a clean checkout nothing had provisioned that directory, tesseract.js's Node
+adapter could not read the language model, and the worker never came up. The suite then failed the
+way a hung worker always looks: two `Test timed out in 300000ms`, a cascade of `ENOENT: ... stat ''`
+because the run's output paths were never written, and `expected 0 to be greater than or equal to 95`.
+
+**Why every local gate said green.** My working tree had `public/ocr` from earlier `vite build` and
+`check:offline-ocr` runs. The counts gate reported 96 files / 984 tests / 0 failed — a true statement
+about an environment CI does not have. The dependency was on a build artifact, and the test config did
+not produce it.
+
+**Fix.** `vitest.config.ts` now calls the same `provisionAppOcrAssets({ root })` that
+`vite.config.ts` calls, so the harness is self-sufficient in exactly the way a build is, from the
+installed packages and with no network. Verified by reproducing CI's state rather than by reasoning
+about it:
+
+| Step | Result |
+| :-- | :-- |
+| `rm -rf public/ocr`, then `npx vitest run tests/features/ocr-extraction.test.ts` | 18/18, and `public/ocr` reappears with its 5 files |
+| `rm -rf public/ocr`, then `npx tsc --noEmit` | clean |
+| `rm -rf public/ocr`, then `npm run check:counts` | 96 files, 984 tests accounted for, **0 failed** |
+
+**Process findings worth keeping.**
+
+1. `gh run watch --exit-status` behind `| grep | tail` exits with the *pipeline's* status, so it
+   reported "completed (exit code 0)" on a failed run — the third time this session that a pipe masked
+   a gate. The run's own `conclusion` field and the log contents are the arbiters, not the shell.
+2. A local gate is only a CI proof when the filesystem state matches a clean checkout. Any test that
+   reads a generated directory should have that directory produced by the test config itself; the
+   alternative is a suite that passes for the person who last ran a build.

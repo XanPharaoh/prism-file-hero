@@ -114,6 +114,19 @@ instead of trusting a green tick.
   (`features.data.js?v=b938766eab` across all 50 references) — and the gate is a step in
   `.github/workflows/deploy.yml` before the artifact is published.
 
+### Fixed — the OCR bundle is now provisioned for the test harness, not only for builds
+
+The D1 change above broke CI: `deploy.yml` runs `npm test` before any build, `vitest.config.ts` does
+not extend `vite.config.ts`, and the app's OCR harness was told to read `public/ocr/langdata` — which
+did not exist on a clean checkout. The Tesseract worker never started, so the suite died with two
+`Test timed out in 300000ms` plus a cascade of `ENOENT … stat ''`. Every local gate had said green
+because my tree had `public/ocr` from earlier builds: the test was passing for the person who last ran
+a build, not for CI. `vitest.config.ts` now provisions the bundle the same way `vite.config.ts` does.
+Verified by reproducing CI's state rather than arguing from the code: `rm -rf public/ocr` then
+`ocr-extraction` 18/18, `tsc` clean, and `check:counts` 96 files / 984 tests accounted for, 0 failed.
+Production was never affected — run `40334457398` failed in the build-and-verify job, so no deploy job
+ran and the site kept serving `d03e61c`.
+
 ### Recorded — two plan entries were stale, and one audit report could not be trusted
 
 - **D3 was already closed.** `toolRegistry.ts:151-161` refuses the cloud-AI escalation without
