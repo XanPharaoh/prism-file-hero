@@ -52,12 +52,12 @@ const inB64 = async (page, href) => page.evaluate(async (h) => { const b = new U
 
 const scanned = await scannedPdf();
 const browser = await chromium.launch();
-const result = { offlineRun: false, textRecovered: false, externalRequestsBlocked: 0, externalRequestsAllowed: 0, notes: '' };
+const result = { offlineRun: false, textRecovered: false, externalRequestsBlocked: 0, localRequestsAllowed: 0, notes: '' };
 try {
   const ctx = await browser.newContext({ acceptDownloads: true });
   await ctx.route('**/*', (route) => {
     const u = route.request().url();
-    if (u.startsWith(`http://localhost:${PORT}`) || u.startsWith('data:') || u.startsWith('blob:')) { result.externalRequestsAllowed++; return route.continue(); }
+    if (u.startsWith(`http://localhost:${PORT}`) || u.startsWith('data:') || u.startsWith('blob:')) { result.localRequestsAllowed++; return route.continue(); }
     result.externalRequestsBlocked++; return route.abort();
   });
   const page = await ctx.newPage();
@@ -85,5 +85,5 @@ try {
 
 console.log(JSON.stringify(result, null, 2));
 const ok = result.offlineRun && result.textRecovered && result.externalRequestsBlocked === 0;
-console.log(`\nOFFLINE-OCR: ran=${result.offlineRun} textRecovered=${result.textRecovered} externalBlocked=${result.externalRequestsBlocked} -> ${EVIDENCE}`);
+console.log(`\nOFFLINE-OCR: ran=${result.offlineRun} textRecovered=${result.textRecovered} externalBlocked=${result.externalRequestsBlocked} localAllowed=${result.localRequestsAllowed} -> ${EVIDENCE}`);
 process.exit(ok ? 0 : 1);

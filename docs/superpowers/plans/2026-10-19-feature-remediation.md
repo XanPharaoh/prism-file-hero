@@ -176,6 +176,21 @@ anyway" user action). Test: the +R9,999 tamper now yields no workbook.
 requests while the vendored bundles go unused. Fix: use the vendored paths, keep CDN as an explicit
 fallback only. Gate: `check:offline-ocr` must report `externalRequestsAllowed: 0`.
 
+> **D1 status 2026-10-23 — half closed, and the earlier number was a misreading.** `check:offline-ocr`
+> has always asserted `externalRequestsBlocked === 0`; the field it printed as
+> `externalRequestsAllowed: 21` counts **same-origin/`data:`/`blob:` requests that were allowed**, not
+> external ones. Renamed to `localRequestsAllowed` and surfaced in the summary line so the next reader
+> cannot repeat the mistake. Measured on the real site page with every non-local request aborted:
+> `ran=true textRecovered=true externalBlocked=0 localAllowed=21` — the **site** OCR is fully offline and
+> uses the vendored worker/core/langdata (`site/assets/tool.js` sets all three paths).
+>
+> The **app** half is still open and now has a named blocker: `services/ocrService.ts` builds its worker
+> with no paths, so tesseract.js resolves worker/core/language from the CDN; and the vendored assets are
+> pinned to tesseract.js **5.1.1** while `package.json` installs **7.0.0**, so pointing the app at them
+> today would break the worker protocol. Two honest routes: downgrade the app to 5.1.1 (its
+> `recognize(canvas, {}, {blocks,text})` call and the site's proven worker then match), or vendor the 7.x
+> worker plus its matching core (~17 MB of binaries) and update `ocr-assets.lock.json`. Not decided here.
+
 **D2 OCR replaces the scan with a lossy re-render** (1240×1754 grey Flate → 1682×2379 RGB JPEG ≈98 DPI,
 68,780→242,136 B). Intended: searchable PDF that preserves the document. Fix: re-embed the original
 image bytes and overlay the invisible text layer; if re-render is unavoidable, do it at the source
