@@ -622,6 +622,23 @@ describe('compress — "Reduce file size by optimizing embedded images while pre
     // Correct behaviour for the named opt-in — text is gone, which is exactly why it is not the default.
     expect(afterText).toBe(0);
   }, 900_000);
+
+  // Both passes over the document — the embedded-image rewrite and the rasterise — open it, and each
+  // had a `catch` that treated "this PDF needs a password" as just another failure, logged it, and
+  // fell through to returning the input bytes as success. A user downloading "compressed.pdf" that is
+  // byte-identical to the locked original is the exact outcome the intake guards exist to prevent, so
+  // the refusal has to reach them.
+  it('refuses a password-protected PDF in both modes instead of returning it unchanged', async () => {
+    const locked = await fileFrom(path.join(ROOT, 'tests/fixtures/statements/UserLocked_Sample.pdf'));
+    for (const mode of ['images', 'rasterize'] as const) {
+      let returned: Blob | null = null;
+      let error: Error | null = null;
+      try { returned = await compressPdf(locked, 0.60, () => {}, undefined, mode); }
+      catch (e) { error = e as Error; }
+      expect(error, `compressPdf(mode=${mode}) returned ${returned?.size} bytes instead of refusing`).not.toBeNull();
+      expect(error!.message).toMatch(/password/i);
+    }
+  }, 240_000);
 });
 
 describe('rotate — "Fix orientation for all pages — choose 90°, 180°, or 270°."', () => {

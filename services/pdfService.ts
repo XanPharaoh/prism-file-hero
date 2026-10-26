@@ -7,6 +7,7 @@ import {
 import { appearanceMatrix, bakeOperators, type PdfMatrix, type PdfRect } from '@/shared/pdf/appearanceBake';
 import { encryptPDF } from '@pdfsmaller/pdf-encrypt-lite';
 import { EncryptedDocumentError, isEncryptedLoadFailure, loadPdfForRebuild } from '@/shared/pdf/loadGuard';
+import { openForRead, withReadDocument } from './pdf/intake';
 import { collectEmbeddedImages, inflateBytes } from '@/shared/pdf/embeddedImages';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import JSZip from 'jszip';
@@ -463,12 +464,16 @@ export async function compressPdf(
     }
   }
 
-  let pdfDoc: any = null;
+  let opened: Awaited<ReturnType<typeof openForRead>> | null = null;
 
   try {
-    pdfDoc = await pdfjsLib.getDocument({ data: originalBytes.slice(0), password }).promise;
+    // The intake guard, not a bare pdf.js open: a document that needs a password must say so here
+    // rather than fall through to the "compression failed, hand back the original" path below, which
+    // is what used to return a locked PDF to the user as if it had been compressed.
+    opened = await openForRead(originalBytes, { password, operation: 'Compress' });
+    const pdfDoc = opened.pdf;
     const newPdf = await PDFDocument.create();
-    const pageCount = pdfDoc.numPages;
+    const pageCount = opened.pageCount;
 
     // Quality scaling:
     // Extreme (quality <= 0.45): scale 0.75, quality 0.40
@@ -529,9 +534,8 @@ export async function compressPdf(
   } catch (error) {
     console.error('Error during compression:', error);
   } finally {
-    if (pdfDoc) {
-      try { await pdfDoc.destroy(); } catch {}
-    }
+    // The handle owns teardown; `release()` is idempotent.
+    if (opened) await opened.release();
   }
 
   // Fallback: try lossless stream compression
@@ -541,7 +545,11 @@ export async function compressPdf(
     if (losslessBuffer.length < originalSize) {
       return new Blob([losslessBuffer as BlobPart], { type: 'application/pdf' });
     }
-  } catch {}
+  } catch (error) {
+    // A document that cannot be re-saved because it is encrypted is not a reason to hand back the
+    // input and call it compressed; every other failure here just means the original is the answer.
+    if (error instanceof EncryptedDocumentError) throw error;
+  }
 
   if (onProgress) onProgress(100);
   return new Blob([originalBytes.slice(0) as BlobPart], { type: 'application/pdf' });
@@ -2068,14 +2076,14 @@ export async function extractText(file: File): Promise<Blob> {
  * Conversion: Convert PDF to DOCX using docx library and pdfjs-dist text extraction
  */
 export async function convertPdfToDocx(file: File): Promise<Blob> {
-  const arrayBuffer = await file.arrayBuffer();
-  let pdf: any = null;
+  const bytes = new Uint8Array(await file.arrayBuffer());
   const docChildren: Paragraph[] = [];
 
-  try {
-    pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-    for (let i = 1; i <= pdf.numPages; i++) {
+  // Through the intake guard rather than a bare pdf.js open, so a password-protected document is
+  // refused with the password message instead of leaking a pdf.js PasswordException as the UI error.
+  await withReadDocument(bytes, { operation: 'PDF to Word' }, async (opened) => {
+    const pdf = opened.pdf;
+    for (let i = 1; i <= opened.pageCount; i++) {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
       page.cleanup?.();
@@ -2123,11 +2131,7 @@ export async function convertPdfToDocx(file: File): Promise<Blob> {
         );
       }
     }
-  } finally {
-    if (pdf) {
-      try { await pdf.destroy(); } catch {}
-    }
-  }
+  });
 
   if (docChildren.length === 0) {
     docChildren.push(new Paragraph({ children: [new TextRun('')] }));
