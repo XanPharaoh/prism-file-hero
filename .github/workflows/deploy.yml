@@ -108,6 +108,13 @@ jobs:
       - name: Unit and integration tests
         run: npm test
 
+      # A page can advertise `asset.js?v=<old hash>` after the asset is edited, and then every
+      # returning visitor keeps executing the cached copy. That happened: site/assets/tool.js changed
+      # on 2026-10-19 while the pages still carried the 2026-10-14 fingerprint, so the encrypted-rebuild
+      # refusal and the flatten appearance-bake were not being served to cached clients at all.
+      - name: Verify the site's asset URLs match their bytes
+        run: npm run check:asset-integrity
+
       - name: Build the unified release artifact (site + /app + _worker.js)
         run: npm run release:build
 

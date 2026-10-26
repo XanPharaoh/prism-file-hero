@@ -37,6 +37,7 @@
     "tokens:local": "node scripts/mint-local-tokens.mjs",
     "check:offline-ocr": "node scripts/offline-ocr-check.mjs",
     "check:site-guard": "node scripts/feature-audit/site-guard-check.mjs",
+    "check:asset-integrity": "node scripts/asset-fingerprint-check.mjs",
     "check:uploader": "node scripts/feature-audit/uploader-check.mjs",
     "check:app": "node scripts/app-evidence.mjs",
     "check:conversions": "node scripts/run-conversions.mjs",
