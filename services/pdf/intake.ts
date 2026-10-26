@@ -150,7 +150,9 @@ function makeReadHandle(pdf: PDFDocumentProxy, state: DocumentState): OpenedForR
       return frame;
     },
     release(): Promise<void> {
-      if (!released) released = pdf.destroy().then(() => undefined);
+      // Teardown must never turn a finished operation into an error: a document without `destroy`
+      // (thin doubles included) releases as a no-op rather than throwing on the way out.
+      if (!released) released = Promise.resolve(pdf.destroy?.()).then(() => undefined);
       return released;
     },
   };
